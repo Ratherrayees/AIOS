@@ -1,0 +1,465 @@
+.itinerary-page {
+  min-height: 100vh;
+  background: #f8f7fb;
+  color: #292440;
+}
+
+.itinerary-page > header {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px 7vw;
+  background: #fff;
+}
+
+.itinerary-page a {
+  color: #5e48bd;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.itinerary-page nav,
+.ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.itinerary-page nav {
+  gap: 18px;
+}
+
+.itinerary-hero {
+  padding: 56px 7vw;
+  color: #fff;
+  background: linear-gradient(135deg, #2a2447, #25666b);
+}
+
+.itinerary-hero p,
+.section-heading p,
+.ai-draft-heading p {
+  margin: 0;
+  color: #b6eeee;
+  font: 700 10px ui-monospace, monospace;
+  letter-spacing: 0.12em;
+}
+
+.itinerary-hero h1 {
+  max-width: 680px;
+  margin: 12px 0;
+  font: 700 clamp(34px, 5vw, 58px) / 1 Georgia, serif;
+}
+
+.itinerary-hero span {
+  display: block;
+  max-width: 620px;
+  color: #d9eeee;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.itinerary-notice,
+.itinerary-forms,
+.itinerary-list,
+.itinerary-templates {
+  max-width: 1180px;
+  margin: 20px auto;
+  padding: 18px;
+  border: 1px solid #e4e0ee;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.itinerary-notice {
+  color: #216b64;
+  background: #f1fbfa;
+}
+
+.itinerary-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.itinerary-forms form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.itinerary-forms b {
+  width: 100%;
+}
+
+.itinerary-forms input,
+.itinerary-forms select,
+.itinerary-forms button,
+.ai-actions button {
+  padding: 9px;
+  border: 1px solid #ddd8e8;
+  border-radius: 7px;
+  font: 600 11px inherit;
+}
+
+.itinerary-forms input {
+  min-width: 0;
+}
+
+.itinerary-forms button,
+.ai-draft-button {
+  border: 0 !important;
+  color: #fff;
+  background: #292440;
+}
+
+.section-heading,
+.ai-draft-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-heading p {
+  color: #817b90;
+}
+
+.section-heading h2 {
+  margin: 5px 0 0;
+}
+
+.section-heading > span,
+.ai-draft-heading > span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #216b64;
+  background: #e7f6f4;
+  font: 700 10px ui-monospace, monospace;
+}
+
+.itinerary-list article {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(260px, 1.05fr);
+  gap: 20px;
+  padding: 21px 0;
+  border-top: 1px solid #eeeaf3;
+}
+
+.itinerary-list article:first-of-type {
+  margin-top: 18px;
+}
+
+.trip-overview > span,
+.current-items b,
+.current-items span {
+  color: #39745e;
+  font: 700 9px ui-monospace, monospace;
+  text-transform: uppercase;
+}
+
+.trip-overview h3 {
+  margin: 6px 0;
+}
+
+.trip-overview small,
+.trip-overview p,
+.current-items li {
+  color: #817b90;
+  font-size: 11px;
+}
+
+.readiness {
+  max-width: 460px;
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+
+.readiness b {
+  color: #39745e;
+}
+
+.readiness.needs_attention b {
+  color: #9a6d18;
+}
+
+.readiness.not_ready b {
+  color: #a84f4f;
+}
+
+.planning-conflicts {
+  max-width: 500px;
+  margin: 9px 0 0;
+  color: #8a4141 !important;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.planning-conflicts b {
+  color: #a84f4f;
+}
+
+.ai-actions {
+  margin-top: 12px;
+}
+
+.readiness-task {
+  color: #216b64;
+  border-color: #bcded9 !important;
+  background: #f1fbfa;
+}
+
+.ai-actions button {
+  cursor: pointer;
+}
+
+.ai-actions button:disabled,
+.itinerary-forms button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.current-items {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.current-items li {
+  display: grid;
+  grid-template-columns: 52px 70px 1fr;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #eeeaf3;
+  border-radius: 8px;
+  background: #fcfbff;
+}
+
+.ai-draft {
+  grid-column: 1 / -1;
+  padding: 16px;
+  border: 1px solid #bcded9;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f1fbfa, #f8f7ff);
+}
+
+.itinerary-comments {
+  grid-column: 1 / -1;
+  padding: 15px;
+  border: 1px solid #e4e0ee;
+  border-radius: 10px;
+  background: #fcfbff;
+}
+
+.comments-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.comments-heading h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.comments-heading span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  color: #5e48bd;
+  background: #ece9ff;
+  font: 700 10px ui-monospace, monospace;
+}
+
+.comment-list {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0;
+}
+
+.comment-list p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid #d7eae7;
+  color: #605b6b;
+  background: #fff;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.comment-list span {
+  color: #817b90;
+  font: 700 9px ui-monospace, monospace;
+}
+
+.itinerary-comments form {
+  display: flex;
+  gap: 8px;
+}
+
+.itinerary-comments input,
+.itinerary-comments button {
+  padding: 9px;
+  border: 1px solid #ddd8e8;
+  border-radius: 7px;
+  font: 600 11px inherit;
+}
+
+.itinerary-comments input {
+  min-width: 0;
+  flex: 1;
+}
+
+.itinerary-comments button {
+  color: #fff;
+  border: 0;
+  background: #292440;
+}
+
+.ai-draft-heading p {
+  color: #216b64;
+}
+
+.ai-draft h4 {
+  max-width: 760px;
+  margin: 7px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.ai-draft ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 9px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-draft li {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  border: 1px solid #d7eae7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ai-draft li b {
+  color: #216b64;
+  font: 700 9px ui-monospace, monospace;
+  text-transform: uppercase;
+}
+
+.ai-draft li strong {
+  font-size: 12px;
+}
+
+.ai-draft li span,
+.open-questions,
+.human-review-note {
+  color: #605b6b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.template-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid #e4e0ee;
+  border-radius: 9px;
+  background: #fcfbff;
+}
+
+.template-grid span {
+  color: #5e48bd;
+  font: 700 9px ui-monospace, monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.template-grid h3,
+.template-grid p,
+.template-grid small {
+  margin: 0;
+}
+
+.template-grid p,
+.template-grid small {
+  color: #817b90;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.apply-suggestion {
+  justify-self: start;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid #bcded9;
+  border-radius: 6px;
+  color: #216b64;
+  background: #f1fbfa;
+  font: 700 10px inherit;
+  cursor: pointer;
+}
+
+.apply-suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.open-questions,
+.human-review-note {
+  margin: 9px 0 0;
+}
+
+.human-review-note {
+  padding-top: 10px;
+  border-top: 1px solid #d7eae7;
+  color: #216b64;
+}
+
+@media (max-width: 700px) {
+  .itinerary-forms,
+  .itinerary-list article {
+    grid-template-columns: 1fr;
+  }
+
+  .itinerary-page > header {
+    padding: 18px;
+  }
+
+  .itinerary-hero {
+    padding: 38px 22px;
+  }
+
+  .itinerary-notice,
+  .itinerary-forms,
+  .itinerary-list,
+  .itinerary-templates {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+
+  .current-items li {
+    grid-template-columns: 1fr;
+  }
+
+  .itinerary-comments form {
+    flex-direction: column;
+  }
+}

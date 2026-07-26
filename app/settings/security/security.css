@@ -1,0 +1,333 @@
+.security-page {
+  min-height: 100vh;
+  padding-bottom: 70px;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(101, 218, 202, 0.13), transparent 27rem),
+    radial-gradient(circle at 92% 34%, rgba(117, 87, 231, 0.1), transparent 32rem),
+    #f8f7fc;
+  color: #312d3e;
+}
+
+.security-page > section,
+.security-page > .security-feedback,
+.security-page > .ui-loading-state {
+  width: min(1100px, calc(100% - 48px));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.security-hero {
+  display: flex;
+  gap: 30px;
+  align-items: end;
+  justify-content: space-between;
+  margin-top: 30px;
+  padding: 37px;
+  border: 1px solid #ded9ec;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 92% 18%, rgba(100, 219, 204, 0.24), transparent 17rem),
+    linear-gradient(128deg, #282340, #40306f);
+  box-shadow: 0 22px 65px rgba(43, 33, 76, 0.14);
+  color: white;
+}
+
+.security-hero p,
+.security-card > p,
+.security-policy-card > p,
+.security-enrollment > div > p {
+  margin: 0 0 10px;
+  color: #8ce1d4;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+
+.security-hero h1 {
+  max-width: 700px;
+  margin: 0;
+  font: 700 clamp(30px, 4vw, 46px) Georgia, serif;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.security-hero > div > span {
+  display: block;
+  max-width: 670px;
+  margin-top: 17px;
+  color: #d2cede;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.security-hero .ui-status-notice {
+  flex: none;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.09);
+  color: white;
+}
+
+.security-feedback {
+  margin-top: 16px;
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.security-card,
+.security-policy-card,
+.security-enrollment {
+  border: 1px solid #e5e2ed;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 38px rgba(45, 35, 78, 0.055);
+}
+
+.security-card,
+.security-policy-card {
+  padding: 27px;
+}
+
+.security-card > p {
+  color: #7658d1;
+}
+
+.security-card h2,
+.security-policy-card h2,
+.security-enrollment h2 {
+  margin: 0;
+  font: 700 22px Georgia, serif;
+}
+
+.security-card > span,
+.security-enrollment > div > span {
+  display: block;
+  margin-top: 9px;
+  color: #827d8c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.security-factor-card .ui-empty-state {
+  margin-top: 22px;
+}
+
+.security-factor-list {
+  display: grid;
+  gap: 11px;
+  margin-top: 22px;
+}
+
+.security-factor-list > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid #ebe8f1;
+  border-radius: 11px;
+  background: #fbfafd;
+}
+
+.security-factor-list > div > span {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: #e9f8f4;
+  color: #287d69;
+  font-weight: 800;
+}
+
+.security-factor-list p {
+  flex: 1;
+  margin: 0;
+}
+
+.security-factor-list strong,
+.security-factor-list small {
+  display: block;
+}
+
+.security-factor-list strong {
+  font-size: 11px;
+}
+
+.security-factor-list small {
+  margin-top: 3px;
+  color: #9691a0;
+  font-size: 9px;
+}
+
+.security-factor-list b {
+  border-radius: 999px;
+  background: #e9f8f1;
+  color: #2b8068;
+  padding: 5px 7px;
+  font-size: 8px;
+}
+
+.security-policy-card {
+  border-color: #2f2949;
+  background:
+    radial-gradient(circle at 100% 0, rgba(102, 225, 209, 0.16), transparent 18rem),
+    #28233f;
+  color: white;
+}
+
+.security-policy-card h2 {
+  color: white;
+}
+
+.security-policy-card ul {
+  display: grid;
+  gap: 13px;
+  margin: 21px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.security-policy-card li {
+  position: relative;
+  padding-left: 21px;
+  color: #d2cedd;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.security-policy-card li::before {
+  position: absolute;
+  left: 0;
+  color: #7be0ca;
+  content: "✓";
+}
+
+.security-policy-card small {
+  display: block;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 16px;
+  color: #aaa4bb;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.security-enrollment {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 0;
+  overflow: hidden;
+  margin-top: 18px;
+}
+
+.security-enrollment > div {
+  padding: 28px;
+}
+
+.security-enrollment > div:first-child {
+  border-right: 1px solid #ebe7f0;
+  background: #fbfafd;
+}
+
+.security-enrollment > div > p {
+  color: #7257d0;
+}
+
+.security-enrollment img {
+  display: block;
+  width: min(230px, 100%);
+  aspect-ratio: 1;
+  margin: 20px auto;
+  border: 10px solid white;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(37, 30, 65, 0.1);
+}
+
+.security-enrollment details {
+  color: #6f687c;
+  font-size: 10px;
+}
+
+.security-enrollment summary {
+  cursor: pointer;
+}
+
+.security-enrollment code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 9px;
+  border-radius: 7px;
+  background: #eeeaf8;
+  padding: 9px;
+  color: #4d3b8c;
+}
+
+.security-enrollment .ui-form-field {
+  margin-top: 22px;
+}
+
+.security-enrollment input {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid #ddd9e7;
+  border-radius: 9px;
+  padding: 11px;
+  outline: none;
+  font: 600 16px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.25em;
+}
+
+.security-enrollment input:focus {
+  border-color: #7c60dc;
+  box-shadow: 0 0 0 3px rgba(124, 96, 220, 0.12);
+}
+
+.security-enrollment-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 800px) {
+  .security-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .security-grid,
+  .security-enrollment {
+    grid-template-columns: 1fr;
+  }
+
+  .security-enrollment > div:first-child {
+    border-right: 0;
+    border-bottom: 1px solid #ebe7f0;
+  }
+}
+
+@media (max-width: 700px) {
+  .security-page > section,
+  .security-page > .security-feedback,
+  .security-page > .ui-loading-state {
+    width: min(100% - 28px, 1100px);
+  }
+
+  .security-hero {
+    margin-top: 18px;
+    padding: 27px 23px;
+  }
+
+  .security-card,
+  .security-policy-card,
+  .security-enrollment > div {
+    padding: 21px;
+  }
+
+  .security-factor-list > div {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

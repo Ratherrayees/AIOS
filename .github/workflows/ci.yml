@@ -1,0 +1,79 @@
+name: AIOS verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test, lint, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HAS_SUPABASE_TEST_PROJECT: ${{ secrets.TEST_SUPABASE_URL != '' && secrets.TEST_SUPABASE_PUBLISHABLE_KEY != '' && secrets.TEST_SUPABASE_SECRET_KEY != '' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.TEST_SUPABASE_SECRET_KEY }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Scan tracked source for credential patterns
+        run: npm run security:secrets
+
+      - name: Replay and lint the local Supabase schema
+        run: |
+          npx supabase start
+          npx supabase db reset
+          npx supabase db lint --local --schema public --level warning --fail-on error
+          npm run db:types
+          git diff --exit-code -- types/database.ts
+
+      - name: Stop local Supabase
+        if: ${{ always() }}
+        run: npx supabase stop --no-backup
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run deterministic AI safety evaluations
+        run: npm run test:ai-evals
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install Chromium for browser tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        env:
+          RUN_AUTHENTICATED_E2E: ${{ env.HAS_SUPABASE_TEST_PROJECT }}
+        run: npm run test:e2e
+
+      - name: Verify test-project Supabase access and authorization
+        if: ${{ env.HAS_SUPABASE_TEST_PROJECT == 'true' }}
+        run: |
+          npm run verify:supabase
+          npm run verify:authz
+
+      - name: Check high-severity dependency advisories
+        run: npm audit --audit-level=high

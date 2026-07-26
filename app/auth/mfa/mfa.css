@@ -1,0 +1,51 @@
+.mfa-page {
+  background:
+    radial-gradient(circle at 20% 15%, rgba(92, 223, 205, 0.22), transparent 26rem),
+    radial-gradient(circle at 82% 84%, rgba(117, 87, 231, 0.22), transparent 28rem),
+    #f7f6fb;
+}
+
+.mfa-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.mfa-shield {
+  display: grid;
+  width: 45px;
+  height: 45px;
+  place-items: center;
+  margin-bottom: 20px;
+  border: 1px solid #cde8e2;
+  border-radius: 14px 14px 18px 18px;
+  background: linear-gradient(145deg, #e5faf5, #ece8ff);
+  color: #3b876f;
+  font: 800 18px Georgia, serif;
+}
+
+.mfa-card select {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid #dedbe8;
+  border-radius: 7px;
+  background: white;
+  padding: 10px;
+  font: 12px inherit;
+}
+
+.mfa-card input {
+  font: 700 17px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.25em;
+}
+
+.mfa-loading {
+  border-radius: 8px;
+  background: #f1eef9;
+  padding: 12px;
+  color: #6b5c9e;
+  font-size: 10px;
+}
+
+.mfa-signout {
+  margin-top: 10px;
+}

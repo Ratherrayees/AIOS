@@ -1,0 +1,83 @@
+.invite-page {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(97, 222, 204, 0.2), transparent 27rem),
+    radial-gradient(circle at 85% 80%, rgba(117, 87, 231, 0.2), transparent 29rem),
+    #f7f6fb;
+}
+
+.invite-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.invite-card::after {
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  top: -98px;
+  right: -85px;
+  border: 1px solid rgba(112, 84, 214, 0.15);
+  border-radius: 50%;
+  box-shadow: 0 0 0 28px rgba(112, 84, 214, 0.035);
+  content: "";
+}
+
+.invite-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin-bottom: 20px;
+  border: 1px solid #d8d1f4;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #ede9ff, #e6fbf7);
+  color: #654ac5;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.invite-actions {
+  display: grid;
+  gap: 13px;
+}
+
+.invite-primary-link {
+  display: block;
+  border-radius: 8px;
+  background: #292440;
+  padding: 12px 14px;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.invite-actions .auth-secondary {
+  margin: 0;
+  text-align: center;
+}
+
+.invite-assurances {
+  display: grid;
+  gap: 8px;
+  margin: 23px 0 0;
+  padding: 18px 0 0;
+  border-top: 1px solid #ece8f2;
+  color: #817b8d;
+  font-size: 10px;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.invite-assurances li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.invite-assurances li::before {
+  position: absolute;
+  left: 0;
+  color: #4eaa8d;
+  content: "✓";
+}

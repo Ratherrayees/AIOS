@@ -1,0 +1,19 @@
+# Dependencies and build artifacts
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Local tooling
+.vercel/
+supabase/.branches/
+supabase/.temp/
+.DS_Store
+*.log

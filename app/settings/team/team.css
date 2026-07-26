@@ -1,0 +1,453 @@
+.team-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(91, 224, 205, 0.13), transparent 28rem),
+    radial-gradient(circle at 7% 38%, rgba(121, 87, 232, 0.11), transparent 30rem),
+    #f8f7fc;
+  color: #302d3c;
+  padding-bottom: 70px;
+}
+
+.team-page > section,
+.team-page > .team-feedback,
+.team-page > .ui-loading-state {
+  width: min(1160px, calc(100% - 48px));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.team-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  align-items: end;
+  overflow: hidden;
+  margin-top: 30px;
+  padding: 40px;
+  border: 1px solid rgba(117, 91, 216, 0.18);
+  border-radius: 22px;
+  background:
+    linear-gradient(115deg, rgba(31, 27, 55, 0.97), rgba(60, 38, 116, 0.95) 58%, rgba(27, 112, 120, 0.9)),
+    #28213f;
+  box-shadow: 0 24px 70px rgba(43, 32, 87, 0.16);
+  color: white;
+}
+
+.team-hero::after {
+  position: absolute;
+  width: 290px;
+  height: 290px;
+  right: -95px;
+  top: -130px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 45px rgba(255, 255, 255, 0.025),
+    0 0 0 90px rgba(255, 255, 255, 0.018);
+  content: "";
+}
+
+.team-hero > div {
+  position: relative;
+  z-index: 1;
+}
+
+.team-hero p,
+.team-section-heading p,
+.team-invite-card > p,
+.team-policy-card > p {
+  margin: 0 0 10px;
+  color: #8971df;
+  font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+}
+
+.team-hero p {
+  color: #9de4dc;
+}
+
+.team-hero h1 {
+  max-width: 680px;
+  margin: 0;
+  font: 700 clamp(30px, 4vw, 48px) Georgia, serif;
+  line-height: 1.03;
+  letter-spacing: -0.035em;
+}
+
+.team-hero > div > span {
+  display: block;
+  max-width: 620px;
+  margin-top: 18px;
+  color: #d2cee5;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.team-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(95px, 1fr));
+  min-width: 390px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.team-hero-stats span {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 17px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  color: #bcb7d0;
+  font-size: 10px;
+}
+
+.team-hero-stats span:first-child {
+  border-left: 0;
+}
+
+.team-hero-stats b {
+  overflow: hidden;
+  color: white;
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-feedback {
+  margin-top: 16px;
+}
+
+.team-section {
+  margin-top: 22px;
+  padding: 24px;
+  border: 1px solid #e8e5f0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 36px rgba(45, 35, 78, 0.06);
+}
+
+.team-section-heading {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.team-section-heading h2,
+.team-invite-card h2,
+.team-policy-card h2,
+.team-viewer-note h2 {
+  margin: 0;
+  color: #342f43;
+  font: 700 21px Georgia, serif;
+}
+
+.team-person {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.team-person > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #ded7fb;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #ede9ff, #e7fbf7);
+  color: #664cc6;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.team-person strong,
+.team-person small {
+  display: block;
+}
+
+.team-person small {
+  margin-top: 3px;
+  color: #9a96a6;
+  font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.team-role,
+.team-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.team-role {
+  padding: 5px 8px;
+  background: #f0edfc;
+  color: #684fc4;
+}
+
+.team-role-owner,
+.team-role-admin {
+  background: #e9f8f4;
+  color: #247b67;
+}
+
+.team-member-role-select {
+  min-width: 130px;
+  height: 32px;
+  border: 1px solid #ddd8e8;
+  border-radius: 8px;
+  outline: none;
+  background: #faf9fd;
+  color: #514b5f;
+  padding: 0 8px;
+  font: 10px inherit;
+}
+
+.team-member-role-select:focus {
+  border-color: #8167df;
+  box-shadow: 0 0 0 3px rgba(129, 103, 223, 0.12);
+}
+
+.team-status {
+  gap: 5px;
+  padding: 5px 8px;
+  background: #f1eff5;
+  color: #777281;
+}
+
+.team-status::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.team-status-active,
+.team-status-accepted {
+  background: #eaf8f2;
+  color: #298168;
+}
+
+.team-status-pending,
+.team-status-invited {
+  background: #fff5e7;
+  color: #ae6c24;
+}
+
+.team-status-suspended,
+.team-status-revoked,
+.team-status-expired {
+  background: #fff0ee;
+  color: #b45e55;
+}
+
+.team-status-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.team-management-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.team-invite-card,
+.team-policy-card {
+  padding: 26px;
+  border: 1px solid #e6e2ef;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 12px 36px rgba(45, 35, 78, 0.05);
+}
+
+.team-invite-card > span,
+.team-invite-card > small {
+  display: block;
+  color: #817d8c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.team-invite-card > span {
+  margin-top: 9px;
+}
+
+.team-invite-card form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px auto;
+  gap: 10px;
+  align-items: end;
+  margin: 20px 0 13px;
+}
+
+.team-invite-card input,
+.team-invite-card select {
+  width: 100%;
+  height: 39px;
+  border: 1px solid #ddd9e7;
+  border-radius: 8px;
+  outline: none;
+  background: #fbfafd;
+  color: #403b4e;
+  padding: 0 10px;
+  font: 11px inherit;
+}
+
+.team-invite-card input:focus,
+.team-invite-card select:focus {
+  border-color: #8167df;
+  box-shadow: 0 0 0 3px rgba(129, 103, 223, 0.12);
+}
+
+.team-policy-card {
+  position: relative;
+  overflow: hidden;
+  border-color: #30294b;
+  background:
+    radial-gradient(circle at 100% 0, rgba(97, 221, 208, 0.17), transparent 16rem),
+    #28233f;
+  color: white;
+}
+
+.team-policy-card > p {
+  color: #8fe2d7;
+}
+
+.team-policy-card h2 {
+  color: white;
+}
+
+.team-policy-card ul {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-policy-card li {
+  position: relative;
+  padding-left: 21px;
+  color: #d0cbdf;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.team-policy-card li::before {
+  position: absolute;
+  left: 0;
+  color: #79dfc6;
+  content: "✓";
+}
+
+.team-viewer-note {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px solid #dfe8f0;
+  border-radius: 14px;
+  background: #f3f8fc;
+}
+
+.team-viewer-note > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: #dbeaf5;
+  color: #317194;
+  font-weight: 800;
+}
+
+.team-viewer-note h2 {
+  font-size: 17px;
+}
+
+.team-viewer-note p {
+  margin: 7px 0 0;
+  color: #6e7780;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.team-no-action {
+  color: #aaa6b3;
+}
+
+@media (max-width: 900px) {
+  .team-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .team-hero-stats {
+    min-width: 0;
+  }
+
+  .team-management-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .team-page > section,
+  .team-page > .team-feedback,
+  .team-page > .ui-loading-state {
+    width: min(100% - 28px, 1160px);
+  }
+
+  .team-hero {
+    margin-top: 18px;
+    padding: 27px 23px;
+  }
+
+  .team-hero-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .team-hero-stats span,
+  .team-hero-stats span:first-child {
+    grid-template-columns: 70px 1fr;
+    align-items: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-left: 0;
+  }
+
+  .team-hero-stats span:first-child {
+    border-top: 0;
+  }
+
+  .team-section {
+    overflow-x: auto;
+    padding: 18px;
+  }
+
+  .team-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .team-invite-card,
+  .team-policy-card {
+    padding: 21px;
+  }
+
+  .team-invite-card form {
+    grid-template-columns: 1fr;
+  }
+}
