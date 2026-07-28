@@ -185,7 +185,8 @@ export default function QuotesPage() {
   function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const dealId = String(form.get("dealId") || "");
     const title = String(form.get("title") || "").trim();
     const totalAmount = Number(form.get("totalAmount") || 0);
@@ -212,7 +213,7 @@ export default function QuotesPage() {
           },
           ...current,
         ]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(
           "Quote draft created. It remains internal until a human approves sharing.",
         );

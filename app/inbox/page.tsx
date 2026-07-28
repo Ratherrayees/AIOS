@@ -479,7 +479,8 @@ export default function InboxPage() {
   function submitConversation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const subject = String(form.get("subject") || "").trim();
     if (!subject) return;
     startTransition(async () => {
@@ -516,7 +517,7 @@ export default function InboxPage() {
         setDraftBody("");
         setDraftScheduledFor("");
         setDraftStatus("draft");
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(
           "Internal conversation opened. No external message was sent.",
         );
@@ -533,7 +534,8 @@ export default function InboxPage() {
   function submitNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || !selected || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const body = String(form.get("body") || "").trim();
     if (!body) return;
     startTransition(async () => {
@@ -553,7 +555,7 @@ export default function InboxPage() {
             sent_at: message.sent_at,
           },
         ]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Internal note recorded.");
       } catch (error) {
         setNotice(
@@ -904,7 +906,11 @@ export default function InboxPage() {
       )}
       <section className="inbox-new">
         <form onSubmit={submitConversation}>
-          <select name="contactId" defaultValue="">
+          <select
+            name="contactId"
+            defaultValue=""
+            aria-label="Conversation contact"
+          >
             <option value="">No linked contact</option>
             {contacts.map((contact) => (
               <option key={contact.id} value={contact.id}>
@@ -913,7 +919,11 @@ export default function InboxPage() {
               </option>
             ))}
           </select>
-          <select name="dealId" defaultValue="">
+          <select
+            name="dealId"
+            defaultValue=""
+            aria-label="Conversation opportunity"
+          >
             <option value="">No linked opportunity</option>
             {deals.map((deal) => (
               <option key={deal.id} value={deal.id}>

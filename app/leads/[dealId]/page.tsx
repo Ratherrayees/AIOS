@@ -336,14 +336,16 @@ export default function LeadDetailPage() {
   function addFollowUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || !deal || pending) return;
+    const formElement = event.currentTarget;
+    const formData = new FormData(formElement);
     const title = String(
-      new FormData(event.currentTarget).get("task") || "",
+      formData.get("task") || "",
     ).trim();
     const assigneeId = String(
-      new FormData(event.currentTarget).get("assigneeId") || "",
+      formData.get("assigneeId") || "",
     ).trim();
     const dueAtValue = String(
-      new FormData(event.currentTarget).get("dueAt") || "",
+      formData.get("dueAt") || "",
     ).trim();
     if (!title) return;
     const dueAt = dueAtValue ? new Date(dueAtValue) : null;
@@ -370,7 +372,7 @@ export default function LeadDetailPage() {
           },
           ...current,
         ]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Follow-up added to Tasks and linked to this opportunity.");
       } catch (error) {
         setNotice(

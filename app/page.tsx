@@ -40,6 +40,7 @@ import {
 } from "../components/ui/data-table";
 import { ModalBoundary } from "../components/ui/modal-boundary";
 import { SavedViewControls } from "../components/ui/saved-view-controls";
+import "./dashboard.css";
 import "./search.css";
 import "./leads-filters.css";
 import "./pipeline-dnd.css";
@@ -1210,7 +1211,7 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="ai-brief-list">
-                    <button type="button">
+                    <div className="ai-brief-row">
                       <b>01</b>
                       <span>
                         <strong>Lead pipeline is live</strong>
@@ -1219,15 +1220,15 @@ export default function Home() {
                           deadlines and deduplicated opportunities.
                         </small>
                       </span>
-                    </button>
-                    <button type="button">
+                    </div>
+                    <div className="ai-brief-row">
                       <b>02</b>
                       <span>
                         <strong>Tenant boundaries are enforced</strong>
                         <small>RLS scopes each deal to its workspace.</small>
                       </span>
-                    </button>
-                    <button type="button">
+                    </div>
+                    <div className="ai-brief-row">
                       <b>03</b>
                       <span>
                         <strong>Autonomy is configurable</strong>
@@ -1236,7 +1237,7 @@ export default function Home() {
                           AIOS Control.
                         </small>
                       </span>
-                    </button>
+                    </div>
                   </div>
                   <a className="ask-bar" href="/aios">
                     ✦ Open AIOS Control <i>policies &amp; approvals →</i>

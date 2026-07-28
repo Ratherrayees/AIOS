@@ -216,7 +216,8 @@ export default function ItinerariesPage() {
   function createTrip(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     startTransition(async () => {
       try {
         const trip = await createTripDraft({
@@ -227,7 +228,7 @@ export default function ItinerariesPage() {
           currency: "INR",
         });
         setTrips((current) => [trip as Trip, ...current]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Internal trip draft created. Nothing has been booked or shared.");
       } catch (error) {
         setNotice(
@@ -242,7 +243,8 @@ export default function ItinerariesPage() {
   function addItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     startTransition(async () => {
       try {
         const item = await addItineraryItem({
@@ -254,7 +256,7 @@ export default function ItinerariesPage() {
           locationName: String(form.get("location") || "") || null,
         });
         setItems((current) => [...current, item as Item]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(
           "Internal itinerary item added. It is not a booking or customer-facing plan.",
         );
@@ -352,7 +354,8 @@ export default function ItinerariesPage() {
   function saveTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     startTransition(async () => {
       try {
         const template = await createItineraryTemplateFromTrip({
@@ -362,7 +365,7 @@ export default function ItinerariesPage() {
           description: String(form.get("templateDescription") || ""),
         });
         await refreshTemplateData(organizationId);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(`Saved "${template.name}" as an internal reusable itinerary template.`);
       } catch (error) {
         setNotice(
@@ -377,7 +380,8 @@ export default function ItinerariesPage() {
   function applyTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     startTransition(async () => {
       try {
         const result = await applyItineraryTemplate({
@@ -392,7 +396,7 @@ export default function ItinerariesPage() {
           .eq("organization_id", organizationId)
           .order("day_number");
         setItems((itemRows || []) as Item[]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(
           result.copiedItemCount > 0
             ? `Added ${result.copiedItemCount} internal items from the selected template.`
@@ -411,7 +415,8 @@ export default function ItinerariesPage() {
   function addComment(event: FormEvent<HTMLFormElement>, tripId: string) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     startTransition(async () => {
       try {
         const comment = await addItineraryComment({
@@ -420,7 +425,7 @@ export default function ItinerariesPage() {
           body: String(form.get("comment") || ""),
         });
         setComments((current) => [...current, comment as ItineraryComment]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Internal itinerary comment added for the team.");
       } catch (error) {
         setNotice(
@@ -458,14 +463,29 @@ export default function ItinerariesPage() {
         <section className="itinerary-forms" aria-label="Trip planning forms">
           <form onSubmit={createTrip}>
             <b>New trip draft</b>
-            <input name="name" required maxLength={180} placeholder="Japan family journey" />
-            <input name="startDate" type="date" />
-            <input name="endDate" type="date" />
+            <input
+              name="name"
+              required
+              maxLength={180}
+              placeholder="Japan family journey"
+              aria-label="Trip name"
+            />
+            <input
+              name="startDate"
+              type="date"
+              aria-label="Trip start date"
+            />
+            <input name="endDate" type="date" aria-label="Trip end date" />
             <button disabled={pending}>{pending ? "Saving..." : "Create draft"}</button>
           </form>
           <form onSubmit={addItem}>
             <b>Add day item</b>
-            <select name="tripId" required defaultValue="">
+            <select
+              name="tripId"
+              required
+              defaultValue=""
+              aria-label="Trip for itinerary item"
+            >
               <option value="" disabled>
                 Select a trip
               </option>
@@ -475,8 +495,19 @@ export default function ItinerariesPage() {
                 </option>
               ))}
             </select>
-            <input name="dayNumber" type="number" min="1" defaultValue="1" required />
-            <select name="itemType" defaultValue="activity">
+            <input
+              name="dayNumber"
+              type="number"
+              min="1"
+              defaultValue="1"
+              required
+              aria-label="Itinerary day number"
+            />
+            <select
+              name="itemType"
+              defaultValue="activity"
+              aria-label="Itinerary item type"
+            >
               <option value="activity">Activity</option>
               <option value="stay">Stay</option>
               <option value="flight">Flight</option>
@@ -485,15 +516,31 @@ export default function ItinerariesPage() {
               <option value="free_time">Free time</option>
               <option value="note">Note</option>
             </select>
-            <input name="title" required maxLength={300} placeholder="Old Kyoto walk" />
-            <input name="location" maxLength={180} placeholder="Location (optional)" />
+            <input
+              name="title"
+              required
+              maxLength={300}
+              placeholder="Old Kyoto walk"
+              aria-label="Itinerary item title"
+            />
+            <input
+              name="location"
+              maxLength={180}
+              placeholder="Location (optional)"
+              aria-label="Itinerary item location"
+            />
             <button disabled={pending || trips.length === 0}>
               {pending ? "Saving..." : "Add item"}
             </button>
           </form>
           <form onSubmit={saveTemplate}>
             <b>Save a reusable template</b>
-            <select name="sourceTripId" required defaultValue="">
+            <select
+              name="sourceTripId"
+              required
+              defaultValue=""
+              aria-label="Source trip for template"
+            >
               <option value="" disabled>
                 Select a trip to copy
               </option>
@@ -503,15 +550,31 @@ export default function ItinerariesPage() {
                 </option>
               ))}
             </select>
-            <input name="templateName" required maxLength={180} placeholder="Kyoto long weekend" />
-            <input name="templateDescription" maxLength={1200} placeholder="Internal notes (optional)" />
+            <input
+              name="templateName"
+              required
+              maxLength={180}
+              placeholder="Kyoto long weekend"
+              aria-label="Itinerary template name"
+            />
+            <input
+              name="templateDescription"
+              maxLength={1200}
+              placeholder="Internal notes (optional)"
+              aria-label="Itinerary template description"
+            />
             <button disabled={pending || trips.length === 0}>
               {pending ? "Saving..." : "Save template"}
             </button>
           </form>
           <form onSubmit={applyTemplate}>
             <b>Use a saved template</b>
-            <select name="templateId" required defaultValue="">
+            <select
+              name="templateId"
+              required
+              defaultValue=""
+              aria-label="Saved itinerary template"
+            >
               <option value="" disabled>
                 Select a template
               </option>
@@ -521,7 +584,12 @@ export default function ItinerariesPage() {
                 </option>
               ))}
             </select>
-            <select name="targetTripId" required defaultValue="">
+            <select
+              name="targetTripId"
+              required
+              defaultValue=""
+              aria-label="Target trip for template"
+            >
               <option value="" disabled>
                 Select a target trip
               </option>

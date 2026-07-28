@@ -290,7 +290,8 @@ export default function TasksPage() {
   function createNewTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const title = String(form.get("title") || "").trim();
     const dueDate = String(form.get("dueAt") || "");
     const assigneeId = String(form.get("assigneeId") || "") || null;
@@ -317,7 +318,7 @@ export default function TasksPage() {
           },
           ...current,
         ]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Follow-up added to the shared task queue.");
       } catch (error) {
         setNotice(

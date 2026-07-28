@@ -1,0 +1,10 @@
+.ai-brief-list .ai-brief-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgb(255 255 255 / 10.5%);
+  color: #fff;
+  text-align: left;
+}

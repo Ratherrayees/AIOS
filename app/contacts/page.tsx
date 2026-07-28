@@ -238,7 +238,8 @@ export default function ContactsPage() {
   function submitCompany(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("companyName") || "").trim();
     if (!name) return;
     startTransition(async () => {
@@ -256,7 +257,7 @@ export default function ContactsPage() {
             (left, right) => left.name.localeCompare(right.name),
           ),
         );
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(`${company.name} is ready to link to contacts.`);
       } catch (error) {
         setNotice(
@@ -271,7 +272,8 @@ export default function ContactsPage() {
   function submitContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("contactName") || "").trim();
     const [firstName, ...lastName] = name.split(/\s+/);
     if (!firstName) return;
@@ -314,7 +316,7 @@ export default function ContactsPage() {
           ...current,
         ]);
         setSelectedContactId(contact.id);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(`${fullName(nextContact)} is now in your CRM.`);
       } catch (error) {
         setNotice(
@@ -329,7 +331,8 @@ export default function ContactsPage() {
   function submitNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || !selectedContact || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const body = String(form.get("note") || "").trim();
     if (!body) return;
     startTransition(async () => {
@@ -351,7 +354,7 @@ export default function ContactsPage() {
           },
           ...current,
         ]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice("Timeline note recorded.");
       } catch (error) {
         setNotice(
@@ -475,8 +478,9 @@ export default function ContactsPage() {
   function submitContactImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
+    const formElement = event.currentTarget;
     const csv = String(
-      new FormData(event.currentTarget).get("csv") || "",
+      new FormData(formElement).get("csv") || "",
     ).trim();
     const rows = csv
       .split(/\r?\n/)
@@ -520,7 +524,7 @@ export default function ContactsPage() {
           rows: payload,
         });
         setContacts((current) => [...imported.reverse(), ...current]);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(`${imported.length} contacts imported into this workspace.`);
       } catch (error) {
         setNotice(
@@ -598,7 +602,8 @@ export default function ContactsPage() {
   function submitSavedView(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || pending) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("savedViewName") || "").trim();
     if (!name) return;
     startTransition(async () => {
@@ -611,7 +616,7 @@ export default function ContactsPage() {
         });
         setSavedViews((current) => [savedView, ...current]);
         setSelectedSavedViewId(savedView.id);
-        event.currentTarget.reset();
+        formElement.reset();
         setNotice(`Saved “${savedView.name}” as a private Contacts view.`);
       } catch (error) {
         setNotice(
@@ -776,6 +781,16 @@ export default function ContactsPage() {
                       ? "name + company"
                       : candidate.reason}
                   </span>
+                  <small>
+                    Older:{" "}
+                    {candidate.primary.email ||
+                      candidate.primary.phone ||
+                      "no contact channel"}{" "}
+                    · Newer:{" "}
+                    {candidate.duplicate.email ||
+                      candidate.duplicate.phone ||
+                      "no contact channel"}
+                  </small>
                 </div>
                 {!selected ? (
                   <div className="duplicate-actions">
@@ -788,7 +803,7 @@ export default function ContactsPage() {
                         })
                       }
                     >
-                      Keep {candidate.primary.first_name}
+                      Keep older record
                     </button>
                     <button
                       type="button"
@@ -799,7 +814,7 @@ export default function ContactsPage() {
                         })
                       }
                     >
-                      Keep {candidate.duplicate.first_name}
+                      Keep newer record
                     </button>
                   </div>
                 ) : (
