@@ -443,6 +443,7 @@ export default function ItinerariesPage() {
         links={[
           { href: "/", label: "Command center" },
           { href: "/quotes", label: "Quotes" },
+          { href: "/trips", label: "Trip Operations" },
           { href: "/aios", label: "AIOS Control" },
         ]}
       />

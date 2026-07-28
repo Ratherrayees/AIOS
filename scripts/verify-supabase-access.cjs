@@ -37,6 +37,7 @@ const protectedTables = [
   "activity_events",
   "suppliers",
   "trips",
+  "trip_status_history",
   "travelers",
   "itinerary_items",
   "bookings",
@@ -158,6 +159,43 @@ async function verify() {
       target_byte_size: 10,
     },
   );
+  const { error: anonymousTripConversionError } = await anonymous.rpc(
+    "convert_won_deal_to_trip",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_deal_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
+  const { error: anonymousTripTransitionError } = await anonymous.rpc(
+    "transition_trip_status",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "confirmed",
+    },
+  );
+  const { error: anonymousTripDocumentError } = await anonymous.rpc(
+    "record_trip_document",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_document_id: "33333333-3333-4333-8333-333333333333",
+      target_storage_path:
+        "11111111-1111-4111-8111-111111111111/33333333-3333-4333-8333-333333333333/blocked.pdf",
+      target_file_name: "blocked.pdf",
+      target_mime_type: "application/pdf",
+      target_byte_size: 10,
+    },
+  );
+  const { error: anonymousBookingTransitionError } = await anonymous.rpc(
+    "transition_booking_status",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_booking_id: "33333333-3333-4333-8333-333333333333",
+      target_status: "requested",
+    },
+  );
   const { error: anonymousQualificationApplyError } = await anonymous.rpc(
     "apply_qualification_checklist",
     {
@@ -198,6 +236,26 @@ async function verify() {
       anonymousErrorCode: anonymousTravelDocumentError?.code ?? null,
     },
     {
+      function: "convert_won_deal_to_trip",
+      anonymousExecutionBlocked: Boolean(anonymousTripConversionError),
+      anonymousErrorCode: anonymousTripConversionError?.code ?? null,
+    },
+    {
+      function: "transition_trip_status",
+      anonymousExecutionBlocked: Boolean(anonymousTripTransitionError),
+      anonymousErrorCode: anonymousTripTransitionError?.code ?? null,
+    },
+    {
+      function: "record_trip_document",
+      anonymousExecutionBlocked: Boolean(anonymousTripDocumentError),
+      anonymousErrorCode: anonymousTripDocumentError?.code ?? null,
+    },
+    {
+      function: "transition_booking_status",
+      anonymousExecutionBlocked: Boolean(anonymousBookingTransitionError),
+      anonymousErrorCode: anonymousBookingTransitionError?.code ?? null,
+    },
+    {
       function: "apply_qualification_checklist",
       anonymousExecutionBlocked: Boolean(anonymousQualificationApplyError),
       anonymousErrorCode: anonymousQualificationApplyError?.code ?? null,
@@ -214,12 +272,12 @@ async function verify() {
     checks.some(
       (check) => !check.adminCanRead || !check.anonymousRowsHidden,
     ) ||
-    !rpcChecks[0].anonymousExecutionBlocked ||
-    !rpcChecks[1].anonymousCannotSatisfy ||
-    !rpcChecks[2].anonymousExecutionBlocked ||
-    !rpcChecks[3].anonymousExecutionBlocked ||
-    !rpcChecks[4].anonymousExecutionBlocked ||
-    !rpcChecks[5].anonymousExecutionBlocked
+    rpcChecks.some(
+      (check) =>
+        ("anonymousExecutionBlocked" in check &&
+          !check.anonymousExecutionBlocked) ||
+        ("anonymousCannotSatisfy" in check && !check.anonymousCannotSatisfy),
+    )
   ) {
     process.exitCode = 1;
   }

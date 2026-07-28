@@ -39,7 +39,15 @@ import {
   quoteShareApprovalInputSchema,
   savedViewDeleteSchema,
   savedViewInputSchema,
+  tripBookingInputSchema,
+  tripBookingStatusUpdateSchema,
   tripDraftInputSchema,
+  tripDocumentDownloadSchema,
+  tripDocumentUploadSchema,
+  tripOperationsUpdateSchema,
+  tripStatusUpdateSchema,
+  tripTravelerInputSchema,
+  wonDealConversionSchema,
   itineraryItemInputSchema,
   itineraryTemplateApplyInputSchema,
   itineraryTemplateFromTripInputSchema,
@@ -81,7 +89,15 @@ import {
   type QuoteShareApprovalInput,
   type SavedViewDeleteInput,
   type SavedViewInput,
+  type TripBookingInput,
+  type TripBookingStatusUpdateInput,
   type TripDraftInput,
+  type TripDocumentDownloadInput,
+  type TripDocumentUploadInput,
+  type TripOperationsUpdateInput,
+  type TripStatusUpdateInput,
+  type TripTravelerInput,
+  type WonDealConversionInput,
   type ItineraryItemInput,
   type ItineraryTemplateApplyInput,
   type ItineraryTemplateFromTripInput,
@@ -130,6 +146,26 @@ const DOCUMENT_WRITE_ROLES = [
   "trip_designer",
   "operations",
   "agent",
+] as const;
+const TRIP_PLANNING_ROLES = [
+  "owner",
+  "admin",
+  "sales",
+  "trip_designer",
+  "operations",
+] as const;
+const TRIP_OPERATIONS_ROLES = [
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
+] as const;
+const BOOKING_WRITE_ROLES = [
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
+  "finance",
 ] as const;
 
 async function assertActiveOrganizationMember(
@@ -1028,6 +1064,16 @@ export async function createTask(input: TaskInput) {
     if (error || !deal)
       throw new Error("The selected deal is not available in this workspace.");
   }
+  if (data.tripId) {
+    const { data: trip, error } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("id", data.tripId)
+      .eq("organization_id", data.organizationId)
+      .maybeSingle();
+    if (error || !trip)
+      throw new Error("The selected trip is not available in this workspace.");
+  }
   await assertActiveOrganizationMember(
     supabase,
     data.organizationId,
@@ -1039,6 +1085,7 @@ export async function createTask(input: TaskInput) {
       organization_id: data.organizationId,
       contact_id: data.contactId ?? null,
       deal_id: data.dealId ?? null,
+      trip_id: data.tripId ?? null,
       title: data.title,
       assignee_id: data.assigneeId ?? null,
       due_at: data.dueAt ?? null,
@@ -1050,6 +1097,7 @@ export async function createTask(input: TaskInput) {
     organization_id: data.organizationId,
     contact_id: task.contact_id,
     deal_id: task.deal_id,
+    trip_id: task.trip_id,
     activity_type: "task_created",
     body: `Task created: ${task.title}`,
   });
@@ -1084,6 +1132,7 @@ export async function updateTaskStatus(input: TaskStatusUpdateInput) {
       organization_id: data.organizationId,
       contact_id: task.contact_id,
       deal_id: task.deal_id,
+      trip_id: task.trip_id,
       activity_type: "task_status_changed",
       body: `Task ${data.status.replace("_", " ")}: ${task.title}`,
       metadata: { status: data.status },
@@ -1653,13 +1702,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
 /** Opens an internal trip-planning record; it does not create a booking. */
 export async function createTripDraft(input: TripDraftInput) {
   const data = tripDraftInputSchema.parse(input);
-  await requireOrganizationRole(data.organizationId, [
-    "owner",
-    "admin",
-    "sales",
-    "trip_designer",
-    "operations",
-  ]);
+  await requireOrganizationRole(data.organizationId, TRIP_PLANNING_ROLES);
   const supabase = await createSupabaseServerClient();
   if (data.dealId) {
     const { data: deal, error } = await supabase
@@ -1693,6 +1736,359 @@ export async function createTripDraft(input: TripDraftInput) {
     metadata: { event: "trip.draft_created", deal_id: trip.deal_id },
   });
   return trip;
+}
+
+/** Atomically turns a won opportunity into its one operational trip. */
+export async function convertWonDealToTrip(input: WonDealConversionInput) {
+  const data = wonDealConversionSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, TRIP_PLANNING_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: trip, error } = await supabase
+    .rpc("convert_won_deal_to_trip", {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+    })
+    .single();
+  if (error || !trip)
+    throw error ?? new Error("AIOS could not open the operational trip.");
+  return trip;
+}
+
+/** Updates operational facts without bypassing the governed status lifecycle. */
+export async function updateTripOperations(input: TripOperationsUpdateInput) {
+  const data = tripOperationsUpdateSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, TRIP_PLANNING_ROLES);
+  const supabase = await createSupabaseServerClient();
+  await assertActiveOrganizationMember(
+    supabase,
+    data.organizationId,
+    data.ownerId,
+  );
+  const { data: trip, error } = await supabase
+    .from("trips")
+    .update({
+      name: data.name,
+      destination: data.destination,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      currency: data.currency,
+      owner_id: data.ownerId,
+      operations_notes: data.operationsNotes,
+    })
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.tripId)
+    .select()
+    .maybeSingle();
+  if (error || !trip)
+    throw error ?? new Error("This trip is not available in the workspace.");
+
+  const { data: deal } = trip.deal_id
+    ? await supabase
+        .from("deals")
+        .select("contact_id")
+        .eq("organization_id", data.organizationId)
+        .eq("id", trip.deal_id)
+        .maybeSingle()
+    : { data: null };
+  const { error: activityError } = await supabase
+    .from("activity_events")
+    .insert({
+      organization_id: data.organizationId,
+      contact_id: deal?.contact_id ?? null,
+      deal_id: trip.deal_id,
+      trip_id: trip.id,
+      activity_type: "trip_updated",
+      body: `Trip operations updated: ${trip.name}`,
+      metadata: {
+        destination: trip.destination,
+        start_date: trip.start_date,
+        end_date: trip.end_date,
+      },
+    });
+  if (activityError) throw activityError;
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.updated",
+    entityType: "trip",
+    entityId: trip.id,
+    metadata: { event: "trip.operations_updated" },
+  });
+  return trip;
+}
+
+/** Moves a trip through the database-enforced operational lifecycle. */
+export async function transitionTripStatus(input: TripStatusUpdateInput) {
+  const data = tripStatusUpdateSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, TRIP_OPERATIONS_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const args = {
+    target_organization_id: data.organizationId,
+    target_trip_id: data.tripId,
+    target_status: data.status,
+    ...(data.note ? { target_note: data.note } : {}),
+  };
+  const { data: trip, error } = await supabase
+    .rpc("transition_trip_status", args)
+    .single();
+  if (error || !trip)
+    throw error ?? new Error("AIOS could not move this trip.");
+  return trip;
+}
+
+/** Adds a traveller to a tenant-scoped operational roster. */
+export async function addTripTraveler(input: TripTravelerInput) {
+  const data = tripTravelerInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [
+    ...TRIP_PLANNING_ROLES,
+    "agent",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: trip, error: tripError } = await supabase
+    .from("trips")
+    .select("id, deal_id")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.tripId)
+    .maybeSingle();
+  if (tripError || !trip)
+    throw new Error("This trip is not available in the workspace.");
+  if (data.contactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("organization_id", data.organizationId)
+      .eq("id", data.contactId)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (contactError || !contact)
+      throw new Error("That traveller contact is not available.");
+  }
+
+  const { data: traveler, error } = await supabase
+    .from("travelers")
+    .insert({
+      organization_id: data.organizationId,
+      trip_id: data.tripId,
+      contact_id: data.contactId ?? null,
+      first_name: data.firstName,
+      last_name: data.lastName ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      date_of_birth: data.dateOfBirth ?? null,
+      role: data.role,
+      preferences: data.preferences
+        ? { internal_notes: data.preferences }
+        : {},
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  const { error: activityError } = await supabase
+    .from("activity_events")
+    .insert({
+      organization_id: data.organizationId,
+      deal_id: trip.deal_id,
+      trip_id: trip.id,
+      activity_type: "traveler_added",
+      body: `Traveller added: ${traveler.first_name}${traveler.last_name ? ` ${traveler.last_name}` : ""}`,
+      metadata: { traveler_id: traveler.id, role: traveler.role },
+    });
+  if (activityError) throw activityError;
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "traveler",
+    entityId: traveler.id,
+    metadata: { event: "trip.traveler_added", trip_id: trip.id },
+  });
+  return traveler;
+}
+
+/** Records an internal supplier-service booking; it never contacts a supplier. */
+export async function createTripBooking(input: TripBookingInput) {
+  const data = tripBookingInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, BOOKING_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: trip, error: tripError } = await supabase
+    .from("trips")
+    .select("id, deal_id")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.tripId)
+    .maybeSingle();
+  if (tripError || !trip)
+    throw new Error("This trip is not available in the workspace.");
+  if (data.supplierId) {
+    const { data: supplier, error: supplierError } = await supabase
+      .from("suppliers")
+      .select("id")
+      .eq("organization_id", data.organizationId)
+      .eq("id", data.supplierId)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (supplierError || !supplier)
+      throw new Error("That supplier is not available in the workspace.");
+  }
+
+  const { data: booking, error } = await supabase
+    .from("bookings")
+    .insert({
+      organization_id: data.organizationId,
+      trip_id: data.tripId,
+      supplier_id: data.supplierId ?? null,
+      title: data.title,
+      booking_type: data.bookingType,
+      status: "draft",
+      confirmation_reference: data.confirmationReference ?? null,
+      service_start_at: data.serviceStartAt ?? null,
+      service_end_at: data.serviceEndAt ?? null,
+      cost_amount: data.costAmount ?? null,
+      currency: data.currency,
+      details: data.notes ? { internal_notes: data.notes } : {},
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  const { error: activityError } = await supabase
+    .from("activity_events")
+    .insert({
+      organization_id: data.organizationId,
+      deal_id: trip.deal_id,
+      trip_id: trip.id,
+      activity_type: "booking_created",
+      body: `Internal booking record created: ${booking.title}`,
+      metadata: {
+        booking_id: booking.id,
+        booking_type: booking.booking_type,
+      },
+    });
+  if (activityError) throw activityError;
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "booking",
+    entityId: booking.id,
+    metadata: { event: "trip.booking_created", trip_id: trip.id },
+  });
+  return booking;
+}
+
+/** Advances internal booking tracking through the guarded database lifecycle. */
+export async function updateTripBookingStatus(
+  input: TripBookingStatusUpdateInput,
+) {
+  const data = tripBookingStatusUpdateSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, BOOKING_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const args = {
+    target_organization_id: data.organizationId,
+    target_trip_id: data.tripId,
+    target_booking_id: data.bookingId,
+    target_status: data.status,
+    ...(data.confirmationReference
+      ? { target_confirmation_reference: data.confirmationReference }
+      : {}),
+  };
+  const { data: booking, error } = await supabase
+    .rpc("transition_booking_status", args)
+    .single();
+  if (error || !booking)
+    throw error ?? new Error("AIOS could not move this booking.");
+  return booking;
+}
+
+/** Uploads a private document and binds it to a single operational trip. */
+export async function uploadTripDocument(
+  input: TripDocumentUploadInput,
+  formData: FormData,
+) {
+  const data = tripDocumentUploadSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DOCUMENT_WRITE_ROLES);
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0)
+    throw new Error("Choose a trip document to upload.");
+  if (file.size > MAX_TRAVEL_DOCUMENT_BYTES)
+    throw new Error("Trip documents must be 15 MB or smaller.");
+  if (!TRAVEL_DOCUMENT_MIME_TYPES.has(file.type))
+    throw new Error(
+      "Upload a PDF, JPEG, PNG, WebP, HEIC, or HEIF trip document.",
+    );
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  if (!matchesTravelDocumentSignature(file.type, fileBytes))
+    throw new Error(
+      "The file contents do not match the selected trip-document format.",
+    );
+
+  const supabase = await createSupabaseServerClient();
+  const { data: claims } = await supabase.auth.getClaims();
+  if (!claims?.claims.sub) throw new Error("Sign in is required.");
+  const { data: trip, error: tripError } = await supabase
+    .from("trips")
+    .select("id")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.tripId)
+    .maybeSingle();
+  if (tripError || !trip)
+    throw new Error("This trip is not available in the workspace.");
+
+  const documentId = crypto.randomUUID();
+  const fileName = travelDocumentDisplayName(file.name);
+  const storagePath = `${data.organizationId}/${documentId}/${travelDocumentStorageName(fileName)}`;
+  const { error: uploadError } = await supabase.storage
+    .from("travel-documents")
+    .upload(storagePath, fileBytes, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false,
+    });
+  if (uploadError)
+    throw new Error(
+      `The private document could not be stored: ${uploadError.message}`,
+    );
+
+  const rpcArgs = {
+    target_organization_id: data.organizationId,
+    target_trip_id: data.tripId,
+    target_document_id: documentId,
+    target_storage_path: storagePath,
+    target_file_name: fileName,
+    target_mime_type: file.type,
+    target_byte_size: file.size,
+    ...(data.expiresAt ? { target_expires_at: data.expiresAt } : {}),
+  };
+  const { data: document, error: documentError } = await supabase
+    .rpc("record_trip_document", rpcArgs)
+    .single();
+  if (documentError || !document) {
+    const admin = createSupabaseAdminClient();
+    await admin.storage.from("travel-documents").remove([storagePath]);
+    throw new Error("The trip document record could not be created.");
+  }
+  return document;
+}
+
+/** Issues a short-lived, RLS-authorized download URL for a private trip file. */
+export async function createTripDocumentDownload(
+  input: TripDocumentDownloadInput,
+) {
+  const data = tripDocumentDownloadSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DOCUMENT_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: document, error } = await supabase
+    .from("documents")
+    .select("id, storage_path, file_name")
+    .eq("organization_id", data.organizationId)
+    .eq("trip_id", data.tripId)
+    .eq("id", data.documentId)
+    .maybeSingle();
+  if (error || !document)
+    throw new Error("This private document is not available.");
+  const { data: signed, error: signedError } = await supabase.storage
+    .from("travel-documents")
+    .createSignedUrl(document.storage_path, 60, {
+      download: document.file_name,
+    });
+  if (signedError || !signed?.signedUrl)
+    throw new Error("The secure download link could not be created.");
+  return { url: signed.signedUrl, expiresInSeconds: 60 };
 }
 
 /** Appends a planning item atomically so two editors cannot share a position. */

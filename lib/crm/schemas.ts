@@ -321,6 +321,7 @@ export const taskInputSchema = z.object({
   organizationId: z.uuid(),
   contactId: z.uuid().nullable().optional(),
   dealId: z.uuid().nullable().optional(),
+  tripId: z.uuid().nullable().optional(),
   title: z.string().trim().min(1).max(500),
   assigneeId: z.uuid().nullable().optional(),
   dueAt: z.iso.datetime().nullable().optional(),
@@ -492,6 +493,115 @@ export const tripDraftInputSchema = z
     { message: "The trip end date cannot be before its start date.", path: ["endDate"] },
   );
 
+export const wonDealConversionSchema = z.object({
+  organizationId: z.uuid(),
+  dealId: z.uuid(),
+});
+
+export const tripOperationsUpdateSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tripId: z.uuid(),
+    name: z.string().trim().min(1).max(180),
+    destination: z.string().trim().min(1).max(180).nullable(),
+    startDate: z.iso.date().nullable(),
+    endDate: z.iso.date().nullable(),
+    currency: z.string().trim().regex(/^[A-Z]{3}$/),
+    ownerId: z.uuid().nullable(),
+    operationsNotes: z.string().trim().max(5_000).nullable(),
+  })
+  .refine(
+    (value) =>
+      !value.startDate || !value.endDate || value.endDate >= value.startDate,
+    {
+      message: "The trip end date cannot be before its start date.",
+      path: ["endDate"],
+    },
+  );
+
+export const tripStatusUpdateSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  status: z.enum([
+    "draft",
+    "confirmed",
+    "in_travel",
+    "completed",
+    "cancelled",
+  ]),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+
+export const tripTravelerInputSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  contactId: z.uuid().nullable().optional(),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().max(100).nullable().optional(),
+  email: z.string().trim().toLowerCase().pipe(z.email()).nullable().optional(),
+  phone: z.string().trim().min(3).max(40).nullable().optional(),
+  dateOfBirth: z.iso.date().nullable().optional(),
+  role: z.enum(["lead_traveler", "traveler", "child"]).default("traveler"),
+  preferences: z.string().trim().max(2_000).nullable().optional(),
+});
+
+export const tripBookingInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tripId: z.uuid(),
+    supplierId: z.uuid().nullable().optional(),
+    title: z.string().trim().min(1).max(180),
+    bookingType: z.enum([
+      "flight",
+      "hotel",
+      "transfer",
+      "activity",
+      "insurance",
+      "other",
+    ]),
+    serviceStartAt: z.iso.datetime().nullable().optional(),
+    serviceEndAt: z.iso.datetime().nullable().optional(),
+    costAmount: z.number().nonnegative().finite().nullable().optional(),
+    currency: z.string().trim().regex(/^[A-Z]{3}$/),
+    confirmationReference: z
+      .string()
+      .trim()
+      .max(180)
+      .nullable()
+      .optional(),
+    notes: z.string().trim().max(4_000).nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      !value.serviceStartAt ||
+      !value.serviceEndAt ||
+      value.serviceEndAt >= value.serviceStartAt,
+    {
+      message: "The service end cannot be before its start.",
+      path: ["serviceEndAt"],
+    },
+  );
+
+export const tripBookingStatusUpdateSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  bookingId: z.uuid(),
+  status: z.enum(["draft", "requested", "confirmed", "cancelled", "failed"]),
+  confirmationReference: z.string().trim().max(180).nullable().optional(),
+});
+
+export const tripDocumentUploadSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  expiresAt: z.iso.date().nullable().optional(),
+});
+
+export const tripDocumentDownloadSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  documentId: z.uuid(),
+});
+
 export const itineraryItemInputSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
@@ -608,6 +718,22 @@ export type QuoteShareApprovalInput = z.infer<
   typeof quoteShareApprovalInputSchema
 >;
 export type TripDraftInput = z.infer<typeof tripDraftInputSchema>;
+export type WonDealConversionInput = z.infer<typeof wonDealConversionSchema>;
+export type TripOperationsUpdateInput = z.infer<
+  typeof tripOperationsUpdateSchema
+>;
+export type TripStatusUpdateInput = z.infer<typeof tripStatusUpdateSchema>;
+export type TripTravelerInput = z.infer<typeof tripTravelerInputSchema>;
+export type TripBookingInput = z.infer<typeof tripBookingInputSchema>;
+export type TripBookingStatusUpdateInput = z.infer<
+  typeof tripBookingStatusUpdateSchema
+>;
+export type TripDocumentUploadInput = z.infer<
+  typeof tripDocumentUploadSchema
+>;
+export type TripDocumentDownloadInput = z.infer<
+  typeof tripDocumentDownloadSchema
+>;
 export type ItineraryItemInput = z.infer<typeof itineraryItemInputSchema>;
 export type ItineraryTemplateFromTripInput = z.infer<
   typeof itineraryTemplateFromTripInputSchema

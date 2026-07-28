@@ -21,6 +21,7 @@ export type Database = {
           id: string
           metadata: Json
           organization_id: string
+          trip_id: string | null
         }
         Insert: {
           activity_type: string
@@ -33,6 +34,7 @@ export type Database = {
           id?: string
           metadata?: Json
           organization_id: string
+          trip_id?: string | null
         }
         Update: {
           activity_type?: string
@@ -45,6 +47,7 @@ export type Database = {
           id?: string
           metadata?: Json
           organization_id?: string
+          trip_id?: string | null
         }
         Relationships: [
           {
@@ -81,6 +84,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_trip_same_organization_fkey"
+            columns: ["organization_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -657,6 +667,7 @@ export type Database = {
           service_start_at: string | null
           status: Database["public"]["Enums"]["booking_status"]
           supplier_id: string | null
+          title: string
           trip_id: string
           updated_at: string
         }
@@ -674,6 +685,7 @@ export type Database = {
           service_start_at?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
           supplier_id?: string | null
+          title?: string
           trip_id: string
           updated_at?: string
         }
@@ -691,6 +703,7 @@ export type Database = {
           service_start_at?: string | null
           status?: Database["public"]["Enums"]["booking_status"]
           supplier_id?: string | null
+          title?: string
           trip_id?: string
           updated_at?: string
         }
@@ -2700,6 +2713,7 @@ export type Database = {
           organization_id: string
           status: Database["public"]["Enums"]["task_status"]
           title: string
+          trip_id: string | null
           updated_at: string
         }
         Insert: {
@@ -2714,6 +2728,7 @@ export type Database = {
           organization_id: string
           status?: Database["public"]["Enums"]["task_status"]
           title: string
+          trip_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -2728,6 +2743,7 @@ export type Database = {
           organization_id?: string
           status?: Database["public"]["Enums"]["task_status"]
           title?: string
+          trip_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2765,6 +2781,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_trip_same_organization_fkey"
+            columns: ["organization_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -2838,14 +2861,69 @@ export type Database = {
           },
         ]
       }
+      trip_status_history: {
+        Row: {
+          change_source: string
+          changed_at: string
+          changed_by: string | null
+          from_status: Database["public"]["Enums"]["trip_status"] | null
+          id: string
+          note: string | null
+          organization_id: string
+          to_status: Database["public"]["Enums"]["trip_status"]
+          trip_id: string
+        }
+        Insert: {
+          change_source?: string
+          changed_at?: string
+          changed_by?: string | null
+          from_status?: Database["public"]["Enums"]["trip_status"] | null
+          id?: string
+          note?: string | null
+          organization_id: string
+          to_status: Database["public"]["Enums"]["trip_status"]
+          trip_id: string
+        }
+        Update: {
+          change_source?: string
+          changed_at?: string
+          changed_by?: string | null
+          from_status?: Database["public"]["Enums"]["trip_status"] | null
+          id?: string
+          note?: string | null
+          organization_id?: string
+          to_status?: Database["public"]["Enums"]["trip_status"]
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_status_history_actor_same_organization_fkey"
+            columns: ["organization_id", "changed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "trip_status_history_trip_same_organization_fkey"
+            columns: ["organization_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       trips: {
         Row: {
+          converted_at: string | null
+          converted_by: string | null
           created_at: string
           currency: string
           deal_id: string | null
+          destination: string | null
           end_date: string | null
           id: string
           name: string
+          operations_notes: string | null
           organization_id: string
           owner_id: string | null
           quote_id: string | null
@@ -2854,12 +2932,16 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          converted_at?: string | null
+          converted_by?: string | null
           created_at?: string
           currency?: string
           deal_id?: string | null
+          destination?: string | null
           end_date?: string | null
           id?: string
           name: string
+          operations_notes?: string | null
           organization_id: string
           owner_id?: string | null
           quote_id?: string | null
@@ -2868,12 +2950,16 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          converted_at?: string | null
+          converted_by?: string | null
           created_at?: string
           currency?: string
           deal_id?: string | null
+          destination?: string | null
           end_date?: string | null
           id?: string
           name?: string
+          operations_notes?: string | null
           organization_id?: string
           owner_id?: string | null
           quote_id?: string | null
@@ -2882,6 +2968,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trips_converted_by_same_organization_fkey"
+            columns: ["organization_id", "converted_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
           {
             foreignKeyName: "trips_deal_same_organization_fkey"
             columns: ["organization_id", "deal_id"]
@@ -3068,6 +3161,33 @@ export type Database = {
           job_payload: Json
         }[]
       }
+      convert_won_deal_to_trip: {
+        Args: { target_deal_id: string; target_organization_id: string }
+        Returns: {
+          converted_at: string | null
+          converted_by: string | null
+          created_at: string
+          currency: string
+          deal_id: string | null
+          destination: string | null
+          end_date: string | null
+          id: string
+          name: string
+          operations_notes: string | null
+          organization_id: string
+          owner_id: string | null
+          quote_id: string | null
+          start_date: string | null
+          status: Database["public"]["Enums"]["trip_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_follow_up_sequence: {
         Args: {
           target_description: string
@@ -3205,6 +3325,38 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      record_trip_document: {
+        Args: {
+          target_byte_size: number
+          target_document_id: string
+          target_expires_at?: string
+          target_file_name: string
+          target_mime_type: string
+          target_organization_id: string
+          target_storage_path: string
+          target_trip_id: string
+        }
+        Returns: {
+          byte_size: number
+          contact_id: string | null
+          created_at: string
+          expires_at: string | null
+          file_name: string
+          id: string
+          mime_type: string
+          organization_id: string
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          storage_path: string
+          trip_id: string | null
+          uploaded_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "documents"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       requeue_ai_job: {
         Args: { target_job_id: string }
         Returns: {
@@ -3274,6 +3426,39 @@ export type Database = {
         Args: { target_user_id: string }
         Returns: boolean
       }
+      transition_booking_status: {
+        Args: {
+          target_booking_id: string
+          target_confirmation_reference?: string
+          target_organization_id: string
+          target_status: Database["public"]["Enums"]["booking_status"]
+          target_trip_id: string
+        }
+        Returns: {
+          booking_type: string
+          confirmation_reference: string | null
+          confirmed_at: string | null
+          cost_amount: number | null
+          created_at: string
+          currency: string
+          details: Json
+          id: string
+          organization_id: string
+          service_end_at: string | null
+          service_start_at: string | null
+          status: Database["public"]["Enums"]["booking_status"]
+          supplier_id: string | null
+          title: string
+          trip_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "bookings"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       transition_deal_stage: {
         Args: {
           target_deal_id: string
@@ -3318,6 +3503,38 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "deals"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      transition_trip_status: {
+        Args: {
+          target_note?: string
+          target_organization_id: string
+          target_status: Database["public"]["Enums"]["trip_status"]
+          target_trip_id: string
+        }
+        Returns: {
+          converted_at: string | null
+          converted_by: string | null
+          created_at: string
+          currency: string
+          deal_id: string | null
+          destination: string | null
+          end_date: string | null
+          id: string
+          name: string
+          operations_notes: string | null
+          organization_id: string
+          owner_id: string | null
+          quote_id: string | null
+          start_date: string | null
+          status: Database["public"]["Enums"]["trip_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trips"
           isOneToOne: false
           isSetofReturn: true
         }

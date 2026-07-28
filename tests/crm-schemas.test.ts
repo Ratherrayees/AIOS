@@ -19,7 +19,14 @@ import {
   quoteDraftInputSchema,
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
+  tripBookingInputSchema,
+  tripDocumentDownloadSchema,
+  tripDocumentUploadSchema,
   tripDraftInputSchema,
+  tripOperationsUpdateSchema,
+  tripStatusUpdateSchema,
+  tripTravelerInputSchema,
+  wonDealConversionSchema,
   itineraryItemInputSchema,
   itineraryCommentInputSchema,
   itineraryTemplateApplyInputSchema,
@@ -672,6 +679,122 @@ test("trip drafts reject an inverted travel date range", () => {
     endDate: "2026-10-12",
   });
   assert.equal(result.success, false);
+});
+
+test("won-deal conversion requires tenant-scoped deal identity", () => {
+  assert.equal(
+    wonDealConversionSchema.safeParse({
+      organizationId,
+      dealId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    wonDealConversionSchema.safeParse({
+      organizationId,
+      dealId: "not-a-deal",
+    }).success,
+    false,
+  );
+});
+
+test("trip operations reject inverted dates and unbounded notes", () => {
+  const base = {
+    organizationId,
+    tripId: crypto.randomUUID(),
+    name: "Japan family journey",
+    destination: "Kyoto",
+    startDate: "2026-10-14",
+    endDate: "2026-10-12",
+    currency: "INR",
+    ownerId: null,
+    operationsNotes: null,
+  };
+  assert.equal(tripOperationsUpdateSchema.safeParse(base).success, false);
+  assert.equal(
+    tripOperationsUpdateSchema.safeParse({
+      ...base,
+      endDate: "2026-10-18",
+      operationsNotes: "x".repeat(5_001),
+    }).success,
+    false,
+  );
+});
+
+test("trip lifecycle accepts only known statuses and bounded notes", () => {
+  assert.equal(
+    tripStatusUpdateSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      status: "in_travel",
+      note: "Lead traveller checked in",
+    }).success,
+    true,
+  );
+  assert.equal(
+    tripStatusUpdateSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      status: "boarding",
+    }).success,
+    false,
+  );
+});
+
+test("traveller manifests validate identity and roster roles", () => {
+  assert.equal(
+    tripTravelerInputSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      firstName: "Aarav",
+      email: "AARAV@EXAMPLE.COM",
+      role: "traveler",
+    }).success,
+    true,
+  );
+  assert.equal(
+    tripTravelerInputSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      firstName: "",
+      role: "operator",
+    }).success,
+    false,
+  );
+});
+
+test("booking records reject inverted service times and negative costs", () => {
+  const result = tripBookingInputSchema.safeParse({
+    organizationId,
+    tripId: crypto.randomUUID(),
+    title: "Kyoto hotel",
+    bookingType: "hotel",
+    serviceStartAt: "2026-10-14T12:00:00.000Z",
+    serviceEndAt: "2026-10-12T12:00:00.000Z",
+    costAmount: -1,
+    currency: "INR",
+  });
+  assert.equal(result.success, false);
+});
+
+test("trip document metadata requires bounded tenant identities", () => {
+  const tripId = crypto.randomUUID();
+  assert.equal(
+    tripDocumentUploadSchema.safeParse({
+      organizationId,
+      tripId,
+      expiresAt: "2027-01-01",
+    }).success,
+    true,
+  );
+  assert.equal(
+    tripDocumentDownloadSchema.safeParse({
+      organizationId,
+      tripId,
+      documentId: "not-a-document",
+    }).success,
+    false,
+  );
 });
 
 test("itinerary items require a valid internal planning shape", () => {

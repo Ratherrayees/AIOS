@@ -981,6 +981,10 @@ export default function Home() {
             <span className="nav-glyph">I</span>
             <span>Itinerary Studio</span>
           </a>
+          <Link className="nav-link" href="/trips">
+            <span className="nav-glyph">O</span>
+            <span>Trip Operations</span>
+          </Link>
           <a className="nav-link" href="/analytics">
             <span className="nav-glyph">↗</span>
             <span>Revenue analytics</span>
@@ -1527,6 +1531,10 @@ export default function Home() {
         <Link href="/quotes">
           <span aria-hidden="true">Q</span>
           Quotes
+        </Link>
+        <Link href="/trips">
+          <span aria-hidden="true">O</span>
+          Trips
         </Link>
         <Link href="/aios">
           <span aria-hidden="true">A</span>

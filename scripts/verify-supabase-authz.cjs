@@ -384,6 +384,251 @@ async function verifyAuthorization() {
       Boolean(forgedDocumentRecord.error),
     );
 
+    activeVerificationPhase = "operational trip authorization";
+    const { data: tripDeal, error: tripDealError } = await owner
+      .from("deals")
+      .insert({
+        organization_id: organizationA.id,
+        contact_id: alphaContact.id,
+        owner_id: ownerUser.id,
+        title: `Operational trip fixture ${suffix}`,
+        destination: "Osaka",
+        probability: 70,
+        value_amount: 520000,
+        currency: "INR",
+        next_step: "Complete operational handoff",
+        expected_close_at: "2026-09-30",
+      })
+      .select("id")
+      .single();
+    if (tripDealError || !tripDeal)
+      throw (
+        tripDealError ??
+        new Error("Operational trip opportunity fixture was not created.")
+      );
+    for (const targetStage of [
+      "qualified",
+      "proposal",
+      "decision",
+      "won",
+    ]) {
+      const transition = await owner.rpc("transition_deal_stage", {
+        target_organization_id: organizationA.id,
+        target_deal_id: tripDeal.id,
+        target_stage: targetStage,
+        target_lost_reason: null,
+      });
+      if (transition.error)
+        throw new Error(
+          `Operational trip deal could not move to ${targetStage}: ${transition.error.message}`,
+        );
+    }
+
+    const firstConversion = await owner
+      .rpc("convert_won_deal_to_trip", {
+        target_organization_id: organizationA.id,
+        target_deal_id: tripDeal.id,
+      })
+      .single();
+    record(
+      "authorized owner can convert a won deal into one operational trip",
+      !firstConversion.error &&
+        firstConversion.data?.status === "confirmed" &&
+        firstConversion.data?.converted_by === ownerUser.id,
+      firstConversion.error?.message ?? null,
+    );
+    if (firstConversion.error || !firstConversion.data)
+      throw (
+        firstConversion.error ??
+        new Error("Operational trip fixture was not converted.")
+      );
+
+    const repeatedConversion = await owner
+      .rpc("convert_won_deal_to_trip", {
+        target_organization_id: organizationA.id,
+        target_deal_id: tripDeal.id,
+      })
+      .single();
+    const { count: conversionCount } = await admin
+      .from("trips")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", tripDeal.id);
+    record(
+      "won-deal conversion is idempotent",
+      !repeatedConversion.error &&
+        repeatedConversion.data?.id === firstConversion.data.id &&
+        conversionCount === 1,
+      repeatedConversion.error?.message ?? null,
+    );
+
+    const directTripStatusMutation = await owner
+      .from("trips")
+      .update({ status: "in_travel" })
+      .eq("id", firstConversion.data.id)
+      .select("id");
+    record(
+      "direct browser writes cannot bypass governed trip transitions",
+      Boolean(directTripStatusMutation.error),
+    );
+
+    const tripDates = await owner
+      .from("trips")
+      .update({ start_date: "2026-10-10", end_date: "2026-10-18" })
+      .eq("id", firstConversion.data.id)
+      .select("id")
+      .single();
+    if (tripDates.error)
+      throw new Error(
+        `Operational trip dates could not be prepared: ${tripDates.error.message}`,
+      );
+    const validTripTransition = await owner
+      .rpc("transition_trip_status", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_status: "in_travel",
+        target_note: "Authorization lifecycle fixture",
+      })
+      .single();
+    record(
+      "authorized operator can execute a valid trip transition",
+      !validTripTransition.error &&
+        validTripTransition.data?.status === "in_travel",
+      validTripTransition.error?.message ?? null,
+    );
+
+    const { data: governedBooking, error: governedBookingError } = await owner
+      .from("bookings")
+      .insert({
+        organization_id: organizationA.id,
+        trip_id: firstConversion.data.id,
+        title: "Governed hotel fixture",
+        booking_type: "hotel",
+        currency: "INR",
+      })
+      .select("id")
+      .single();
+    if (governedBookingError || !governedBooking)
+      throw (
+        governedBookingError ??
+        new Error("Governed booking fixture was not created.")
+      );
+    const directBookingStatusMutation = await owner
+      .from("bookings")
+      .update({ status: "requested" })
+      .eq("id", governedBooking.id)
+      .select("id");
+    record(
+      "direct browser writes cannot bypass governed booking transitions",
+      Boolean(directBookingStatusMutation.error),
+    );
+    const requestedBooking = await owner
+      .rpc("transition_booking_status", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_booking_id: governedBooking.id,
+        target_status: "requested",
+        target_confirmation_reference: null,
+      })
+      .single();
+    record(
+      "authorized operator can move internal booking tracking",
+      !requestedBooking.error &&
+        requestedBooking.data?.status === "requested",
+      requestedBooking.error?.message ?? null,
+    );
+    const missingBookingReference = await owner.rpc(
+      "transition_booking_status",
+      {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_booking_id: governedBooking.id,
+        target_status: "confirmed",
+        target_confirmation_reference: null,
+      },
+    );
+    record(
+      "booking confirmation requires a supplier reference",
+      Boolean(missingBookingReference.error),
+    );
+    const confirmedBooking = await owner
+      .rpc("transition_booking_status", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_booking_id: governedBooking.id,
+        target_status: "confirmed",
+        target_confirmation_reference: "AUTHZ-HOTEL-42",
+      })
+      .single();
+    record(
+      "guarded booking confirmation preserves supplier evidence",
+      !confirmedBooking.error &&
+        confirmedBooking.data?.status === "confirmed" &&
+        confirmedBooking.data?.confirmation_reference === "AUTHZ-HOTEL-42" &&
+        Boolean(confirmedBooking.data?.confirmed_at),
+      confirmedBooking.error?.message ?? null,
+    );
+
+    const [ownerTripHistory, viewerForeignTrip, viewerTripHistory] =
+      await Promise.all([
+        owner
+          .from("trip_status_history")
+          .select("from_status, to_status")
+          .eq("trip_id", firstConversion.data.id),
+        viewer
+          .from("trips")
+          .select("id")
+          .eq("id", firstConversion.data.id),
+        viewer
+          .from("trip_status_history")
+          .select("id")
+          .eq("trip_id", firstConversion.data.id),
+      ]);
+    record(
+      "trip lifecycle preserves append-only status history",
+      !ownerTripHistory.error &&
+        ownerTripHistory.data?.length === 2 &&
+        ownerTripHistory.data.some(
+          (item) =>
+            item.from_status === "confirmed" && item.to_status === "in_travel",
+        ),
+      ownerTripHistory.error?.message ?? null,
+    );
+    record(
+      "foreign tenants cannot read operational trips or their history",
+      !viewerForeignTrip.error &&
+        viewerForeignTrip.data?.length === 0 &&
+        !viewerTripHistory.error &&
+        viewerTripHistory.data?.length === 0,
+    );
+
+    const viewerTripConversion = await viewer.rpc(
+      "convert_won_deal_to_trip",
+      {
+        target_organization_id: organizationA.id,
+        target_deal_id: tripDeal.id,
+      },
+    );
+    record(
+      "foreign viewers cannot convert another tenant's won deal",
+      Boolean(viewerTripConversion.error),
+    );
+
+    const forgedTripDocumentId = randomUUID();
+    const forgedTripDocument = await owner.rpc("record_trip_document", {
+      target_organization_id: organizationA.id,
+      target_trip_id: firstConversion.data.id,
+      target_document_id: forgedTripDocumentId,
+      target_storage_path: `${organizationA.id}/${forgedTripDocumentId}/missing.pdf`,
+      target_file_name: "missing.pdf",
+      target_mime_type: "application/pdf",
+      target_byte_size: 10,
+      target_expires_at: "2027-01-01",
+    });
+    record(
+      "trip document metadata cannot be forged without a private object",
+      Boolean(forgedTripDocument.error),
+    );
+
     activeVerificationPhase = "sales workflow authorization";
     const qualificationTemplate = await owner
       .rpc("create_qualification_checklist_template", {

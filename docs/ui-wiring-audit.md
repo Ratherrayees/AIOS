@@ -4,12 +4,12 @@ Reviewed: 28 July 2026
 
 ## Outcome
 
-Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 36 Chromium journeys: 18 public/authentication and security-boundary checks plus 18 authenticated, browser-to-database workflows.
+Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 38 Chromium journeys: 19 public/authentication and security-boundary checks plus 19 authenticated, browser-to-database workflows.
 
 The audited build passed with:
 
-- 36/36 browser journeys
-- 107/107 behavioral tests
+- 38/38 browser journeys
+- 113/113 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -32,6 +32,7 @@ The audited build passed with:
 | Tasks | Creation, due date, ownership, open/in-progress/completed/reopened lifecycle, unassignment, filters, private views and deletion | Task state and ownership changes persist within the tenant | Pass |
 | Quotes | Draft creation, immutable revision, internal cost/margin signal and quote-sharing approval request | Version history and internal cost persist; sharing remains approval-gated and unsent | Pass |
 | Itinerary Studio | Trip drafts, day items, comments, conflict/readiness checks, reusable template creation and application | Trips, items, comments, readiness tasks and copied template items persist; no booking or external share occurs | Pass |
+| Trip Operations | Won-deal handoff, operating details, lead/additional travellers, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement | Conversion is idempotent, direct status writes are blocked, lifecycle history and actor/audit evidence persist, and no supplier message, inventory reservation, or payment occurs | Pass |
 | Lead Capture settings | Form creation, public preview route, pause and resume | Form configuration and active state persist; public submission uses the governed endpoint | Pass |
 | Sales Workflows | Qualification and follow-up configuration visibility plus application from the lead workspace | Evidence and sequence operations use guarded tenant RPCs | Pass |
 | Team Access | Role change, teammate suspension/restoration, invitation creation and revocation | Membership state and one-way invitation-token hash persist; final-owner safeguards remain enforced | Pass |
@@ -47,6 +48,7 @@ The audited build passed with:
 2. Duplicate contacts with identical names produced indistinguishable “Keep” actions. The review now shows the older/newer contact channels and explicit “Keep older record” and “Keep newer record” controls.
 3. Three dashboard briefing rows were coded as buttons without an action. They are now styled informational rows, so the interface no longer advertises inert controls.
 4. Inbox and Itinerary creation controls were missing programmatic names. Their selects and inputs now have stable accessible labels.
+5. Adding Trip Operations caused the 390px bottom route bar to wrap onto a second row. The grid now accounts for all eight destinations and is covered by the existing one-row assertion.
 
 ## Deferred external acceptance
 

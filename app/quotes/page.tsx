@@ -314,6 +314,7 @@ export default function QuotesPage() {
         links={[
           { href: "/", label: "Command center" },
           { href: "/itineraries", label: "Itinerary Studio" },
+          { href: "/trips", label: "Trip Operations" },
           { href: "/aios", label: "AIOS Control" },
         ]}
       />

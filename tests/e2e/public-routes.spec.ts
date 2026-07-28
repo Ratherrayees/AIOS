@@ -111,6 +111,11 @@ test("anonymous itinerary workspace remains protected", async ({ page }) => {
   await expect(page).toHaveURL(/\/sign-in$/);
 });
 
+test("anonymous trip operations remain protected", async ({ page }) => {
+  await page.goto("/trips");
+  await expect(page).toHaveURL(/\/sign-in$/);
+});
+
 test("anonymous team access remains protected", async ({ page }) => {
   await page.goto("/settings/team");
   await expect(page).toHaveURL(/\/sign-in$/);

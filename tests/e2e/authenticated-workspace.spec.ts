@@ -23,6 +23,7 @@ let dealId = "";
 let contactId = "";
 let leadCaptureFormToken = "";
 let approvalId = "";
+let operationalTripId = "";
 let teammateUserId = "";
 let teammateMembershipId = "";
 const teammateName = "Authenticated E2E Teammate";
@@ -279,6 +280,7 @@ test.describe("authenticated owner workspace", () => {
       ["/tasks", /Every follow-up has an owner/i],
       ["/quotes", /Shape a confident proposal/i],
       ["/itineraries", /Design the journey/i],
+      ["/trips", /From “won” to wheels up/i],
       ["/aios", /Set how autonomous/i],
       ["/analytics", /See where momentum becomes revenue/i],
       ["/settings/lead-capture", /Lead capture that enters/i],
@@ -301,6 +303,7 @@ test.describe("authenticated owner workspace", () => {
       "/tasks",
       "/quotes",
       "/itineraries",
+      "/trips",
       "/aios",
       "/analytics",
       "/settings/lead-capture",
@@ -1339,6 +1342,209 @@ test.describe("authenticated owner workspace", () => {
     expect(readinessTaskCount).toBe(1);
   });
 
+  test("converts a won deal into a governed operational trip and wires its control deck", async ({
+    page,
+  }) => {
+    const travelerEmail = `trip.guest.${Date.now()}@example.com`;
+    const bookingTitle = `E2E Kyoto hotel ${Date.now()}`;
+    const taskTitle = `Confirm airport transfer ${Date.now()}`;
+
+    await signIn(page);
+    await page.goto(`/leads/${dealId}`);
+    await page.getByLabel("Pipeline stage").selectOption("won");
+    await page.getByRole("button", { name: "Update stage" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Opportunity moved to won",
+    );
+
+    await page.goto("/trips");
+    await expect(
+      page.getByRole("heading", {
+        name: /From “won” to wheels up/i,
+      }),
+    ).toBeVisible();
+    const handoff = page
+      .locator(".conversion-grid article")
+      .filter({ hasText: "Kyoto discovery journey" });
+    await expect(handoff).toBeVisible();
+    await handoff
+      .getByRole("button", { name: "Open operational trip" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Operational trip opened",
+    );
+
+    const tripLink = page
+      .locator(".trip-grid > a")
+      .filter({ hasText: "Kyoto discovery journey" });
+    await expect(tripLink).toBeVisible();
+    await tripLink.click();
+    await expect(page).toHaveURL(/\/trips\/[0-9a-f-]+$/);
+    operationalTripId = page.url().split("/").at(-1)!;
+    await expect(
+      page.getByRole("heading", { name: "Kyoto discovery journey" }),
+    ).toBeVisible();
+    await expect(page.getByText("Sales handoff", { exact: true })).toBeVisible();
+
+    await page.getByLabel("Destination").fill("Kyoto and Osaka, Japan");
+    await page.getByLabel("Start date").fill("2026-10-10");
+    await page.getByLabel("End date").fill("2026-10-18");
+    await page
+      .getByLabel("Operations notes")
+      .fill("Lead traveller prefers a quiet room away from lifts.");
+    await page.getByRole("button", { name: "Save operating details" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Operational trip details saved",
+    );
+
+    await page.getByLabel("Traveller first name").fill("Mira");
+    await page.getByLabel("Traveller last name").fill("Sharma");
+    await page.getByLabel("Traveller email").fill(travelerEmail);
+    await page.getByLabel("Traveller role").selectOption("traveler");
+    await page
+      .getByLabel("Traveller preferences")
+      .fill("Vegetarian meals");
+    await page.getByRole("button", { name: "Add traveller" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Traveller added to the operational roster",
+    );
+    await expect(page.getByText(travelerEmail)).toBeVisible();
+
+    await page.getByLabel("Booking title").fill(bookingTitle);
+    await page.getByLabel("Booking type").selectOption("hotel");
+    await page.getByLabel("Booking cost").fill("125000");
+    await page
+      .getByLabel("Booking notes")
+      .fill("Internal hold only; no supplier outreach from this record.");
+    await page
+      .getByRole("button", { name: "Create internal record" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "No supplier was contacted",
+    );
+    const bookingCard = page
+      .locator(".booking-ledger > article")
+      .filter({ hasText: bookingTitle });
+    await bookingCard
+      .getByRole("button", { name: "Mark requested" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "moved to requested",
+    );
+    await bookingCard
+      .getByLabel(`Confirmation reference for ${bookingTitle}`)
+      .fill("KYOTO-E2E-42");
+    await bookingCard
+      .getByRole("button", { name: "Mark confirmed" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "moved to confirmed",
+    );
+
+    await page.getByLabel("Operational task title").fill(taskTitle);
+    await page
+      .getByRole("button", { name: "Add task" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Operational follow-up added",
+    );
+    const taskCard = page
+      .locator(".task-stack article")
+      .filter({ hasText: taskTitle });
+    await taskCard.getByRole("button", { name: "Complete" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Follow-up marked completed",
+    );
+
+    await page.getByLabel("Private trip document").setInputFiles({
+      name: "trip-voucher.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from(
+        "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF",
+      ),
+    });
+    await page
+      .locator(".document-form input[name='expiresAt']")
+      .fill("2027-01-01");
+    await page.getByRole("button", { name: "Store privately" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Private trip document stored",
+    );
+    const documentRow = page
+      .locator(".document-list article")
+      .filter({ hasText: "trip-voucher.pdf" });
+    await expect(documentRow).toContainText("expires 2027-01-01");
+    const downloadPromise = page.waitForEvent("download");
+    await documentRow
+      .getByRole("button", { name: "Secure download" })
+      .click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("trip-voucher.pdf");
+
+    await page.getByLabel("Trip status note").fill("Lead traveller checked in");
+    await page.getByRole("button", { name: "Move to in travel" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Trip moved to in travel",
+    );
+
+    const { data: trip, error: tripError } = await admin!
+      .from("trips")
+      .select(
+        "deal_id, status, destination, start_date, end_date, converted_at, converted_by",
+      )
+      .eq("id", operationalTripId)
+      .single();
+    expect(tripError).toBeNull();
+    expect(trip).toMatchObject({
+      deal_id: dealId,
+      status: "in_travel",
+      destination: "Kyoto and Osaka, Japan",
+      start_date: "2026-10-10",
+      end_date: "2026-10-18",
+      converted_by: userId,
+    });
+    expect(trip?.converted_at).toBeTruthy();
+
+    const [{ data: roster }, { data: booking }, { data: task }, { data: statusRows }] =
+      await Promise.all([
+        admin!
+          .from("travelers")
+          .select("email, role")
+          .eq("trip_id", operationalTripId),
+        admin!
+          .from("bookings")
+          .select("status, confirmation_reference")
+          .eq("trip_id", operationalTripId)
+          .eq("title", bookingTitle)
+          .single(),
+        admin!
+          .from("tasks")
+          .select("status, trip_id")
+          .eq("trip_id", operationalTripId)
+          .eq("title", taskTitle)
+          .single(),
+        admin!
+          .from("trip_status_history")
+          .select("from_status, to_status, change_source")
+          .eq("trip_id", operationalTripId)
+          .order("changed_at"),
+      ]);
+    expect(roster?.some((item) => item.role === "lead_traveler")).toBe(true);
+    expect(roster?.some((item) => item.email === travelerEmail)).toBe(true);
+    expect(booking).toMatchObject({
+      status: "confirmed",
+      confirmation_reference: "KYOTO-E2E-42",
+    });
+    expect(task).toMatchObject({
+      status: "completed",
+      trip_id: operationalTripId,
+    });
+    expect(statusRows?.map((item) => item.to_status)).toEqual([
+      "confirmed",
+      "in_travel",
+    ]);
+  });
+
   test("wires lead-capture creation, preview routing, pause, and resume", async ({
     page,
   }) => {
@@ -1603,6 +1809,8 @@ test.describe("authenticated owner workspace", () => {
       "/tasks",
       "/quotes",
       "/itineraries",
+      "/trips",
+      `/trips/${operationalTripId}`,
       "/aios",
       "/analytics",
       "/settings/lead-capture",
