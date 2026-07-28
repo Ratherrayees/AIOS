@@ -8,6 +8,9 @@ const protectedTables = [
   "memberships",
   "contacts",
   "deals",
+  "deal_stage_history",
+  "lead_capture_forms",
+  "lead_submissions",
   "tasks",
   "quotes",
   "quote_versions",
@@ -114,6 +117,41 @@ async function verify() {
     data: anonymousMfaResult,
     error: anonymousMfaError,
   } = await anonymous.rpc("meets_mfa_requirement");
+  const { error: anonymousLeadCaptureError } = await anonymous.rpc(
+    "capture_public_lead",
+    {
+      target_form_token: "11111111-1111-4111-8111-111111111111",
+      target_full_name: "Blocked anonymous RPC",
+      target_email: "blocked@example.invalid",
+      target_phone: null,
+      target_destination: null,
+      target_budget_amount: null,
+      target_currency: "INR",
+      target_notes: null,
+      target_communication_consent: false,
+      target_utm_source: null,
+      target_utm_medium: null,
+      target_utm_campaign: null,
+      target_landing_path: null,
+      target_referrer_host: null,
+      target_dedupe_key: "0".repeat(64),
+      target_request_fingerprint: "1".repeat(64),
+    },
+  );
+  const { error: anonymousTravelDocumentError } = await anonymous.rpc(
+    "record_travel_document",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_deal_id: "22222222-2222-4222-8222-222222222222",
+      target_contact_id: "33333333-3333-4333-8333-333333333333",
+      target_document_id: "44444444-4444-4444-8444-444444444444",
+      target_storage_path:
+        "11111111-1111-4111-8111-111111111111/44444444-4444-4444-8444-444444444444/blocked.pdf",
+      target_file_name: "blocked.pdf",
+      target_mime_type: "application/pdf",
+      target_byte_size: 10,
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -127,6 +165,16 @@ async function verify() {
       anonymousResult: anonymousMfaResult ?? null,
       anonymousErrorCode: anonymousMfaError?.code ?? null,
     },
+    {
+      function: "capture_public_lead",
+      anonymousExecutionBlocked: Boolean(anonymousLeadCaptureError),
+      anonymousErrorCode: anonymousLeadCaptureError?.code ?? null,
+    },
+    {
+      function: "record_travel_document",
+      anonymousExecutionBlocked: Boolean(anonymousTravelDocumentError),
+      anonymousErrorCode: anonymousTravelDocumentError?.code ?? null,
+    },
   ];
 
   console.log(JSON.stringify({ checks, rpcChecks }));
@@ -135,7 +183,9 @@ async function verify() {
       (check) => !check.adminCanRead || !check.anonymousRowsHidden,
     ) ||
     !rpcChecks[0].anonymousExecutionBlocked ||
-    !rpcChecks[1].anonymousCannotSatisfy
+    !rpcChecks[1].anonymousCannotSatisfy ||
+    !rpcChecks[2].anonymousExecutionBlocked ||
+    !rpcChecks[3].anonymousExecutionBlocked
   ) {
     process.exitCode = 1;
   }

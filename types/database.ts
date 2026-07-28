@@ -943,6 +943,64 @@ export type Database = {
           },
         ]
       }
+      deal_stage_history: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          deal_id: string
+          duration_seconds: number | null
+          from_stage: Database["public"]["Enums"]["deal_stage"] | null
+          id: string
+          organization_id: string
+          reason: string | null
+          to_stage: Database["public"]["Enums"]["deal_stage"]
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          deal_id: string
+          duration_seconds?: number | null
+          from_stage?: Database["public"]["Enums"]["deal_stage"] | null
+          id?: string
+          organization_id: string
+          reason?: string | null
+          to_stage: Database["public"]["Enums"]["deal_stage"]
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          deal_id?: string
+          duration_seconds?: number | null
+          from_stage?: Database["public"]["Enums"]["deal_stage"] | null
+          id?: string
+          organization_id?: string
+          reason?: string | null
+          to_stage?: Database["public"]["Enums"]["deal_stage"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deal_stage_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_stage_history_organization_id_deal_id_fkey"
+            columns: ["organization_id", "deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "deal_stage_history_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deals: {
         Row: {
           archived_at: string | null
@@ -951,8 +1009,12 @@ export type Database = {
           currency: string
           destination: string | null
           expected_close_at: string | null
+          first_responded_at: string | null
+          first_response_due_at: string | null
+          follow_up_due_at: string | null
           id: string
           last_activity_at: string | null
+          lost_at: string | null
           lost_reason: string | null
           next_step: string | null
           notes: string | null
@@ -960,14 +1022,19 @@ export type Database = {
           owner_id: string | null
           probability: number
           qualified_at: string | null
+          sla_escalated_at: string | null
+          sla_escalation_level: number
           source: string | null
+          source_campaign: string | null
           stage: Database["public"]["Enums"]["deal_stage"]
+          stage_entered_at: string
           title: string
           travel_end: string | null
           travel_start: string | null
           traveller_count: number | null
           updated_at: string
           value_amount: number | null
+          won_at: string | null
         }
         Insert: {
           archived_at?: string | null
@@ -976,8 +1043,12 @@ export type Database = {
           currency?: string
           destination?: string | null
           expected_close_at?: string | null
+          first_responded_at?: string | null
+          first_response_due_at?: string | null
+          follow_up_due_at?: string | null
           id?: string
           last_activity_at?: string | null
+          lost_at?: string | null
           lost_reason?: string | null
           next_step?: string | null
           notes?: string | null
@@ -985,14 +1056,19 @@ export type Database = {
           owner_id?: string | null
           probability?: number
           qualified_at?: string | null
+          sla_escalated_at?: string | null
+          sla_escalation_level?: number
           source?: string | null
+          source_campaign?: string | null
           stage?: Database["public"]["Enums"]["deal_stage"]
+          stage_entered_at?: string
           title: string
           travel_end?: string | null
           travel_start?: string | null
           traveller_count?: number | null
           updated_at?: string
           value_amount?: number | null
+          won_at?: string | null
         }
         Update: {
           archived_at?: string | null
@@ -1001,8 +1077,12 @@ export type Database = {
           currency?: string
           destination?: string | null
           expected_close_at?: string | null
+          first_responded_at?: string | null
+          first_response_due_at?: string | null
+          follow_up_due_at?: string | null
           id?: string
           last_activity_at?: string | null
+          lost_at?: string | null
           lost_reason?: string | null
           next_step?: string | null
           notes?: string | null
@@ -1010,14 +1090,19 @@ export type Database = {
           owner_id?: string | null
           probability?: number
           qualified_at?: string | null
+          sla_escalated_at?: string | null
+          sla_escalation_level?: number
           source?: string | null
+          source_campaign?: string | null
           stage?: Database["public"]["Enums"]["deal_stage"]
+          stage_entered_at?: string
           title?: string
           travel_end?: string | null
           travel_start?: string | null
           traveller_count?: number | null
           updated_at?: string
           value_amount?: number | null
+          won_at?: string | null
         }
         Relationships: [
           {
@@ -1363,6 +1448,180 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_capture_forms: {
+        Row: {
+          created_at: string
+          created_by: string
+          default_owner_id: string | null
+          first_response_minutes: number
+          headline: string
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          public_token: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          default_owner_id?: string | null
+          first_response_minutes?: number
+          headline?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_id: string
+          public_token?: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          default_owner_id?: string | null
+          first_response_minutes?: number
+          headline?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_id?: string
+          public_token?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_capture_forms_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_capture_forms_organization_id_default_owner_id_fkey"
+            columns: ["organization_id", "default_owner_id"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "lead_capture_forms_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_submissions: {
+        Row: {
+          budget_amount: number | null
+          communication_consent: boolean
+          contact_id: string | null
+          created_at: string
+          currency: string
+          deal_id: string | null
+          dedupe_key: string
+          destination: string | null
+          email: string | null
+          full_name: string
+          id: string
+          landing_path: string | null
+          lead_capture_form_id: string
+          notes: string | null
+          organization_id: string
+          phone: string | null
+          referrer_host: string | null
+          status: string
+          submitted_on: string
+          updated_at: string
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+        }
+        Insert: {
+          budget_amount?: number | null
+          communication_consent?: boolean
+          contact_id?: string | null
+          created_at?: string
+          currency?: string
+          deal_id?: string | null
+          dedupe_key: string
+          destination?: string | null
+          email?: string | null
+          full_name: string
+          id?: string
+          landing_path?: string | null
+          lead_capture_form_id: string
+          notes?: string | null
+          organization_id: string
+          phone?: string | null
+          referrer_host?: string | null
+          status?: string
+          submitted_on?: string
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Update: {
+          budget_amount?: number | null
+          communication_consent?: boolean
+          contact_id?: string | null
+          created_at?: string
+          currency?: string
+          deal_id?: string | null
+          dedupe_key?: string
+          destination?: string | null
+          email?: string | null
+          full_name?: string
+          id?: string
+          landing_path?: string | null
+          lead_capture_form_id?: string
+          notes?: string | null
+          organization_id?: string
+          phone?: string | null
+          referrer_host?: string | null
+          status?: string
+          submitted_on?: string
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_submissions_organization_id_contact_id_fkey"
+            columns: ["organization_id", "contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "lead_submissions_organization_id_deal_id_fkey"
+            columns: ["organization_id", "deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "lead_submissions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_submissions_organization_id_lead_capture_form_id_fkey"
+            columns: ["organization_id", "lead_capture_form_id"]
+            isOneToOne: false
+            referencedRelation: "lead_capture_forms"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -2316,6 +2575,49 @@ export type Database = {
           organization_name: string
         }[]
       }
+      acknowledge_lead_response: {
+        Args: { target_deal_id: string; target_organization_id: string }
+        Returns: {
+          archived_at: string | null
+          contact_id: string | null
+          created_at: string
+          currency: string
+          destination: string | null
+          expected_close_at: string | null
+          first_responded_at: string | null
+          first_response_due_at: string | null
+          follow_up_due_at: string | null
+          id: string
+          last_activity_at: string | null
+          lost_at: string | null
+          lost_reason: string | null
+          next_step: string | null
+          notes: string | null
+          organization_id: string
+          owner_id: string | null
+          probability: number
+          qualified_at: string | null
+          sla_escalated_at: string | null
+          sla_escalation_level: number
+          source: string | null
+          source_campaign: string | null
+          stage: Database["public"]["Enums"]["deal_stage"]
+          stage_entered_at: string
+          title: string
+          travel_end: string | null
+          travel_start: string | null
+          traveller_count: number | null
+          updated_at: string
+          value_amount: number | null
+          won_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deals"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       append_itinerary_item: {
         Args: {
           target_day_number: number
@@ -2357,6 +2659,32 @@ export type Database = {
         }
         Returns: {
           quote_version: number
+        }[]
+      }
+      capture_public_lead: {
+        Args: {
+          target_budget_amount: number
+          target_communication_consent: boolean
+          target_currency: string
+          target_dedupe_key: string
+          target_destination: string
+          target_email: string
+          target_form_token: string
+          target_full_name: string
+          target_landing_path: string
+          target_notes: string
+          target_phone: string
+          target_referrer_host: string
+          target_request_fingerprint: string
+          target_utm_campaign: string
+          target_utm_medium: string
+          target_utm_source: string
+        }
+        Returns: {
+          contact_id: string
+          deal_id: string
+          duplicate: boolean
+          submission_id: string
         }[]
       }
       claim_ai_job: {
@@ -2428,6 +2756,38 @@ export type Database = {
           surviving_contact_id: string
         }[]
       }
+      record_travel_document: {
+        Args: {
+          target_byte_size: number
+          target_contact_id: string
+          target_deal_id: string
+          target_document_id: string
+          target_file_name: string
+          target_mime_type: string
+          target_organization_id: string
+          target_storage_path: string
+        }
+        Returns: {
+          byte_size: number
+          contact_id: string | null
+          created_at: string
+          expires_at: string | null
+          file_name: string
+          id: string
+          mime_type: string
+          organization_id: string
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          storage_path: string
+          trip_id: string | null
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       requeue_ai_job: {
         Args: { target_job_id: string }
         Returns: {
@@ -2469,6 +2829,54 @@ export type Database = {
       shares_active_organization: {
         Args: { target_user_id: string }
         Returns: boolean
+      }
+      transition_deal_stage: {
+        Args: {
+          target_deal_id: string
+          target_lost_reason?: string
+          target_organization_id: string
+          target_stage: Database["public"]["Enums"]["deal_stage"]
+        }
+        Returns: {
+          archived_at: string | null
+          contact_id: string | null
+          created_at: string
+          currency: string
+          destination: string | null
+          expected_close_at: string | null
+          first_responded_at: string | null
+          first_response_due_at: string | null
+          follow_up_due_at: string | null
+          id: string
+          last_activity_at: string | null
+          lost_at: string | null
+          lost_reason: string | null
+          next_step: string | null
+          notes: string | null
+          organization_id: string
+          owner_id: string | null
+          probability: number
+          qualified_at: string | null
+          sla_escalated_at: string | null
+          sla_escalation_level: number
+          source: string | null
+          source_campaign: string | null
+          stage: Database["public"]["Enums"]["deal_stage"]
+          stage_entered_at: string
+          title: string
+          travel_end: string | null
+          travel_start: string | null
+          traveller_count: number | null
+          updated_at: string
+          value_amount: number | null
+          won_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deals"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
     }
     Enums: {

@@ -8,6 +8,30 @@ const scriptSources = [
   ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
 ].join(" ");
 
+function configuredSupabaseSource() {
+  const value = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const loopback =
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "[::1]";
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+      return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+const supabaseSource = configuredSupabaseSource();
+const connectSources = [
+  "'self'",
+  "https://*.supabase.co",
+  ...(supabaseSource ? [supabaseSource] : []),
+].join(" ");
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -18,11 +42,16 @@ const contentSecurityPolicy = [
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   `script-src ${scriptSources}`,
-  "connect-src 'self' https://*.supabase.co",
+  `connect-src ${connectSources}`,
 ].join("; ");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "16mb",
+    },
+  },
   async headers() {
     return [
       {

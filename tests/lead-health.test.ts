@@ -12,3 +12,21 @@ test("lead health flags a passed expected-close date", () => {
   assert.equal(health.severity, "watch");
   assert.deepEqual(health.reasons, ["Expected close date passed"]);
 });
+
+test("lead health makes a missed first-response SLA critical", () => {
+  const health = assessLeadHealth(
+    {
+      id: "lead-3",
+      name: "Maldives honeymoon",
+      ownerId: "owner-1",
+      nextStep: "Call traveller",
+      lastActivityAt: "2026-07-24T11:58:00.000Z",
+      expectedCloseAt: null,
+      firstResponseDueAt: "2026-07-24T11:59:00.000Z",
+      firstRespondedAt: null,
+    },
+    new Date("2026-07-24T12:00:00.000Z"),
+  );
+  assert.equal(health.severity, "critical");
+  assert.deepEqual(health.reasons, ["First response overdue"]);
+});

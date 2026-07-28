@@ -3,6 +3,8 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const { createClient } = require("@supabase/supabase-js");
 
+let activeVerificationPhase = "startup";
+
 function loadLocalEnv() {
   const localEnv = {};
   if (fs.existsSync(".env.local")) {
@@ -50,6 +52,7 @@ async function verifyAuthorization() {
   }
 
   try {
+    activeVerificationPhase = "creating temporary identities";
     const createdUsers = [];
     for (const label of ["owner", "viewer"]) {
       const { data, error } = await admin.auth.admin.createUser({
@@ -59,11 +62,18 @@ async function verifyAuthorization() {
         user_metadata: { full_name: `Authorization ${label}` },
       });
       if (error || !data.user)
-        throw error ?? new Error("Temporary authorization user was not created.");
+        throw new Error(
+          `Temporary authorization user was not created: ${JSON.stringify({
+            status: error?.status ?? null,
+            code: error?.code ?? null,
+            message: error?.message ?? null,
+          })}`,
+        );
       createdUsers.push(data.user);
       userIds.push(data.user.id);
     }
 
+    activeVerificationPhase = "creating temporary organizations";
     const { data: organizations, error: organizationError } = await admin
       .from("organizations")
       .insert([
@@ -84,6 +94,7 @@ async function verifyAuthorization() {
     if (!organizationA || !organizationB)
       throw new Error("Temporary organizations could not be identified.");
     const [ownerUser, viewerUser] = createdUsers;
+    activeVerificationPhase = "creating temporary memberships";
     const { data: memberships, error: membershipError } = await admin
       .from("memberships")
       .insert([
@@ -104,6 +115,7 @@ async function verifyAuthorization() {
     if (membershipError || memberships?.length !== 2)
       throw membershipError ?? new Error("Temporary memberships were not created.");
 
+    activeVerificationPhase = "creating temporary contacts";
     const { data: contacts, error: contactError } = await admin
       .from("contacts")
       .insert([
@@ -128,6 +140,7 @@ async function verifyAuthorization() {
     if (!alphaContact || !betaContact)
       throw new Error("Temporary contacts could not be identified.");
 
+    activeVerificationPhase = "creating temporary conversations";
     const { data: conversations, error: conversationError } = await admin
       .from("conversations")
       .insert([
@@ -157,6 +170,7 @@ async function verifyAuthorization() {
     if (!alphaConversation || !betaConversation)
       throw new Error("Temporary conversations could not be identified.");
 
+    activeVerificationPhase = "signing in temporary users";
     const owner = client(url, publishableKey);
     const viewer = client(url, publishableKey);
     const [{ error: ownerSignInError }, { error: viewerSignInError }] =
@@ -172,6 +186,7 @@ async function verifyAuthorization() {
       ]);
     if (ownerSignInError || viewerSignInError)
       throw ownerSignInError ?? viewerSignInError;
+    activeVerificationPhase = "core tenant authorization";
 
     const [
       ownerOrganizations,
@@ -288,6 +303,196 @@ async function verifyAuthorization() {
       Boolean(ownerForeignDealOwner.error),
     );
 
+    activeVerificationPhase = "governed CRM authorization";
+    const { data: governedDeal, error: governedDealError } = await owner
+      .from("deals")
+      .insert({
+        organization_id: organizationA.id,
+        contact_id: alphaContact.id,
+        owner_id: ownerUser.id,
+        title: "Governed pipeline fixture",
+        destination: "Kyoto",
+        probability: 30,
+        value_amount: 450000,
+        currency: "INR",
+        next_step: "Present a qualified itinerary",
+        expected_close_at: "2026-08-31",
+      })
+      .select("id")
+      .single();
+    if (governedDealError || !governedDeal)
+      throw governedDealError ??
+        new Error("Governed opportunity fixture was not created.");
+
+    const directStageMutation = await owner
+      .from("deals")
+      .update({ stage: "qualified" })
+      .eq("id", governedDeal.id)
+      .select("id");
+    record(
+      "direct browser writes cannot bypass governed stage transitions",
+      Boolean(directStageMutation.error),
+    );
+
+    const governedTransition = await owner.rpc("transition_deal_stage", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_stage: "qualified",
+      target_lost_reason: null,
+    });
+    record(
+      "authorized owner can execute a valid atomic stage transition",
+      !governedTransition.error &&
+        governedTransition.data?.length === 1 &&
+        governedTransition.data[0].stage === "qualified",
+    );
+
+    const [ownerStageHistory, viewerForeignStageHistory] = await Promise.all([
+      owner
+        .from("deal_stage_history")
+        .select("from_stage, to_stage")
+        .eq("deal_id", governedDeal.id),
+      viewer
+        .from("deal_stage_history")
+        .select("id")
+        .eq("deal_id", governedDeal.id),
+    ]);
+    record(
+      "governed transitions preserve append-only stage history",
+      !ownerStageHistory.error &&
+        (ownerStageHistory.data?.length ?? 0) === 2,
+    );
+    record(
+      "foreign tenants cannot read stage history",
+      !viewerForeignStageHistory.error &&
+        viewerForeignStageHistory.data?.length === 0,
+    );
+
+    const forgedDocumentId = randomUUID();
+    const forgedDocumentRecord = await owner.rpc("record_travel_document", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_contact_id: alphaContact.id,
+      target_document_id: forgedDocumentId,
+      target_storage_path: `${organizationA.id}/${forgedDocumentId}/missing.pdf`,
+      target_file_name: "missing.pdf",
+      target_mime_type: "application/pdf",
+      target_byte_size: 10,
+    });
+    record(
+      "document metadata cannot be forged without a private storage object",
+      Boolean(forgedDocumentRecord.error),
+    );
+
+    const { data: leadForm, error: leadFormError } = await owner
+      .from("lead_capture_forms")
+      .insert({
+        organization_id: organizationA.id,
+        name: "Authorization capture fixture",
+        headline: "Plan an authorization-safe journey",
+        source: "Authz website",
+        default_owner_id: ownerUser.id,
+        first_response_minutes: 15,
+        created_by: ownerUser.id,
+      })
+      .select("id, public_token")
+      .single();
+    record(
+      "commercial managers can create tenant-owned lead forms",
+      !leadFormError && Boolean(leadForm?.id),
+    );
+    if (leadFormError || !leadForm)
+      throw leadFormError ?? new Error("Lead capture fixture was not created.");
+
+    const viewerLeadForm = await viewer.from("lead_capture_forms").insert({
+      organization_id: organizationB.id,
+      name: "Blocked viewer capture form",
+      headline: "This viewer form must be rejected",
+      source: "Blocked",
+      first_response_minutes: 15,
+      created_by: viewerUser.id,
+    });
+    record(
+      "viewers cannot create lead capture forms",
+      Boolean(viewerLeadForm.error),
+    );
+
+    const browserCaptureAttempt = await owner.rpc("capture_public_lead", {
+      target_form_token: leadForm.public_token,
+      target_full_name: "Blocked browser capture",
+      target_email: `blocked-browser-${suffix}@stateai.invalid`,
+      target_phone: null,
+      target_destination: "Kyoto",
+      target_budget_amount: 250000,
+      target_currency: "INR",
+      target_notes: null,
+      target_communication_consent: false,
+      target_utm_source: "authz",
+      target_utm_medium: null,
+      target_utm_campaign: null,
+      target_landing_path: "/lead/authz",
+      target_referrer_host: null,
+      target_dedupe_key: randomBytes(32).toString("hex"),
+      target_request_fingerprint: randomBytes(32).toString("hex"),
+    });
+    record(
+      "authenticated browsers cannot invoke the public capture writer",
+      Boolean(browserCaptureAttempt.error),
+    );
+
+    const serverCapture = await admin.rpc("capture_public_lead", {
+      target_form_token: leadForm.public_token,
+      target_full_name: "Captured traveller",
+      target_email: `captured-${suffix}@stateai.invalid`,
+      target_phone: null,
+      target_destination: "Kyoto",
+      target_budget_amount: 350000,
+      target_currency: "INR",
+      target_notes: "Authorization fixture",
+      target_communication_consent: true,
+      target_utm_source: "newsletter",
+      target_utm_medium: "email",
+      target_utm_campaign: "authz",
+      target_landing_path: "/lead/authz",
+      target_referrer_host: "stateai.invalid",
+      target_dedupe_key: randomBytes(32).toString("hex"),
+      target_request_fingerprint: randomBytes(32).toString("hex"),
+    });
+    record(
+      "server-only capture atomically creates an attributed opportunity",
+      !serverCapture.error &&
+        serverCapture.data?.length === 1 &&
+        serverCapture.data[0].duplicate === false &&
+        Boolean(serverCapture.data[0].deal_id),
+      serverCapture.error?.message ??
+        JSON.stringify({ data: serverCapture.data ?? null }),
+    );
+
+    const [ownerSubmissions, viewerForeignSubmissions] = await Promise.all([
+      owner
+        .from("lead_submissions")
+        .select("id, status, deal_id")
+        .eq("lead_capture_form_id", leadForm.id),
+      viewer
+        .from("lead_submissions")
+        .select("id")
+        .eq("lead_capture_form_id", leadForm.id),
+    ]);
+    record(
+      "tenant members can inspect converted lead submissions",
+      !ownerSubmissions.error &&
+        ownerSubmissions.data?.length === 1 &&
+        ownerSubmissions.data[0].status === "converted",
+      ownerSubmissions.error?.message ??
+        JSON.stringify({ rows: ownerSubmissions.data?.length ?? 0 }),
+    );
+    record(
+      "foreign tenants cannot inspect lead submissions",
+      !viewerForeignSubmissions.error &&
+        viewerForeignSubmissions.data?.length === 0,
+    );
+
+    activeVerificationPhase = "existing product authorization";
     const ownerForeignConversationAssignee = await owner
       .from("conversations")
       .insert({
@@ -1500,6 +1705,17 @@ async function verifyAuthorization() {
 }
 
 verifyAuthorization().catch((error) => {
-  console.error(error.message || "Authenticated authorization verification failed.");
+  console.error(
+    JSON.stringify({
+      phase: activeVerificationPhase,
+      error:
+        typeof error?.message === "string"
+          ? error.message
+          : "Authenticated authorization verification failed.",
+      code: error?.code ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null,
+    }),
+  );
   process.exitCode = 1;
 });

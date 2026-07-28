@@ -47,6 +47,10 @@ type Lead = {
   ownerId: string | null;
   lastActivityAt: string | null;
   expectedCloseAt: string | null;
+  firstResponseDueAt: string | null;
+  firstRespondedAt: string | null;
+  followUpDueAt: string | null;
+  slaEscalationLevel: number;
   accent: string;
 };
 type SearchResult = {
@@ -144,6 +148,10 @@ function leadFromDeal(deal: LiveDeal, index = 0): Lead {
     ownerId: deal.owner_id,
     lastActivityAt: deal.last_activity_at,
     expectedCloseAt: deal.expected_close_at,
+    firstResponseDueAt: deal.first_response_due_at,
+    firstRespondedAt: deal.first_responded_at,
+    followUpDueAt: deal.follow_up_due_at,
+    slaEscalationLevel: deal.sla_escalation_level,
     accent: accents[index % accents.length],
   };
 }
@@ -801,6 +809,14 @@ export default function Home() {
             <span className="nav-glyph">I</span>
             <span>Itinerary Studio</span>
           </a>
+          <a className="nav-link" href="/analytics">
+            <span className="nav-glyph">↗</span>
+            <span>Revenue analytics</span>
+          </a>
+          <a className="nav-link" href="/settings/lead-capture">
+            <span className="nav-glyph">+</span>
+            <span>Lead capture</span>
+          </a>
           <a className="nav-link" href="/aios">
             <span className="nav-glyph">✦</span>
             <span>AIOS Control</span>
@@ -1024,8 +1040,8 @@ export default function Home() {
                       <span>
                         <strong>Lead pipeline is live</strong>
                         <small>
-                          Every new lead is written through a server-authorized
-                          path.
+                          Governed forms turn attributed requests into response
+                          deadlines and deduplicated opportunities.
                         </small>
                       </span>
                     </button>
@@ -1299,9 +1315,9 @@ export default function Home() {
           <span aria-hidden="true">A</span>
           AIOS
         </Link>
-        <Link href="/settings/team">
-          <span aria-hidden="true">M</span>
-          Team
+        <Link href="/analytics">
+          <span aria-hidden="true">↗</span>
+          Analytics
         </Link>
       </nav>
       {toast && (

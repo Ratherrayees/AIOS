@@ -35,6 +35,7 @@ export async function updateSupabaseSession(request: NextRequest) {
     pathname === "/sign-in" ||
     pathname === "/sign-up" ||
     pathname === "/forgot-password" ||
+    pathname.startsWith("/lead/") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/api/");
 
@@ -52,6 +53,7 @@ export async function updateSupabaseSession(request: NextRequest) {
   const isMfaExemptRoute =
     pathname === "/auth/mfa" ||
     pathname === "/auth/callback" ||
+    pathname.startsWith("/lead/") ||
     pathname === "/api/health" ||
     pathname === "/api/webhooks/resend";
   if (claims?.claims.sub && !isMfaExemptRoute) {
@@ -92,6 +94,9 @@ export async function updateSupabaseSession(request: NextRequest) {
     pathname.startsWith("/auth/mfa")
   ) {
     response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  }
+  if (pathname.startsWith("/lead/")) {
+    response.headers.set("Cache-Control", "no-store, max-age=0");
   }
 
   return response;

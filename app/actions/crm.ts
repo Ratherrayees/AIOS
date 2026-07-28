@@ -21,7 +21,11 @@ import {
   dealInputSchema,
   dealCommercialPlanUpdateSchema,
   dealOwnerUpdateSchema,
+  dealResponseInputSchema,
   dealStageUpdateSchema,
+  leadCaptureFormInputSchema,
+  leadCaptureFormStatusUpdateSchema,
+  travelDocumentUploadSchema,
   taskInputSchema,
   taskAssigneeUpdateSchema,
   taskStatusUpdateSchema,
@@ -54,7 +58,11 @@ import {
   type DealInput,
   type DealCommercialPlanUpdateInput,
   type DealOwnerUpdateInput,
+  type DealResponseInput,
   type DealStageUpdateInput,
+  type LeadCaptureFormInput,
+  type LeadCaptureFormStatusUpdateInput,
+  type TravelDocumentUploadInput,
   type TaskInput,
   type TaskAssigneeUpdateInput,
   type TaskStatusUpdateInput,
@@ -74,6 +82,14 @@ import {
   type MessageTemplateStatusUpdateInput,
 } from "../../lib/crm/schemas";
 import { gateAiosAction } from "./aios";
+import {
+  matchesTravelDocumentSignature,
+  MAX_TRAVEL_DOCUMENT_BYTES,
+  TRAVEL_DOCUMENT_MIME_TYPES,
+  travelDocumentDisplayName,
+  travelDocumentStorageName,
+} from "../../lib/crm/travel-documents";
+import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 const CRM_WRITE_ROLES = [
@@ -93,6 +109,13 @@ const TASK_WRITE_ROLES = [
   "trip_designer",
   "operations",
   "finance",
+  "agent",
+] as const;
+const DOCUMENT_WRITE_ROLES = [
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
   "agent",
 ] as const;
 
@@ -859,6 +882,7 @@ export async function createDeal(input: DealInput) {
       value_amount: data.valueAmount ?? null,
       currency: data.currency,
       source: data.source ?? null,
+      source_campaign: data.sourceCampaign ?? null,
       destination: data.destination ?? null,
       probability: data.probability,
       next_step: data.nextStep ?? null,
@@ -883,6 +907,86 @@ export async function createDeal(input: DealInput) {
     metadata: { event: "deal.created", stage: deal.stage },
   });
   return deal;
+}
+
+/**
+ * Stores a private traveller document and its tenant-scoped database record.
+ * Browser clients never receive the service-role key and cannot overwrite or
+ * delete objects from the travel-document bucket.
+ */
+export async function uploadTravelDocument(
+  input: TravelDocumentUploadInput,
+  formData: FormData,
+) {
+  const data = travelDocumentUploadSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DOCUMENT_WRITE_ROLES);
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0)
+    throw new Error("Choose a travel document to upload.");
+  if (file.size > MAX_TRAVEL_DOCUMENT_BYTES)
+    throw new Error("Travel documents must be 15 MB or smaller.");
+  if (!TRAVEL_DOCUMENT_MIME_TYPES.has(file.type))
+    throw new Error(
+      "Upload a PDF, JPEG, PNG, WebP, HEIC, or HEIF travel document.",
+    );
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  if (!matchesTravelDocumentSignature(file.type, fileBytes))
+    throw new Error(
+      "The file contents do not match the selected travel-document format.",
+    );
+
+  const supabase = await createSupabaseServerClient();
+  const [{ data: claims }, { data: deal, error: dealError }] =
+    await Promise.all([
+      supabase.auth.getClaims(),
+      supabase
+        .from("deals")
+        .select("id, contact_id")
+        .eq("id", data.dealId)
+        .eq("organization_id", data.organizationId)
+        .maybeSingle(),
+    ]);
+  const actorId = claims?.claims.sub;
+  if (!actorId) throw new Error("Sign in is required.");
+  if (dealError || !deal || deal.contact_id !== data.contactId)
+    throw new Error(
+      "This traveller is not linked to the selected opportunity.",
+    );
+
+  const documentId = crypto.randomUUID();
+  const fileName = travelDocumentDisplayName(file.name);
+  const storagePath = `${data.organizationId}/${documentId}/${travelDocumentStorageName(fileName)}`;
+  const { error: uploadError } = await supabase.storage
+    .from("travel-documents")
+    .upload(storagePath, fileBytes, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false,
+    });
+  if (uploadError)
+    throw new Error(
+      `The private document could not be stored: ${uploadError.message}`,
+    );
+
+  const { data: document, error: documentError } = await supabase
+    .rpc("record_travel_document", {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+      target_contact_id: data.contactId,
+      target_document_id: documentId,
+      target_storage_path: storagePath,
+      target_file_name: fileName,
+      target_mime_type: file.type,
+      target_byte_size: file.size,
+    });
+
+  if (documentError || !document) {
+    const admin = createSupabaseAdminClient();
+    await admin.storage.from("travel-documents").remove([storagePath]);
+    throw new Error("The document record could not be created.");
+  }
+  return document;
 }
 
 export async function createTask(input: TaskInput) {
@@ -1015,39 +1119,110 @@ export async function updateDealStage(input: DealStageUpdateInput) {
   const data = dealStageUpdateSchema.parse(input);
   await requireOrganizationRole(data.organizationId, DEAL_WRITE_ROLES);
   const supabase = await createSupabaseServerClient();
-  const stageUpdatedAt = new Date().toISOString();
   const { data: deal, error } = await supabase
-    .from("deals")
-    .update({
-      stage: data.stage,
-      last_activity_at: stageUpdatedAt,
-      ...(data.stage === "qualified" ? { qualified_at: stageUpdatedAt } : {}),
-      ...(data.stage === "lost" ? { lost_reason: data.lostReason } : {}),
+    .rpc("transition_deal_stage", {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+      target_stage: data.stage,
+      target_lost_reason: data.lostReason ?? null,
     })
-    .eq("id", data.dealId)
-    .eq("organization_id", data.organizationId)
+    .single();
+  if (error || !deal)
+    throw new Error(error?.message || "The opportunity stage was not updated.");
+  return deal;
+}
+
+/** Records a human response and clears any open first-response escalation. */
+export async function acknowledgeLeadResponse(input: DealResponseInput) {
+  const data = dealResponseInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DEAL_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: deal, error } = await supabase
+    .rpc("acknowledge_lead_response", {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+    })
+    .single();
+  if (error || !deal)
+    throw new Error(error?.message || "The lead response was not recorded.");
+  return deal;
+}
+
+/** Creates a tenant-owned public capture endpoint without exposing table writes. */
+export async function createLeadCaptureForm(input: LeadCaptureFormInput) {
+  const data = leadCaptureFormInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "sales",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  await assertActiveOrganizationMember(
+    supabase,
+    data.organizationId,
+    data.defaultOwnerId,
+  );
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const userId = claims?.claims.sub;
+  if (claimsError || !userId) throw new Error("Sign in is required.");
+  const { data: form, error } = await supabase
+    .from("lead_capture_forms")
+    .insert({
+      organization_id: data.organizationId,
+      name: data.name,
+      headline: data.headline,
+      source: data.source,
+      default_owner_id: data.defaultOwnerId,
+      first_response_minutes: data.firstResponseMinutes,
+      created_by: userId,
+    })
     .select()
     .single();
-  if (error) throw error;
-  await supabase.from("activity_events").insert({
-    organization_id: data.organizationId,
-    deal_id: deal.id,
-    activity_type: "deal_stage_changed",
-    body: `Deal moved to ${deal.stage}.`,
-    metadata: { stage: deal.stage },
+  if (error) throw new Error(error.message);
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "lead_capture_form",
+    entityId: form.id,
+    metadata: {
+      event: "lead_capture_form.created",
+      first_response_minutes: form.first_response_minutes,
+    },
   });
+  return form;
+}
+
+/** Pauses or resumes a public form without deleting its submission history. */
+export async function updateLeadCaptureFormStatus(
+  input: LeadCaptureFormStatusUpdateInput,
+) {
+  const data = leadCaptureFormStatusUpdateSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "sales",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: form, error } = await supabase
+    .from("lead_capture_forms")
+    .update({ is_active: data.isActive })
+    .eq("id", data.formId)
+    .eq("organization_id", data.organizationId)
+    .select()
+    .maybeSingle();
+  if (error || !form)
+    throw new Error(error?.message || "That lead capture form is unavailable.");
   await recordAuditEvent({
     organizationId: data.organizationId,
     eventType: "record.updated",
-    entityType: "deal",
-    entityId: deal.id,
+    entityType: "lead_capture_form",
+    entityId: form.id,
     metadata: {
-      event: "deal.stage_updated",
-      stage: deal.stage,
-      ...(data.stage === "lost" ? { lost_reason: data.lostReason } : {}),
+      event: "lead_capture_form.status_updated",
+      is_active: form.is_active,
     },
   });
-  return deal;
+  return form;
 }
 
 /** Assigns an opportunity only to an active member of the current organization. */
@@ -1090,8 +1265,11 @@ export async function updateDealCommercialPlan(
     .from("deals")
     .update({
       probability: data.probability,
+      value_amount: data.valueAmount,
+      destination: data.destination,
       next_step: data.nextStep,
       expected_close_at: data.expectedCloseAt,
+      follow_up_due_at: data.followUpDueAt,
       last_activity_at: updatedAt,
     })
     .eq("id", data.dealId)
@@ -1108,7 +1286,10 @@ export async function updateDealCommercialPlan(
       body: "Commercial plan updated.",
       metadata: {
         probability: deal.probability,
+        value_amount: deal.value_amount,
+        destination: deal.destination,
         expected_close_at: deal.expected_close_at,
+        follow_up_due_at: deal.follow_up_due_at,
       },
     });
   if (activityError) throw activityError;
@@ -1120,7 +1301,10 @@ export async function updateDealCommercialPlan(
     metadata: {
       event: "deal.commercial_plan_updated",
       probability: deal.probability,
+      value_amount: deal.value_amount,
+      destination: deal.destination,
       expected_close_at: deal.expected_close_at,
+      follow_up_due_at: deal.follow_up_due_at,
     },
   });
   return deal;

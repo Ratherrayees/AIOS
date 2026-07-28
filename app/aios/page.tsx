@@ -562,7 +562,7 @@ export default function AiosControlPage() {
         setRunNotice(
           result.status === "completed"
             ? result.risks
-              ? `AIOS triage checked ${result.risks} at-risk lead${result.risks === 1 ? "" : "s"}: ${result.created} follow-up${result.created === 1 ? "" : "s"} created, ${result.skipped} already covered.`
+              ? `AIOS triage checked ${result.risks} at-risk lead${result.risks === 1 ? "" : "s"}: ${result.created} follow-up${result.created === 1 ? "" : "s"} created, ${result.escalated} advanced to a higher SLA tier, ${result.skipped} already covered.`
               : "AIOS triage found no at-risk live opportunities."
             : result.status === "approval_required"
               ? "AIOS triage has been routed to a human approver."

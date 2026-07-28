@@ -82,6 +82,7 @@ export const savedViewFeatureSchema = z.enum([
   "tasks",
   "inbox",
   "leads",
+  "analytics",
 ]);
 
 const savedViewBaseSchema = z.object({
@@ -126,6 +127,14 @@ export const savedViewInputSchema = z.discriminatedUnion("feature", [
       ]),
       ownerId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
       attention: z.enum(["all", "attention", "healthy"]),
+    }),
+  }),
+  savedViewBaseSchema.extend({
+    feature: z.literal("analytics"),
+    filters: z.object({
+      range: z.enum(["30d", "90d", "365d", "all"]),
+      source: z.string().trim().min(1).max(120),
+      ownerId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
     }),
   }),
 ]);
@@ -301,6 +310,7 @@ export const dealInputSchema = z.object({
     .regex(/^[A-Z]{3}$/)
     .default("INR"),
   source: z.string().trim().min(1).max(120).nullable().optional(),
+  sourceCampaign: z.string().trim().min(1).max(120).nullable().optional(),
   destination: z.string().trim().min(1).max(180).nullable().optional(),
   probability: z.number().int().min(0).max(100).default(10),
   nextStep: z.string().trim().min(1).max(500).nullable().optional(),
@@ -355,8 +365,37 @@ export const dealCommercialPlanUpdateSchema = z.object({
   organizationId: z.uuid(),
   dealId: z.uuid(),
   probability: z.number().int().min(0).max(100),
+  valueAmount: z.number().nonnegative().finite().nullable(),
+  destination: z.string().trim().min(1).max(180).nullable(),
   nextStep: z.string().trim().min(1).max(500).nullable(),
   expectedCloseAt: z.iso.date().nullable(),
+  followUpDueAt: z.iso.datetime().nullable(),
+});
+
+export const dealResponseInputSchema = z.object({
+  organizationId: z.uuid(),
+  dealId: z.uuid(),
+});
+
+export const travelDocumentUploadSchema = z.object({
+  organizationId: z.uuid(),
+  dealId: z.uuid(),
+  contactId: z.uuid(),
+});
+
+export const leadCaptureFormInputSchema = z.object({
+  organizationId: z.uuid(),
+  name: z.string().trim().min(2).max(80),
+  headline: z.string().trim().min(3).max(140),
+  source: z.string().trim().min(1).max(120),
+  defaultOwnerId: z.uuid().nullable(),
+  firstResponseMinutes: z.number().int().min(5).max(1440),
+});
+
+export const leadCaptureFormStatusUpdateSchema = z.object({
+  organizationId: z.uuid(),
+  formId: z.uuid(),
+  isActive: z.boolean(),
 });
 
 export const quoteDraftInputSchema = z.object({
@@ -485,6 +524,14 @@ export type DealStageUpdateInput = z.infer<typeof dealStageUpdateSchema>;
 export type DealOwnerUpdateInput = z.infer<typeof dealOwnerUpdateSchema>;
 export type DealCommercialPlanUpdateInput = z.infer<
   typeof dealCommercialPlanUpdateSchema
+>;
+export type DealResponseInput = z.infer<typeof dealResponseInputSchema>;
+export type TravelDocumentUploadInput = z.infer<
+  typeof travelDocumentUploadSchema
+>;
+export type LeadCaptureFormInput = z.infer<typeof leadCaptureFormInputSchema>;
+export type LeadCaptureFormStatusUpdateInput = z.infer<
+  typeof leadCaptureFormStatusUpdateSchema
 >;
 export type QuoteDraftInput = z.infer<typeof quoteDraftInputSchema>;
 export type QuoteRevisionInput = z.infer<typeof quoteRevisionInputSchema>;

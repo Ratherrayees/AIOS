@@ -24,6 +24,7 @@ import {
   inspectLeadIntakeInput,
 } from "../../lib/ai/input-safety";
 import { assessLeadHealth } from "../../lib/crm/lead-health";
+import { assessLeadSla } from "../../lib/crm/lead-sla";
 import { assessItineraryReadiness } from "../../lib/crm/itinerary-readiness";
 import {
   inboxSlaEscalationLevel,
@@ -422,6 +423,7 @@ export async function getLatestItineraryDrafts(
 
 type TriageResult = {
   created: number;
+  escalated: number;
   skipped: number;
   risks: number;
 };
@@ -430,16 +432,39 @@ async function performAtRiskLeadTriage(
   organizationId: string,
 ): Promise<TriageResult> {
   const supabase = await createSupabaseServerClient();
-  const { data: deals, error } = await supabase
-    .from("deals")
-    .select(
-      "id, title, owner_id, next_step, last_activity_at, expected_close_at",
-    )
-    .eq("organization_id", organizationId)
-    .is("archived_at", null)
-    .not("stage", "in", "(won,lost)")
-    .limit(100);
-  if (error) throw error;
+  const [
+    { data: deals, error },
+    { data: escalationMembers, error: memberError },
+    { data: openTriageTasks, error: taskLoadError },
+  ] = await Promise.all([
+    supabase
+      .from("deals")
+      .select(
+        "id, title, owner_id, next_step, last_activity_at, expected_close_at, first_response_due_at, first_responded_at, follow_up_due_at, sla_escalation_level",
+      )
+      .eq("organization_id", organizationId)
+      .is("archived_at", null)
+      .not("stage", "in", "(won,lost)")
+      .limit(100),
+    supabase
+      .from("memberships")
+      .select("user_id, role")
+      .eq("organization_id", organizationId)
+      .eq("status", "active")
+      .in("role", ["owner", "admin"])
+      .order("created_at", { ascending: true })
+      .limit(10),
+    supabase
+      .from("tasks")
+      .select("id, deal_id, title")
+      .eq("organization_id", organizationId)
+      .in("status", ["open", "in_progress"])
+      .like("title", "AIOS triage:%")
+      .not("deal_id", "is", null)
+      .limit(200),
+  ]);
+  if (error || memberError || taskLoadError)
+    throw error || memberError || taskLoadError;
 
   const atRisk = (deals || [])
     .map((deal) => ({
@@ -451,26 +476,59 @@ async function performAtRiskLeadTriage(
         nextStep: deal.next_step,
         lastActivityAt: deal.last_activity_at,
         expectedCloseAt: deal.expected_close_at,
+        firstResponseDueAt: deal.first_response_due_at,
+        firstRespondedAt: deal.first_responded_at,
+        followUpDueAt: deal.follow_up_due_at,
+      }),
+      sla: assessLeadSla({
+        firstResponseDueAt: deal.first_response_due_at,
+        firstRespondedAt: deal.first_responded_at,
+        followUpDueAt: deal.follow_up_due_at,
       }),
     }))
     .filter(({ health }) => health.severity !== "healthy")
     .slice(0, 25);
   let created = 0;
+  let escalated = 0;
   let skipped = 0;
-  for (const { deal, health } of atRisk) {
+  const escalationOwnerId = escalationMembers?.[0]?.user_id ?? null;
+  const taskByDealId = new Map(
+    (openTriageTasks || []).map((task) => [task.deal_id, task]),
+  );
+  for (const { deal, health, sla } of atRisk) {
+    const existingTask = taskByDealId.get(deal.id);
+    const assigneeId =
+      sla.level >= 2 ? escalationOwnerId || deal.owner_id : deal.owner_id;
     const title =
-      `AIOS triage: resolve ${health.reasons.map((reason) => reason.toLowerCase()).join(", ")}`.slice(
+      `AIOS triage: ${sla.level ? `L${sla.level} · ` : ""}resolve ${health.reasons.map((reason) => reason.toLowerCase()).join(", ")}`.slice(
         0,
         500,
       );
-    const { data: task, error: taskError } = await supabase
-      .from("tasks")
-      .insert({
-        organization_id: organizationId,
-        deal_id: deal.id,
-        assignee_id: deal.owner_id,
-        title,
-      })
+    if (
+      existingTask &&
+      (!sla.level || deal.sla_escalation_level >= sla.level)
+    ) {
+      skipped += 1;
+      continue;
+    }
+    const taskMutation = existingTask
+      ? supabase
+          .from("tasks")
+          .update({
+            title,
+            assignee_id: assigneeId,
+            due_at: sla.dueAt,
+          })
+          .eq("id", existingTask.id)
+          .eq("organization_id", organizationId)
+      : supabase.from("tasks").insert({
+          organization_id: organizationId,
+          deal_id: deal.id,
+          assignee_id: assigneeId,
+          due_at: sla.dueAt,
+          title,
+        });
+    const { data: task, error: taskError } = await taskMutation
       .select("id, title")
       .maybeSingle();
     if (taskError?.code === "23505") {
@@ -479,15 +537,61 @@ async function performAtRiskLeadTriage(
     }
     if (taskError || !task)
       throw taskError || new Error("AIOS could not create a triage task.");
-    created += 1;
+    if (existingTask) escalated += 1;
+    else {
+      created += 1;
+      taskByDealId.set(deal.id, {
+        id: task.id,
+        deal_id: deal.id,
+        title: task.title,
+      });
+    }
+    if (sla.level > deal.sla_escalation_level) {
+      const escalatedAt = new Date().toISOString();
+      const { data: escalatedDeal, error: escalationError } = await supabase
+        .from("deals")
+        .update({
+          sla_escalation_level: sla.level,
+          sla_escalated_at: escalatedAt,
+        })
+        .eq("id", deal.id)
+        .eq("organization_id", organizationId)
+        .lt("sla_escalation_level", sla.level)
+        .select("id")
+        .maybeSingle();
+      if (escalationError) throw escalationError;
+      if (escalatedDeal) {
+        const { error: escalationActivityError } = await supabase
+          .from("activity_events")
+          .insert({
+            organization_id: organizationId,
+            deal_id: deal.id,
+            activity_type: "deal_sla_escalated",
+            body: `AIOS escalated the ${sla.kind === "first_response" ? "first-response" : "follow-up"} SLA to level ${sla.level}.`,
+            metadata: {
+              escalation_level: sla.level,
+              sla_kind: sla.kind,
+              due_at: sla.dueAt,
+              assigned_to: assigneeId,
+              task_id: task.id,
+            },
+          });
+        if (escalationActivityError) throw escalationActivityError;
+      }
+    }
     const { error: activityError } = await supabase
       .from("activity_events")
       .insert({
         organization_id: organizationId,
         deal_id: deal.id,
         activity_type: "task_created",
-        body: `AIOS triage created follow-up: ${task.title}`,
-        metadata: { risk_reasons: health.reasons },
+        body: `AIOS triage ${existingTask ? "escalated" : "created"} follow-up: ${task.title}`,
+        metadata: {
+          risk_reasons: health.reasons,
+          escalation_level: sla.level,
+          sla_kind: sla.kind,
+          assigned_to: assigneeId,
+        },
       });
     if (activityError) throw activityError;
     await recordAuditEvent({
@@ -496,13 +600,18 @@ async function performAtRiskLeadTriage(
       entityType: "task",
       entityId: task.id,
       metadata: {
-        event: "aios.lead_triage_task_created",
+        event: existingTask
+          ? "aios.lead_triage_task_escalated"
+          : "aios.lead_triage_task_created",
         deal_id: deal.id,
         risk_reasons: health.reasons,
+        escalation_level: sla.level,
+        sla_kind: sla.kind,
+        assigned_to: assigneeId,
       },
     });
   }
-  return { created, skipped, risks: atRisk.length };
+  return { created, escalated, skipped, risks: atRisk.length };
 }
 
 /** Scans a bounded set of live deals and creates deduplicated internal risk follow-ups. */

@@ -24,6 +24,7 @@ import {
   itineraryCommentInputSchema,
   itineraryTemplateApplyInputSchema,
   itineraryTemplateFromTripInputSchema,
+  leadCaptureFormInputSchema,
   messageDraftInputSchema,
   messageDraftUpdateSchema,
   messageTemplateInputSchema,
@@ -37,6 +38,7 @@ import {
   taskInputSchema,
   taskAssigneeUpdateSchema,
   taskStatusUpdateSchema,
+  travelDocumentUploadSchema,
 } from "../lib/crm/schemas";
 
 const organizationId = "11111111-1111-4111-8111-111111111111";
@@ -165,6 +167,19 @@ test("saved views validate feature-specific filters", () => {
         status: "pending",
         assigneeId: "all",
         sla: "due_soon",
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    savedViewInputSchema.safeParse({
+      organizationId: crypto.randomUUID(),
+      feature: "analytics",
+      name: "90-day website performance",
+      filters: {
+        range: "90d",
+        source: "Website",
+        ownerId: "all",
       },
     }).success,
     true,
@@ -480,10 +495,57 @@ test("commercial plans only accept a real calendar close date", () => {
     organizationId,
     dealId: "22222222-2222-4222-8222-222222222222",
     probability: 65,
+    valueAmount: 450000,
+    destination: "Kyoto",
     nextStep: "Present the revised family itinerary",
     expectedCloseAt: "2026-02-30",
+    followUpDueAt: "2026-08-01T10:00:00.000Z",
   });
   assert.equal(result.success, false);
+});
+
+test("lead capture forms enforce bounded response targets", () => {
+  assert.equal(
+    leadCaptureFormInputSchema.safeParse({
+      organizationId,
+      name: "StateAI website",
+      headline: "Plan an extraordinary journey",
+      source: "Website",
+      defaultOwnerId: null,
+      firstResponseMinutes: 15,
+    }).success,
+    true,
+  );
+  assert.equal(
+    leadCaptureFormInputSchema.safeParse({
+      organizationId,
+      name: "StateAI website",
+      headline: "Plan an extraordinary journey",
+      source: "Website",
+      defaultOwnerId: null,
+      firstResponseMinutes: 1,
+    }).success,
+    false,
+  );
+});
+
+test("travel document metadata must stay linked to real tenant records", () => {
+  assert.equal(
+    travelDocumentUploadSchema.safeParse({
+      organizationId,
+      dealId: crypto.randomUUID(),
+      contactId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    travelDocumentUploadSchema.safeParse({
+      organizationId,
+      dealId: "another-tenant-deal",
+      contactId: crypto.randomUUID(),
+    }).success,
+    false,
+  );
 });
 
 test("new opportunities retain a valid expected close date", () => {
