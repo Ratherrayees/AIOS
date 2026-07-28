@@ -31,20 +31,28 @@ The current repository contains a polished, working CRM foundation, Supabase aut
 
 ### Completion scorecard
 
-These percentages estimate implemented and verified product scope against each phase's exit gate; they are not claims that a phase is formally accepted. Overall implementation is approximately **61%**. Under the strict cross-phase rule requiring product-owner acceptance, no phase is formally closed yet.
+These percentages estimate implemented and verified product scope against each phase's exit gate; they are not claims that a phase is formally accepted. Overall implementation is approximately **62%**. Under the strict cross-phase rule requiring product-owner acceptance, no phase is formally closed yet.
 
 | Phase | Estimate | Phase | Estimate |
 | --- | ---: | --- | ---: |
 | 01 Product charter | 60% | 11 Sales copilot | 62% |
 | 02 Engineering baseline | 84% | 12 Quote workspace | 52% |
-| 03 Design system | 90% | 13 Itinerary studio | 68% |
+| 03 Design system | 96% | 13 Itinerary studio | 68% |
 | 04 Identity and tenancy | 80% | 14 Trip workspace/portal | 62% |
 | 05 Database and RLS | 96% | 15 Supplier and finance | 12% |
 | 06 Security and privacy | 76% | 16 Operations automation | 20% |
 | 07 CRM core | 96% | 17 Knowledge/RAG | 8% |
 | 08 Communication hub | 72% | 18 Intelligence/reporting | 30% |
-| 09 Lead pipeline | 99% | 19 QA/security review | 68% |
+| 09 Lead pipeline | 99% | 19 QA/security review | 70% |
 | 10 AIOS platform | 74% | 20 Pilot and launch | 5% |
+
+### Cross-phase UI/UX clarity sprint
+
+**Goal:** Make the operating model understandable before adding more portal, supplier, finance, and automation depth.
+
+**Delivered:** The workspace now uses one customer-journey model—Capture → Qualify → Propose → Operate—across the dashboard and every principal feature. Dashboard navigation is grouped by user intent into Today, Sales, Operations, Intelligence, and Administration. A first-run setup checklist leads owners through intake, qualification, AIOS authority, and team access. Every major feature now states why it exists, what the user should do next, what AIOS may do there, and whether the capability is live, internal-only, guided, planned, or approval-gated. A global field guide explains Contact vs Lead vs Trip, the customer lifecycle, autonomy modes, and non-bypassable human authority. The mobile command bar is reduced to five high-frequency destinations, while the responsive grouped feature navigation retains complete access. Browser coverage proves the guide, setup path, query-addressable Lead pipeline, every contextual feature guide, one-row mobile navigation, 390px layouts, and a zero-console-error/warning route sweep.
+
+**Remaining refinement:** Observe real users performing the first complete sales-to-trip journey, then tune terminology, content density, role-specific onboarding, and any advanced controls that should be progressively disclosed.
 
 ## Immediate release blockers before wider user testing
 
@@ -113,7 +121,7 @@ These percentages estimate implemented and verified product scope against each p
 - Create standard page layouts for command center, list/detail view, pipeline, trip workspace, and customer portal.
 - Replace prototype-only UI data with typed view models while preserving the polished dashboard direction.
 
-**Current progress:** The shell now provides skip navigation, visible focus treatment, reduced-motion protection, consistent recovery states, and a one-row mobile command-center route bar. Shared accessible form-field, feedback, button, status-notice, empty-state, loading-state, modal-boundary, semantic data-table, and responsive feature-header primitives now power authentication, onboarding, recovery, the command center, Contacts, Inbox, Tasks, Quotes, AIOS Control, Team Access, lead detail, and Itinerary Studio. Command-center overlays share focus trapping, focus restoration, Escape and backdrop dismissal, and body-scroll locking; live-lead, member, and invitation summaries use responsive semantic tables with real captions and column headers. The dashboard's former AIOS placeholder is now a real link to Lead Intake, and automated plus live-browser checks prove the dashboard and AIOS control plane have no horizontal overflow at a 390px viewport. Remaining work is authenticated keyboard/focus, WebKit/Firefox, and assistive-technology evidence plus gradual conversion of legacy feature forms to the shared primitives.
+**Current progress:** The shell now provides skip navigation, visible focus treatment, reduced-motion protection, consistent recovery states, and a one-row mobile command-center route bar. Shared accessible form-field, feedback, button, status-notice, empty-state, loading-state, modal-boundary, semantic data-table, responsive feature-header, customer-journey rail, capability badge, setup-checklist, contextual guide, and global product-help primitives now power authentication, onboarding, recovery, the command center, Contacts, Inbox, Tasks, Quotes, Itinerary Studio, Trip Operations, AIOS Control, Analytics, Team Access, and lead detail. Dashboard and feature navigation share intent-based Today, Sales, Operations, Intelligence, and Administration groupings; every principal workspace explains its purpose, next action, AIOS role, and live/internal/approval boundary. Command-center overlays and the global field guide provide focus restoration, Escape and backdrop dismissal, and body-scroll locking; live-lead, member, and invitation summaries use responsive semantic tables with real captions and column headers. Automated browser checks prove the guide and setup flow, direct Lead-pipeline addressing, all contextual guides, the simplified five-destination mobile command bar, and no horizontal overflow at a 390px viewport. Remaining work is observed-user terminology tuning, role-specific onboarding, authenticated keyboard/focus, WebKit/Firefox, and assistive-technology evidence plus gradual conversion of legacy feature forms to the shared primitives.
 
 **Exit gate:** New features can be assembled from shared components without duplicating visual or accessibility behavior.
 

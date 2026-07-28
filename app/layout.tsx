@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ProductHelp } from "../components/ui/product-help";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         {children}
+        <ProductHelp />
       </body>
     </html>
   );

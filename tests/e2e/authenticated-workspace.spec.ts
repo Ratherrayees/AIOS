@@ -258,6 +258,18 @@ test.describe("authenticated owner workspace", () => {
       page.getByRole("heading", { name: /Good morning, Rayees/i }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", { name: "Make AIOS fit your agency" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Follow the customer, not the software." }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "How AIOS works" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "How the CRM fits together" }),
+    ).toBeVisible();
+    await expect(page.getByText("Human authority is non-bypassable")).toBeVisible();
+    await page.getByRole("button", { name: "Close product guide" }).click();
+    await expect(
       page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
     ).toBeVisible();
 
@@ -293,7 +305,13 @@ test.describe("authenticated owner workspace", () => {
       await page.goto(route);
       await expect(page).toHaveURL(route);
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      await expect(page.locator(".ui-workspace-guide")).toBeVisible();
     }
+
+    await page.goto("/?view=leads");
+    await expect(
+      page.getByRole("heading", { name: "Lead pipeline" }),
+    ).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
     for (const route of [
@@ -332,6 +350,16 @@ test.describe("authenticated owner workspace", () => {
           new Set(links.map((link) => (link as HTMLElement).offsetTop)).size,
       );
     expect(mobileNavRows).toBe(1);
+    await page.getByRole("button", { name: "More" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "All workspace areas" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sales workflows", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Close workspace navigation" })
+      .click();
     await expect(
       page.locator('a[href="/aios#lead-intake"]'),
     ).toContainText("Open AIOS");
@@ -685,7 +713,7 @@ test.describe("authenticated owner workspace", () => {
 
     await expect(page.locator(".ai-brief-list button")).toHaveCount(0);
     await expect(
-      page.getByRole("link", { name: /Open AIOS Control/i }),
+      page.locator("a.ask-bar"),
     ).toHaveAttribute("href", "/aios");
 
     await page

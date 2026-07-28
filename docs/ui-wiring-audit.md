@@ -6,6 +6,8 @@ Reviewed: 28 July 2026
 
 Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 38 Chromium journeys: 19 public/authentication and security-boundary checks plus 19 authenticated, browser-to-database workflows.
 
+The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
+
 The audited build passed with:
 
 - 38/38 browser journeys
@@ -48,7 +50,8 @@ The audited build passed with:
 2. Duplicate contacts with identical names produced indistinguishable “Keep” actions. The review now shows the older/newer contact channels and explicit “Keep older record” and “Keep newer record” controls.
 3. Three dashboard briefing rows were coded as buttons without an action. They are now styled informational rows, so the interface no longer advertises inert controls.
 4. Inbox and Itinerary creation controls were missing programmatic names. Their selects and inputs now have stable accessible labels.
-5. Adding Trip Operations caused the 390px bottom route bar to wrap onto a second row. The grid now accounts for all eight destinations and is covered by the existing one-row assertion.
+5. Adding Trip Operations caused the 390px bottom route bar to wrap onto a second row. The clarity pass now keeps five high-frequency destinations in one row and moves full navigation into the grouped feature header; the one-row assertion remains enforced.
+6. Feature depth outpaced product explanation: the dashboard, module headers, and settings used different navigation models and assumed prior CRM knowledge. The shell now groups work by intent, explains Contact → Lead → Trip, shows the four-stage customer journey, labels operational boundaries, and exposes a persistent field guide without adding another database dependency.
 
 ## Deferred external acceptance
 

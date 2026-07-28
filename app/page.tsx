@@ -40,6 +40,11 @@ import {
 } from "../components/ui/data-table";
 import { ModalBoundary } from "../components/ui/modal-boundary";
 import { SavedViewControls } from "../components/ui/saved-view-controls";
+import { SetupChecklist } from "../components/ui/setup-checklist";
+import {
+  JourneyRail,
+  WorkspaceGuide,
+} from "../components/ui/workspace-guide";
 import "./dashboard.css";
 import "./search.css";
 import "./leads-filters.css";
@@ -416,6 +421,7 @@ export default function Home() {
   const [overdueTaskCount, setOverdueTaskCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [leadOpen, setLeadOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -507,6 +513,18 @@ export default function Home() {
       setToast("AIOS could not load your active workspace.");
       setIsLoading(false);
     });
+  }, []);
+
+  useEffect(() => {
+    const syncViewFromUrl = () => {
+      const requestedView = new URLSearchParams(window.location.search).get(
+        "view",
+      );
+      setActive(requestedView === "leads" ? "Leads" : "Command center");
+    };
+    syncViewFromUrl();
+    window.addEventListener("popstate", syncViewFromUrl);
+    return () => window.removeEventListener("popstate", syncViewFromUrl);
   }, []);
 
   function changeWorkspace(nextOrganizationId: string) {
@@ -943,7 +961,7 @@ export default function Home() {
           )}
         </div>
         <nav aria-label="CRM navigation">
-          <p className="nav-heading">WORKSPACE</p>
+          <p className="nav-heading">TODAY</p>
           <button
             className={`nav-link ${active === "Command center" ? "selected" : ""}`}
             type="button"
@@ -952,6 +970,15 @@ export default function Home() {
             <span className="nav-glyph">◫</span>
             <span>Command center</span>
           </button>
+          <a className="nav-link" href="/inbox">
+            <span className="nav-glyph">◌</span>
+            <span>Inbox</span>
+          </a>
+          <a className="nav-link" href="/tasks">
+            <span className="nav-glyph">✓</span>
+            <span>Tasks</span>
+          </a>
+          <p className="nav-heading">SALES</p>
           <button
             className={`nav-link ${active === "Leads" ? "selected" : ""}`}
             type="button"
@@ -965,14 +992,6 @@ export default function Home() {
             <span className="nav-glyph">◎</span>
             <span>Contacts</span>
           </a>
-          <a className="nav-link" href="/inbox">
-            <span className="nav-glyph">◌</span>
-            <span>Inbox</span>
-          </a>
-          <a className="nav-link" href="/tasks">
-            <span className="nav-glyph">✓</span>
-            <span>Tasks</span>
-          </a>
           <a className="nav-link" href="/quotes">
             <span className="nav-glyph">Q</span>
             <span>Quotes</span>
@@ -981,14 +1000,21 @@ export default function Home() {
             <span className="nav-glyph">I</span>
             <span>Itinerary Studio</span>
           </a>
+          <p className="nav-heading">OPERATIONS</p>
           <Link className="nav-link" href="/trips">
             <span className="nav-glyph">O</span>
             <span>Trip Operations</span>
           </Link>
+          <p className="nav-heading">INTELLIGENCE</p>
+          <a className="nav-link" href="/aios">
+            <span className="nav-glyph">✦</span>
+            <span>AIOS Control</span>
+          </a>
           <a className="nav-link" href="/analytics">
             <span className="nav-glyph">↗</span>
-            <span>Revenue analytics</span>
+            <span>Analytics</span>
           </a>
+          <p className="nav-heading">ADMINISTRATION</p>
           <a className="nav-link" href="/settings/lead-capture">
             <span className="nav-glyph">+</span>
             <span>Lead capture</span>
@@ -996,10 +1022,6 @@ export default function Home() {
           <a className="nav-link" href="/settings/sales-workflows">
             <span className="nav-glyph">W</span>
             <span>Sales workflows</span>
-          </a>
-          <a className="nav-link" href="/aios">
-            <span className="nav-glyph">✦</span>
-            <span>AIOS Control</span>
           </a>
           <a className="nav-link" href="/settings/team">
             <span className="nav-glyph">T</span>
@@ -1047,8 +1069,11 @@ export default function Home() {
               <section className="page-intro">
                 <div>
                   <p className="date">AIOS COMMAND CENTER</p>
-                  <h1>Good morning, Rayees.</h1>
-                  <p>Live pipeline data for {workspaceName}.</p>
+                  <h1>Good morning, Rayees. Start with what needs attention.</h1>
+                  <p>
+                    One operating view for sales, delivery, AIOS and human
+                    approvals in {workspaceName}.
+                  </p>
                 </div>
                 <div className="intro-actions">
                   <Link
@@ -1066,6 +1091,18 @@ export default function Home() {
                   </button>
                 </div>
               </section>
+              <section className="dashboard-journey" aria-labelledby="journey-title">
+                <div>
+                  <p>YOUR OPERATING MODEL</p>
+                  <h2 id="journey-title">Follow the customer, not the software.</h2>
+                  <span>
+                    Contacts describe people. Leads track a possible sale.
+                    Won leads become trips for delivery.
+                  </span>
+                </div>
+                <JourneyRail compact />
+              </section>
+              <SetupChecklist hasLead={leads.length > 0} />
               <section className="metric-grid">
                 <Metric
                   label="Pipeline value"
@@ -1341,6 +1378,20 @@ export default function Home() {
                   + New lead
                 </button>
               </section>
+              <WorkspaceGuide
+                eyebrow="SALES · PIPELINE"
+                title="Move each enquiry toward a clear decision."
+                purpose="The pipeline shows one commercial opportunity at its current evidence-backed stage."
+                nextAction="Open the highest-risk lead, record missing evidence and choose the next legal stage."
+                aiosRole="AIOS can detect stalled work and create safe internal follow-ups under your policy."
+                activeStage="qualify"
+                capabilities={[
+                  { label: "Live CRM", tone: "live" },
+                  { label: "Governed movement", tone: "guided" },
+                  { label: "External effects gated", tone: "approval" },
+                ]}
+                action={{ href: "/settings/sales-workflows", label: "Review qualification rules" }}
+              />
               <div className="pipeline-summary">
                 <span>
                   <b>{filteredLeads.length}</b> matching leads
@@ -1514,37 +1565,76 @@ export default function Home() {
       <nav className="mobile-nav" aria-label="Mobile CRM navigation">
         <Link aria-current="page" href="/">
           <span aria-hidden="true">H</span>
-          Home
+          Today
         </Link>
-        <Link href="/contacts">
-          <span aria-hidden="true">C</span>
-          Contacts
+        <Link href="/?view=leads">
+          <span aria-hidden="true">L</span>
+          Leads
         </Link>
         <Link href="/inbox">
           <span aria-hidden="true">I</span>
           Inbox
         </Link>
-        <Link href="/tasks">
-          <span aria-hidden="true">T</span>
-          Tasks
-        </Link>
-        <Link href="/quotes">
-          <span aria-hidden="true">Q</span>
-          Quotes
-        </Link>
         <Link href="/trips">
           <span aria-hidden="true">O</span>
           Trips
         </Link>
-        <Link href="/aios">
-          <span aria-hidden="true">A</span>
-          AIOS
-        </Link>
-        <Link href="/analytics">
-          <span aria-hidden="true">↗</span>
-          Analytics
-        </Link>
+        <button
+          type="button"
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-more-menu"
+          onClick={() => setMobileMenuOpen((current) => !current)}
+        >
+          <span aria-hidden="true">•••</span>
+          More
+        </button>
       </nav>
+      {mobileMenuOpen ? (
+        <div
+          className="mobile-more-menu"
+          id="mobile-more-menu"
+          role="dialog"
+          aria-label="All workspace areas"
+        >
+          <header>
+            <div>
+              <b>All workspace areas</b>
+              <span>Choose the job you need to do.</span>
+            </div>
+            <button
+              type="button"
+              aria-label="Close workspace navigation"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              ×
+            </button>
+          </header>
+          <section>
+            <div>
+              <small>TODAY</small>
+              <Link href="/tasks">Tasks</Link>
+            </div>
+            <div>
+              <small>SALES</small>
+              <Link href="/contacts">Contacts</Link>
+              <Link href="/quotes">Quotes</Link>
+              <Link href="/itineraries">Itineraries</Link>
+            </div>
+            <div>
+              <small>INTELLIGENCE</small>
+              <Link href="/aios">AIOS Control</Link>
+              <Link href="/analytics">Analytics</Link>
+            </div>
+            <div>
+              <small>ADMINISTRATION</small>
+              <Link href="/settings/lead-capture">Lead capture</Link>
+              <Link href="/settings/sales-workflows">Sales workflows</Link>
+              <Link href="/settings/team">Team access</Link>
+              <Link href="/settings/security">Security</Link>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {toast && (
         <div className="toast"><StatusNotice>{toast}</StatusNotice></div>
       )}
