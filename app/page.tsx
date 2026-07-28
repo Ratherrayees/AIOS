@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  type DragEvent as ReactDragEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 
 import {
@@ -19,6 +26,12 @@ import {
 import type { WorkspaceChoice } from "../lib/workspace/active-workspace";
 import type { Database, Json } from "../types/database";
 import { assessLeadHealth } from "../lib/crm/lead-health";
+import {
+  allowedPipelineTransitions,
+  isAllowedPipelineTransition,
+  PIPELINE_STAGE_LABELS,
+  type PipelineStage,
+} from "../lib/crm/pipeline-transitions";
 import { Button } from "../components/ui/button";
 import { StatusNotice } from "../components/ui/empty-state";
 import {
@@ -29,6 +42,7 @@ import { ModalBoundary } from "../components/ui/modal-boundary";
 import { SavedViewControls } from "../components/ui/saved-view-controls";
 import "./search.css";
 import "./leads-filters.css";
+import "./pipeline-dnd.css";
 
 type View = "Command center" | "Leads";
 type LiveDeal = Database["public"]["Tables"]["deals"]["Row"];
@@ -40,6 +54,7 @@ type Lead = {
   value: string;
   amount: number;
   stage: LeadStage;
+  databaseStage: LiveDeal["stage"];
   source: string;
   currency: string;
   probability: number;
@@ -141,6 +156,7 @@ function leadFromDeal(deal: LiveDeal, index = 0): Lead {
     value: formatAmount(deal.value_amount, deal.currency),
     amount: deal.value_amount ?? 0,
     stage: stage[deal.stage],
+    databaseStage: deal.stage,
     source: deal.source || "Manual",
     currency: deal.currency,
     probability: deal.probability,
@@ -202,9 +218,35 @@ const recentLeadColumns: DataTableColumn<Lead>[] = [
   },
 ];
 
-function LeadCard({ lead, onAdvance }: { lead: Lead; onAdvance?: () => void }) {
+function LeadCard({
+  lead,
+  moving,
+  dragging,
+  onAdvance,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: {
+  lead: Lead;
+  moving: boolean;
+  dragging: boolean;
+  onAdvance?: () => void;
+  onMove: (stage: PipelineStage) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+}) {
+  const allowedTargets = allowedPipelineTransitions(lead.databaseStage);
+  const canDrag = allowedTargets.length > 0 && !moving;
   return (
-    <article className="lead-card">
+    <article
+      className={`lead-card ${dragging ? "dragging" : ""} ${
+        moving ? "moving" : ""
+      }`}
+      draggable={canDrag}
+      aria-label={`${lead.name}, ${lead.stage} pipeline stage`}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
       <div>
         <Avatar
           initials={lead.name
@@ -214,9 +256,9 @@ function LeadCard({ lead, onAdvance }: { lead: Lead; onAdvance?: () => void }) {
             .slice(0, 2)}
           accent={lead.accent}
         />
-        <button type="button" aria-label={`More options for ${lead.name}`}>
-          •••
-        </button>
+        <span className="drag-handle" aria-hidden="true">
+          ⋮⋮
+        </span>
       </div>
       <h3>{lead.name}</h3>
       <p>{lead.journey}</p>
@@ -231,29 +273,100 @@ function LeadCard({ lead, onAdvance }: { lead: Lead; onAdvance?: () => void }) {
       <a className="text-button" href={`/leads/${lead.id}`}>
         Open workspace →
       </a>
+      {allowedTargets.length > 0 && (
+        <label className="stage-picker">
+          <span>Move stage</span>
+          <select
+            aria-label={`Move ${lead.name} to stage`}
+            value=""
+            disabled={moving}
+            onChange={(event) => {
+              if (event.target.value)
+                onMove(event.target.value as PipelineStage);
+            }}
+          >
+            <option value="">Choose a legal next stage…</option>
+            {allowedTargets.map((stage) => (
+              <option key={stage} value={stage}>
+                {PIPELINE_STAGE_LABELS[stage]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {onAdvance && lead.stage !== "Decision" && (
-        <button className="text-button" type="button" onClick={onAdvance}>
+        <button
+          className="text-button"
+          type="button"
+          disabled={moving}
+          onClick={onAdvance}
+        >
           Move forward →
         </button>
+      )}
+      {canDrag && (
+        <small className="lead-card-drag-note">
+          Drag between highlighted adjacent stages.
+        </small>
       )}
     </article>
   );
 }
 
 function KanbanColumn({
+  stage,
   title,
   leads,
+  draggedLead,
+  activeDropStage,
+  movingLeadId,
   onCreate,
   onAdvance,
+  onMove,
+  onDragStart,
+  onDragEnd,
+  onDragEnter,
+  onDrop,
 }: {
+  stage: PipelineStage;
   title: string;
   leads: Lead[];
+  draggedLead: Lead | null;
+  activeDropStage: PipelineStage | null;
+  movingLeadId: string | null;
   onCreate: () => void;
   onAdvance: (lead: Lead) => void;
+  onMove: (lead: Lead, stage: PipelineStage) => void;
+  onDragStart: (lead: Lead, event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onDragEnter: (stage: PipelineStage) => void;
+  onDrop: (stage: PipelineStage, leadId: string) => void;
 }) {
   const total = leads.reduce((sum, lead) => sum + lead.amount, 0);
+  const acceptsDraggedLead = draggedLead
+    ? isAllowedPipelineTransition(draggedLead.databaseStage, stage)
+    : false;
   return (
-    <div className="kanban-column">
+    <section
+      className={`kanban-column ${
+        draggedLead
+          ? acceptsDraggedLead
+            ? "drop-allowed"
+            : "drop-blocked"
+          : ""
+      } ${activeDropStage === stage ? "drop-active" : ""}`}
+      aria-label={`${title} stage`}
+      onDragEnter={() => onDragEnter(stage)}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes("text/plain")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = acceptsDraggedLead ? "move" : "none";
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop(stage, event.dataTransfer.getData("text/plain"));
+      }}
+    >
       <div className="kanban-head">
         <span>
           <i />
@@ -262,12 +375,21 @@ function KanbanColumn({
         <strong>{formatAmount(total || null)}</strong>
       </div>
       {leads.map((lead) => (
-        <LeadCard key={lead.id} lead={lead} onAdvance={() => onAdvance(lead)} />
+        <LeadCard
+          key={lead.id}
+          lead={lead}
+          moving={movingLeadId === lead.id}
+          dragging={draggedLead?.id === lead.id}
+          onAdvance={() => onAdvance(lead)}
+          onMove={(targetStage) => onMove(lead, targetStage)}
+          onDragStart={(event) => onDragStart(lead, event)}
+          onDragEnd={onDragEnd}
+        />
       ))}
       <button className="add-card" type="button" onClick={onCreate}>
         + Add to {title.toLowerCase()}
       </button>
-    </div>
+    </section>
   );
 }
 
@@ -300,6 +422,10 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [isCreating, startCreating] = useTransition();
   const [isMoving, startMoving] = useTransition();
+  const [movingLeadId, setMovingLeadId] = useState<string | null>(null);
+  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
+  const [activeDropStage, setActiveDropStage] =
+    useState<PipelineStage | null>(null);
 
   useEffect(() => {
     const loadWorkspace = async () => {
@@ -563,6 +689,8 @@ export default function Home() {
     .filter((lead) => lead.severity !== "healthy")
     .sort((left, right) => right.score - left.score)
     .slice(0, 4);
+  const draggedLead =
+    leads.find((lead) => lead.id === draggedLeadId) ?? null;
 
   function openLeadModal() {
     if (!organizationId) {
@@ -695,17 +823,16 @@ export default function Home() {
     });
   }
 
-  function advanceLead(lead: Lead) {
-    if (!organizationId || isMoving) return;
-    const nextStage: Record<LeadStage, LiveDeal["stage"]> = {
-      New: "qualified",
-      Qualified: "proposal",
-      Proposal: "decision",
-      Decision: "decision",
-    };
-    const stage = nextStage[lead.stage];
-    if (stage === "decision" && lead.stage === "Decision") return;
-
+  function moveLeadToStage(lead: Lead, stage: PipelineStage) {
+    if (!organizationId || isMoving || movingLeadId) return;
+    if (!isAllowedPipelineTransition(lead.databaseStage, stage)) {
+      setToast(
+        `${PIPELINE_STAGE_LABELS[stage]} is not a legal adjacent move from ${lead.stage}.`,
+      );
+      window.setTimeout(() => setToast(""), 3400);
+      return;
+    }
+    setMovingLeadId(lead.id);
     startMoving(async () => {
       try {
         const result = await updateDealStage({
@@ -715,7 +842,6 @@ export default function Home() {
         });
         if (!result.ok) {
           setToast(result.message);
-          window.setTimeout(() => setToast(""), 3400);
           return;
         }
         const updated = result.deal;
@@ -724,12 +850,51 @@ export default function Home() {
             item.id === lead.id ? leadFromDeal(updated, index) : item,
           ),
         );
-        setToast(`${lead.name} moved to ${stage}.`);
+        setToast(`${lead.name} moved to ${PIPELINE_STAGE_LABELS[stage]}.`);
       } catch {
         setToast("AIOS could not update that stage. Please try again.");
+      } finally {
+        setMovingLeadId(null);
+        window.setTimeout(() => setToast(""), 3400);
       }
-      window.setTimeout(() => setToast(""), 3400);
     });
+  }
+
+  function advanceLead(lead: Lead) {
+    const nextStage: Partial<Record<LiveDeal["stage"], PipelineStage>> = {
+      new: "qualified",
+      qualified: "proposal",
+      proposal: "decision",
+    };
+    const stage = nextStage[lead.databaseStage];
+    if (stage) moveLeadToStage(lead, stage);
+  }
+
+  function beginLeadDrag(
+    lead: Lead,
+    event: ReactDragEvent<HTMLElement>,
+  ) {
+    if (isMoving || movingLeadId) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", lead.id);
+    setDraggedLeadId(lead.id);
+    setActiveDropStage(null);
+  }
+
+  function endLeadDrag() {
+    setDraggedLeadId(null);
+    setActiveDropStage(null);
+  }
+
+  function dropLeadOnStage(stage: PipelineStage, transferredLeadId: string) {
+    const leadId = transferredLeadId || draggedLeadId;
+    const draggedLead = leads.find((lead) => lead.id === leadId);
+    endLeadDrag();
+    if (!draggedLead) return;
+    moveLeadToStage(draggedLead, stage);
   }
 
   return (
@@ -1270,30 +1435,71 @@ export default function Home() {
                   onRemove={removeLeadSavedView}
                 />
               </section>
+              <p className="pipeline-guidance">
+                <b>Governed pipeline:</b> drag cards only between highlighted
+                adjacent stages, or use each card&apos;s Move stage selector.
+                Every move is revalidated by the server and database.
+              </p>
               <div className="kanban">
                 <KanbanColumn
-                  title="Qualified"
-                  leads={filteredGrouped.qualified}
-                  onCreate={openLeadModal}
-                  onAdvance={advanceLead}
-                />
-                <KanbanColumn
-                  title="Proposal sent"
-                  leads={filteredGrouped.proposal}
-                  onCreate={openLeadModal}
-                  onAdvance={advanceLead}
-                />
-                <KanbanColumn
-                  title="Decision"
-                  leads={filteredGrouped.decision}
-                  onCreate={openLeadModal}
-                  onAdvance={advanceLead}
-                />
-                <KanbanColumn
+                  stage="new"
                   title="New inquiry"
                   leads={filteredGrouped.new}
+                  draggedLead={draggedLead}
+                  activeDropStage={activeDropStage}
+                  movingLeadId={movingLeadId}
                   onCreate={openLeadModal}
                   onAdvance={advanceLead}
+                  onMove={moveLeadToStage}
+                  onDragStart={beginLeadDrag}
+                  onDragEnd={endLeadDrag}
+                  onDragEnter={setActiveDropStage}
+                  onDrop={dropLeadOnStage}
+                />
+                <KanbanColumn
+                  stage="qualified"
+                  title="Qualified"
+                  leads={filteredGrouped.qualified}
+                  draggedLead={draggedLead}
+                  activeDropStage={activeDropStage}
+                  movingLeadId={movingLeadId}
+                  onCreate={openLeadModal}
+                  onAdvance={advanceLead}
+                  onMove={moveLeadToStage}
+                  onDragStart={beginLeadDrag}
+                  onDragEnd={endLeadDrag}
+                  onDragEnter={setActiveDropStage}
+                  onDrop={dropLeadOnStage}
+                />
+                <KanbanColumn
+                  stage="proposal"
+                  title="Proposal"
+                  leads={filteredGrouped.proposal}
+                  draggedLead={draggedLead}
+                  activeDropStage={activeDropStage}
+                  movingLeadId={movingLeadId}
+                  onCreate={openLeadModal}
+                  onAdvance={advanceLead}
+                  onMove={moveLeadToStage}
+                  onDragStart={beginLeadDrag}
+                  onDragEnd={endLeadDrag}
+                  onDragEnter={setActiveDropStage}
+                  onDrop={dropLeadOnStage}
+                />
+                <KanbanColumn
+                  stage="decision"
+                  title="Decision"
+                  leads={filteredGrouped.decision}
+                  draggedLead={draggedLead}
+                  activeDropStage={activeDropStage}
+                  movingLeadId={movingLeadId}
+                  onCreate={openLeadModal}
+                  onAdvance={advanceLead}
+                  onMove={moveLeadToStage}
+                  onDragStart={beginLeadDrag}
+                  onDragEnd={endLeadDrag}
+                  onDragEnter={setActiveDropStage}
+                  onDrop={dropLeadOnStage}
                 />
               </div>
             </section>

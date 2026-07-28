@@ -523,4 +523,64 @@ test.describe("authenticated owner workspace", () => {
     expect(runError).toBeNull();
     expect(runCount).toBe(1);
   });
+
+  test("moves a pipeline card by governed drag and accessible stage selection", async ({
+    page,
+  }) => {
+    await page.goto("/sign-in");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await expect(page).toHaveURL("/");
+
+    await page
+      .locator("button.nav-link")
+      .filter({ hasText: "Leads" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Lead pipeline" }),
+    ).toBeVisible();
+    await expect(page.getByText("Governed pipeline:")).toBeVisible();
+
+    const decisionColumn = page.getByLabel("Decision stage");
+    const proposalColumn = page.getByLabel("Proposal stage");
+    const decisionCard = decisionColumn
+      .locator(".lead-card")
+      .filter({ hasText: "Kyoto discovery journey" });
+    await expect(decisionCard).toBeVisible();
+    await decisionCard.dragTo(proposalColumn);
+    await expect(page.getByRole("status")).toContainText(
+      "Kyoto discovery journey moved to Proposal",
+    );
+
+    const proposalCard = proposalColumn
+      .locator(".lead-card")
+      .filter({ hasText: "Kyoto discovery journey" });
+    await expect(proposalCard).toBeVisible();
+    const stageSelector = proposalCard.getByLabel(
+      "Move Kyoto discovery journey to stage",
+    );
+    await expect(stageSelector.locator("option")).toHaveText([
+      "Choose a legal next stage…",
+      "Qualified",
+      "Decision",
+    ]);
+    await stageSelector.selectOption("decision");
+    await expect(page.getByRole("status")).toContainText(
+      "Kyoto discovery journey moved to Decision",
+    );
+    await expect(
+      decisionColumn
+        .locator(".lead-card")
+        .filter({ hasText: "Kyoto discovery journey" }),
+    ).toBeVisible();
+
+    const { data: deal, error } = await admin!
+      .from("deals")
+      .select("stage")
+      .eq("id", dealId)
+      .single();
+    expect(error).toBeNull();
+    expect(deal?.stage).toBe("decision");
+  });
 });
