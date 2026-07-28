@@ -155,6 +155,24 @@ const guides: GuideDefinition[] = [
     action: { href: "/itineraries", label: "Open journey design" },
   },
   {
+    match: (pathname) => pathname === "/finance",
+    eyebrow: "OPERATIONS · FINANCE",
+    title: "Track every obligation without pretending to move money.",
+    purpose:
+      "Finance joins supplier terms, receivables, payables, due dates and settlement evidence in one tenant-scoped ledger.",
+    nextAction:
+      "Record the obligation, connect its trip or supplier, then reconcile only from evidence of what actually happened.",
+    aiosRole:
+      "AIOS can monitor due dates and surface risk; charges, payouts, refunds, invoices and contract acceptance stay human-controlled.",
+    activeStage: "operate",
+    capabilities: [
+      { label: "Live ledger", tone: "live" },
+      { label: "Immutable evidence", tone: "guided" },
+      { label: "Money movement gated", tone: "approval" },
+    ],
+    action: { href: "/trips", label: "Open trip operations" },
+  },
+  {
     match: (pathname) => pathname === "/analytics",
     eyebrow: "INTELLIGENCE · PERFORMANCE",
     title: "Understand where attention becomes revenue.",
@@ -275,7 +293,10 @@ const navigationGroups = [
   },
   {
     label: "Operations",
-    links: [{ href: "/trips", label: "Trip Operations" }],
+    links: [
+      { href: "/trips", label: "Trip Operations" },
+      { href: "/finance", label: "Suppliers & Finance" },
+    ],
   },
   {
     label: "Intelligence",

@@ -36,7 +36,7 @@ export const AIOS_ACTION_CATALOG = [
     action: "trip.operations.monitor",
     title: "Monitor operational trip risk",
     description:
-      "Detect and route objective trip, booking, document, and task exceptions without creating an external commitment.",
+      "Detect and route objective trip, booking, document, task, and payment-due exceptions without creating an external commitment.",
     defaultMode: "auto",
     hardApproval: false,
   },

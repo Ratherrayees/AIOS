@@ -621,6 +621,98 @@ export const operationalExceptionStatusSchema = z
     },
   );
 
+export const supplierProfileInputSchema = z.object({
+  organizationId: z.uuid(),
+  name: z.string().trim().min(2).max(180),
+  category: z.string().trim().max(120).nullable().optional(),
+  contactName: z.string().trim().max(180).nullable().optional(),
+  email: z.string().trim().toLowerCase().pipe(z.email()).nullable().optional(),
+  phone: z.string().trim().min(3).max(40).nullable().optional(),
+  website: z.url().max(500).nullable().optional(),
+  preferredCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
+  paymentTermsDays: z.number().int().min(0).max(365).nullable().optional(),
+  cancellationTerms: z.string().trim().max(5_000).nullable().optional(),
+  internalNotes: z.string().trim().max(5_000).nullable().optional(),
+  qualityRating: z.number().min(1).max(5).nullable().optional(),
+});
+
+export const supplierContactInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    supplierId: z.uuid(),
+    name: z.string().trim().min(1).max(180),
+    roleTitle: z.string().trim().max(180).nullable().optional(),
+    email: z.string().trim().toLowerCase().pipe(z.email()).nullable().optional(),
+    phone: z.string().trim().min(3).max(40).nullable().optional(),
+    isPrimary: z.boolean().default(false),
+    notes: z.string().trim().max(2_000).nullable().optional(),
+  })
+  .refine((value) => Boolean(value.email || value.phone), {
+    message: "Add an email address or phone number.",
+    path: ["email"],
+  });
+
+export const supplierContractInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    supplierId: z.uuid(),
+    title: z.string().trim().min(1).max(180),
+    contractReference: z.string().trim().max(180).nullable().optional(),
+    status: z.enum(["draft", "active"]),
+    startsOn: z.iso.date().nullable().optional(),
+    endsOn: z.iso.date().nullable().optional(),
+    currency: z.string().trim().regex(/^[A-Z]{3}$/),
+    paymentTermsDays: z.number().int().min(0).max(365).nullable().optional(),
+    cancellationTerms: z.string().trim().max(5_000).nullable().optional(),
+    internalNotes: z.string().trim().max(5_000).nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      !value.startsOn || !value.endsOn || value.endsOn >= value.startsOn,
+    {
+      message: "The contract end date cannot be before its start date.",
+      path: ["endsOn"],
+    },
+  );
+
+export const paymentObligationInputSchema = z.object({
+  organizationId: z.uuid(),
+  direction: z.enum(["receivable", "payable"]),
+  title: z.string().trim().min(1).max(180),
+  amount: z.number().positive().max(999_999_999_999.99).finite(),
+  currency: z.string().trim().regex(/^[A-Z]{3}$/),
+  dueAt: z.iso.date().nullable().optional(),
+  dealId: z.uuid().nullable().optional(),
+  tripId: z.uuid().nullable().optional(),
+  supplierId: z.uuid().nullable().optional(),
+  invoiceNumber: z.string().trim().max(180).nullable().optional(),
+  description: z.string().trim().max(4_000).nullable().optional(),
+});
+
+export const paymentAllocationInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    paymentId: z.uuid(),
+    amount: z.number().positive().max(999_999_999_999.99).finite(),
+    occurredAt: z.iso.datetime(),
+    reference: z.string().trim().max(180).nullable().optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+  })
+  .refine((value) => Boolean(value.reference || value.note), {
+    message: "Add a reference or note as settlement evidence.",
+    path: ["reference"],
+  });
+
+export const paymentVoidInputSchema = z.object({
+  organizationId: z.uuid(),
+  paymentId: z.uuid(),
+  reason: z.string().trim().min(1).max(500),
+});
+
+export const paymentStatusRefreshSchema = z.object({
+  organizationId: z.uuid(),
+});
+
 export const itineraryItemInputSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
@@ -758,6 +850,19 @@ export type OperationsRadarRefreshInput = z.infer<
 >;
 export type OperationalExceptionStatusInput = z.infer<
   typeof operationalExceptionStatusSchema
+>;
+export type SupplierProfileInput = z.infer<typeof supplierProfileInputSchema>;
+export type SupplierContactInput = z.infer<typeof supplierContactInputSchema>;
+export type SupplierContractInput = z.infer<typeof supplierContractInputSchema>;
+export type PaymentObligationInput = z.infer<
+  typeof paymentObligationInputSchema
+>;
+export type PaymentAllocationInput = z.infer<
+  typeof paymentAllocationInputSchema
+>;
+export type PaymentVoidInput = z.infer<typeof paymentVoidInputSchema>;
+export type PaymentStatusRefreshInput = z.infer<
+  typeof paymentStatusRefreshSchema
 >;
 export type ItineraryItemInput = z.infer<typeof itineraryItemInputSchema>;
 export type ItineraryTemplateFromTripInput = z.infer<

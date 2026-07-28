@@ -36,6 +36,8 @@ const protectedTables = [
   "companies",
   "activity_events",
   "suppliers",
+  "supplier_contacts",
+  "supplier_contracts",
   "trips",
   "trip_status_history",
   "operational_exceptions",
@@ -43,6 +45,7 @@ const protectedTables = [
   "itinerary_items",
   "bookings",
   "payments",
+  "payment_allocations",
   "documents",
   "itinerary_templates",
   "itinerary_template_items",
@@ -227,6 +230,40 @@ async function verify() {
       target_sequence_id: "33333333-3333-4333-8333-333333333333",
     },
   );
+  const { error: anonymousPaymentCreateError } = await anonymous.rpc(
+    "create_payment_obligation",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_direction: "receivable",
+      target_title: "Blocked anonymous obligation",
+      target_amount: 100,
+      target_currency: "INR",
+    },
+  );
+  const { error: anonymousPaymentAllocationError } = await anonymous.rpc(
+    "record_payment_allocation",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_id: "22222222-2222-4222-8222-222222222222",
+      target_amount: 100,
+      target_occurred_at: new Date().toISOString(),
+      target_reference: "BLOCKED",
+    },
+  );
+  const { error: anonymousPaymentVoidError } = await anonymous.rpc(
+    "void_payment_obligation",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_id: "22222222-2222-4222-8222-222222222222",
+      target_reason: "Blocked anonymous request",
+    },
+  );
+  const { error: anonymousPaymentRefreshError } = await anonymous.rpc(
+    "refresh_payment_obligation_statuses",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -289,6 +326,26 @@ async function verify() {
       function: "apply_follow_up_sequence",
       anonymousExecutionBlocked: Boolean(anonymousSequenceApplyError),
       anonymousErrorCode: anonymousSequenceApplyError?.code ?? null,
+    },
+    {
+      function: "create_payment_obligation",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentCreateError),
+      anonymousErrorCode: anonymousPaymentCreateError?.code ?? null,
+    },
+    {
+      function: "record_payment_allocation",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentAllocationError),
+      anonymousErrorCode: anonymousPaymentAllocationError?.code ?? null,
+    },
+    {
+      function: "void_payment_obligation",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentVoidError),
+      anonymousErrorCode: anonymousPaymentVoidError?.code ?? null,
+    },
+    {
+      function: "refresh_payment_obligation_statuses",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentRefreshError),
+      anonymousErrorCode: anonymousPaymentRefreshError?.code ?? null,
     },
   ];
 

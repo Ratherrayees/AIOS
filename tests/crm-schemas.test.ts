@@ -21,6 +21,12 @@ import {
   quoteShareApprovalInputSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
+  paymentAllocationInputSchema,
+  paymentObligationInputSchema,
+  paymentVoidInputSchema,
+  supplierContactInputSchema,
+  supplierContractInputSchema,
+  supplierProfileInputSchema,
   tripBookingInputSchema,
   tripDocumentDownloadSchema,
   tripDocumentUploadSchema,
@@ -818,6 +824,119 @@ test("operations radar refresh and exception resolution stay tenant scoped", () 
       exceptionId: crypto.randomUUID(),
       status: "resolved",
       note: " ",
+    }).success,
+    false,
+  );
+});
+
+test("supplier profiles validate commercial terms without requiring PII", () => {
+  assert.equal(
+    supplierProfileInputSchema.safeParse({
+      organizationId,
+      name: "Kyoto Ground Partners",
+      category: "DMC",
+      preferredCurrency: "JPY",
+      paymentTermsDays: 30,
+      qualityRating: 4.5,
+    }).success,
+    true,
+  );
+  assert.equal(
+    supplierProfileInputSchema.safeParse({
+      organizationId,
+      name: "K",
+      preferredCurrency: "yen",
+      paymentTermsDays: 500,
+    }).success,
+    false,
+  );
+});
+
+test("supplier contacts require a reachable contact method", () => {
+  assert.equal(
+    supplierContactInputSchema.safeParse({
+      organizationId,
+      supplierId: crypto.randomUUID(),
+      name: "Mika Tanaka",
+      email: "mika@example.invalid",
+      isPrimary: true,
+    }).success,
+    true,
+  );
+  assert.equal(
+    supplierContactInputSchema.safeParse({
+      organizationId,
+      supplierId: crypto.randomUUID(),
+      name: "Mika Tanaka",
+    }).success,
+    false,
+  );
+});
+
+test("supplier contract periods cannot end before they start", () => {
+  assert.equal(
+    supplierContractInputSchema.safeParse({
+      organizationId,
+      supplierId: crypto.randomUUID(),
+      title: "2027 ground services",
+      status: "active",
+      startsOn: "2027-04-01",
+      endsOn: "2027-03-31",
+      currency: "JPY",
+    }).success,
+    false,
+  );
+});
+
+test("payment obligations require positive currency-safe amounts", () => {
+  assert.equal(
+    paymentObligationInputSchema.safeParse({
+      organizationId,
+      direction: "payable",
+      title: "Kyoto hotel deposit",
+      amount: 125000,
+      currency: "JPY",
+      supplierId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    paymentObligationInputSchema.safeParse({
+      organizationId,
+      direction: "payable",
+      title: "Invalid deposit",
+      amount: -1,
+      currency: "YEN",
+    }).success,
+    false,
+  );
+});
+
+test("settlements and voids require explicit human evidence", () => {
+  assert.equal(
+    paymentAllocationInputSchema.safeParse({
+      organizationId,
+      paymentId: crypto.randomUUID(),
+      amount: 5000,
+      occurredAt: new Date().toISOString(),
+      reference: "BANK-2026-001",
+    }).success,
+    true,
+  );
+  assert.equal(
+    paymentAllocationInputSchema.safeParse({
+      organizationId,
+      paymentId: crypto.randomUUID(),
+      amount: 5000,
+      occurredAt: new Date().toISOString(),
+    }).success,
+    false,
+  );
+  assert.equal(
+    paymentVoidInputSchema.safeParse({
+      organizationId,
+      paymentId: crypto.randomUUID(),
+      reason: " ",
     }).success,
     false,
   );

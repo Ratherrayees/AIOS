@@ -1049,6 +1049,10 @@ export default function Home() {
             <span className="nav-glyph">O</span>
             <span>Trip Operations</span>
           </Link>
+          <Link className="nav-link" href="/finance">
+            <span className="nav-glyph">₹</span>
+            <span>Suppliers &amp; Finance</span>
+          </Link>
           <p className="nav-heading">INTELLIGENCE</p>
           <a className="nav-link" href="/aios">
             <span className="nav-glyph">✦</span>
@@ -1666,6 +1670,10 @@ export default function Home() {
               <Link href="/contacts">Contacts</Link>
               <Link href="/quotes">Quotes</Link>
               <Link href="/itineraries">Itineraries</Link>
+            </div>
+            <div>
+              <small>OPERATIONS</small>
+              <Link href="/finance">Suppliers &amp; Finance</Link>
             </div>
             <div>
               <small>INTELLIGENCE</small>

@@ -735,6 +735,334 @@ async function verifyAuthorization() {
       clearedRadarScan.error?.message ?? null,
     );
 
+    activeVerificationPhase = "supplier and finance authorization";
+    const { data: alphaSupplier, error: alphaSupplierError } = await owner
+      .from("suppliers")
+      .insert({
+        organization_id: organizationA.id,
+        name: `Authorization supplier ${suffix}`,
+        category: "hotel",
+        preferred_currency: "INR",
+        payment_terms_days: 14,
+      })
+      .select("id")
+      .single();
+    record(
+      "authorized operations roles can create supplier profiles",
+      !alphaSupplierError && Boolean(alphaSupplier?.id),
+      alphaSupplierError?.message ?? null,
+    );
+    if (alphaSupplierError || !alphaSupplier)
+      throw alphaSupplierError ?? new Error("Supplier fixture was not created.");
+
+    const { data: betaSupplier, error: betaSupplierError } = await admin
+      .from("suppliers")
+      .insert({
+        organization_id: organizationB.id,
+        name: `Foreign supplier ${suffix}`,
+        preferred_currency: "USD",
+      })
+      .select("id")
+      .single();
+    if (betaSupplierError || !betaSupplier)
+      throw betaSupplierError ??
+        new Error("Foreign supplier fixture was not created.");
+
+    const ownerSupplierContact = await owner
+      .from("supplier_contacts")
+      .insert({
+        organization_id: organizationA.id,
+        supplier_id: alphaSupplier.id,
+        name: "Authorization Supplier Contact",
+        email: "supplier-contact@stateai.invalid",
+        is_primary: true,
+      })
+      .select("id")
+      .single();
+    record(
+      "authorized roles can add a same-tenant supplier contact",
+      !ownerSupplierContact.error &&
+        Boolean(ownerSupplierContact.data?.id),
+      ownerSupplierContact.error?.message ?? null,
+    );
+
+    const foreignSupplierContact = await owner
+      .from("supplier_contacts")
+      .insert({
+        organization_id: organizationA.id,
+        supplier_id: betaSupplier.id,
+        name: "Blocked foreign supplier contact",
+        email: "blocked@stateai.invalid",
+      });
+    record(
+      "database rejects a foreign-tenant supplier contact relationship",
+      Boolean(foreignSupplierContact.error),
+    );
+
+    const ownerSupplierContract = await owner
+      .from("supplier_contracts")
+      .insert({
+        organization_id: organizationA.id,
+        supplier_id: alphaSupplier.id,
+        title: "Authorization rate agreement",
+        status: "active",
+        starts_on: "2026-01-01",
+        ends_on: "2027-01-01",
+        currency: "INR",
+        created_by: ownerUser.id,
+      })
+      .select("id")
+      .single();
+    record(
+      "authorized roles can record same-tenant supplier terms",
+      !ownerSupplierContract.error &&
+        Boolean(ownerSupplierContract.data?.id),
+      ownerSupplierContract.error?.message ?? null,
+    );
+
+    const viewerSupplierContract = await viewer
+      .from("supplier_contracts")
+      .insert({
+        organization_id: organizationB.id,
+        supplier_id: betaSupplier.id,
+        title: "Blocked viewer contract",
+        currency: "USD",
+        created_by: viewerUser.id,
+      });
+    record(
+      "viewer cannot record supplier contract terms",
+      Boolean(viewerSupplierContract.error),
+    );
+
+    const directPaymentInsert = await owner.from("payments").insert({
+      organization_id: organizationA.id,
+      trip_id: firstConversion.data.id,
+      supplier_id: alphaSupplier.id,
+      direction: "payable",
+      title: "Blocked direct payable",
+      amount: 100,
+      currency: "INR",
+    });
+    record(
+      "browser clients cannot create payment obligations directly",
+      Boolean(directPaymentInsert.error),
+    );
+
+    const foreignPaymentRelationship = await owner.rpc(
+      "create_payment_obligation",
+      {
+        target_organization_id: organizationA.id,
+        target_direction: "payable",
+        target_title: "Blocked foreign supplier payable",
+        target_amount: 100,
+        target_currency: "INR",
+        target_trip_id: firstConversion.data.id,
+        target_supplier_id: betaSupplier.id,
+      },
+    );
+    record(
+      "database rejects a foreign-tenant supplier payment relationship",
+      Boolean(foreignPaymentRelationship.error),
+    );
+
+    const dueYesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const governedPayment = await owner
+      .rpc("create_payment_obligation", {
+        target_organization_id: organizationA.id,
+        target_direction: "payable",
+        target_title: "Governed supplier deposit",
+        target_amount: 1000,
+        target_currency: "INR",
+        target_due_at: dueYesterday,
+        target_trip_id: firstConversion.data.id,
+        target_supplier_id: alphaSupplier.id,
+        target_invoice_number: `AUTHZ-${suffix}`,
+      })
+      .single();
+    record(
+      "finance role creates an overdue obligation through the guarded ledger",
+      !governedPayment.error &&
+        governedPayment.data?.status === "overdue" &&
+        governedPayment.data?.created_by === ownerUser.id &&
+        governedPayment.data?.paid_amount === 0,
+      governedPayment.error?.message ?? null,
+    );
+    if (governedPayment.error || !governedPayment.data)
+      throw governedPayment.error ??
+        new Error("Governed payment fixture was not created.");
+
+    const viewerForeignPayments = await viewer
+      .from("payments")
+      .select("id")
+      .eq("id", governedPayment.data.id);
+    record(
+      "foreign tenant cannot read another workspace payment obligation",
+      !viewerForeignPayments.error &&
+        viewerForeignPayments.data?.length === 0,
+    );
+
+    const directPaymentMutation = await owner
+      .from("payments")
+      .update({ status: "paid", paid_amount: 1000 })
+      .eq("id", governedPayment.data.id)
+      .select("id");
+    record(
+      "browser clients cannot forge payment settlement state",
+      Boolean(directPaymentMutation.error) ||
+        directPaymentMutation.data?.length === 0,
+    );
+
+    const paymentRadarScan = await owner.rpc(
+      "refresh_operational_exceptions",
+      { target_organization_id: organizationA.id },
+    );
+    const paymentException = await owner
+      .from("operational_exceptions")
+      .select("id, status, severity, source_entity_id")
+      .eq("organization_id", organizationA.id)
+      .eq("exception_type", "payment_due")
+      .eq("source_entity_id", governedPayment.data.id)
+      .single();
+    record(
+      "Operations Radar detects a critical overdue payment obligation",
+      !paymentRadarScan.error &&
+        !paymentException.error &&
+        paymentException.data?.status === "open" &&
+        paymentException.data?.severity === "critical",
+      paymentException.error?.message ?? paymentRadarScan.error?.message ?? null,
+    );
+
+    const partialSettlement = await owner
+      .rpc("record_payment_allocation", {
+        target_organization_id: organizationA.id,
+        target_payment_id: governedPayment.data.id,
+        target_amount: 400,
+        target_occurred_at: new Date().toISOString(),
+        target_reference: `AUTHZ-SETTLEMENT-${suffix}-1`,
+      })
+      .single();
+    record(
+      "finance role records immutable partial-settlement evidence",
+      !partialSettlement.error &&
+        partialSettlement.data?.status === "overdue" &&
+        partialSettlement.data?.paid_amount === 400,
+      partialSettlement.error?.message ?? null,
+    );
+
+    const excessiveSettlement = await owner.rpc(
+      "record_payment_allocation",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: governedPayment.data.id,
+        target_amount: 700,
+        target_occurred_at: new Date().toISOString(),
+        target_reference: `AUTHZ-SETTLEMENT-${suffix}-OVER`,
+      },
+    );
+    record(
+      "ledger rejects settlement beyond the outstanding balance",
+      Boolean(excessiveSettlement.error),
+    );
+
+    const allocationMutation = await owner
+      .from("payment_allocations")
+      .update({ amount: 1 })
+      .eq("payment_id", governedPayment.data.id)
+      .select("id");
+    record(
+      "browser clients cannot rewrite settlement evidence",
+      Boolean(allocationMutation.error) ||
+        allocationMutation.data?.length === 0,
+    );
+
+    const finalSettlement = await owner
+      .rpc("record_payment_allocation", {
+        target_organization_id: organizationA.id,
+        target_payment_id: governedPayment.data.id,
+        target_amount: 600,
+        target_occurred_at: new Date().toISOString(),
+        target_reference: `AUTHZ-SETTLEMENT-${suffix}-2`,
+      })
+      .single();
+    const settlementEvidence = await owner
+      .from("payment_allocations")
+      .select("amount, recorded_by")
+      .eq("payment_id", governedPayment.data.id);
+    record(
+      "complete settlement reconciles the obligation with actor evidence",
+      !finalSettlement.error &&
+        finalSettlement.data?.status === "paid" &&
+        finalSettlement.data?.paid_amount === 1000 &&
+        Boolean(finalSettlement.data?.paid_at) &&
+        !settlementEvidence.error &&
+        settlementEvidence.data?.length === 2 &&
+        settlementEvidence.data.every(
+          (allocation) => allocation.recorded_by === ownerUser.id,
+        ),
+      finalSettlement.error?.message ?? settlementEvidence.error?.message ?? null,
+    );
+
+    await owner.rpc("refresh_operational_exceptions", {
+      target_organization_id: organizationA.id,
+    });
+    const clearedPaymentException = await owner
+      .from("operational_exceptions")
+      .select("status, resolved_by, operator_note")
+      .eq("id", paymentException.data?.id ?? randomUUID())
+      .single();
+    record(
+      "Operations Radar auto-clears payment risk after reconciliation",
+      !clearedPaymentException.error &&
+        clearedPaymentException.data?.status === "resolved" &&
+        clearedPaymentException.data?.resolved_by === null &&
+        clearedPaymentException.data?.operator_note ===
+          "Condition cleared by Operations Radar.",
+      clearedPaymentException.error?.message ?? null,
+    );
+
+    const voidablePayment = await owner
+      .rpc("create_payment_obligation", {
+        target_organization_id: organizationA.id,
+        target_direction: "receivable",
+        target_title: "Voidable customer balance",
+        target_amount: 250,
+        target_currency: "INR",
+        target_trip_id: firstConversion.data.id,
+      })
+      .single();
+    if (voidablePayment.error || !voidablePayment.data)
+      throw voidablePayment.error ??
+        new Error("Voidable payment fixture was not created.");
+    const missingVoidEvidence = await owner.rpc(
+      "void_payment_obligation",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: voidablePayment.data.id,
+        target_reason: " ",
+      },
+    );
+    record(
+      "voiding an obligation requires human evidence",
+      Boolean(missingVoidEvidence.error),
+    );
+    const governedVoid = await owner
+      .rpc("void_payment_obligation", {
+        target_organization_id: organizationA.id,
+        target_payment_id: voidablePayment.data.id,
+        target_reason: "Duplicate internal obligation.",
+      })
+      .single();
+    record(
+      "finance role can void an unsettled obligation with actor evidence",
+      !governedVoid.error &&
+        governedVoid.data?.status === "void" &&
+        governedVoid.data?.voided_by === ownerUser.id &&
+        Boolean(governedVoid.data?.voided_at),
+      governedVoid.error?.message ?? null,
+    );
+
     const [ownerTripHistory, viewerForeignTrip, viewerTripHistory] =
       await Promise.all([
         owner

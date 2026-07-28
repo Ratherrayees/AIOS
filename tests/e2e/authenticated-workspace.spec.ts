@@ -300,6 +300,7 @@ test.describe("authenticated owner workspace", () => {
       ["/quotes", /Shape a confident proposal/i],
       ["/itineraries", /Design the journey/i],
       ["/trips", /From “won” to wheels up/i],
+      ["/finance", /Know what is owed/i],
       ["/aios", /Set how autonomous/i],
       ["/analytics", /See where momentum becomes revenue/i],
       ["/settings/lead-capture", /Lead capture that enters/i],
@@ -329,6 +330,7 @@ test.describe("authenticated owner workspace", () => {
       "/quotes",
       "/itineraries",
       "/trips",
+      "/finance",
       "/aios",
       "/analytics",
       "/settings/lead-capture",
@@ -1605,6 +1607,188 @@ test.describe("authenticated owner workspace", () => {
     ]);
   });
 
+  test("wires supplier memory, payment evidence, and payment-due radar", async ({
+    page,
+  }) => {
+    const suffix = Date.now();
+    const supplierName = `E2E Kyoto supplier ${suffix}`;
+    const contactName = `E2E Supplier Contact ${suffix}`;
+    const contractTitle = `E2E 2027 rate agreement ${suffix}`;
+    const paymentTitle = `E2E supplier deposit ${suffix}`;
+    const invoiceNumber = `E2E-INV-${suffix}`;
+    const settlementReference = `E2E-BANK-${suffix}`;
+    const overdueDate = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    await signIn(page);
+    await page.goto("/finance");
+    await expect(
+      page.getByRole("heading", { name: /Know what is owed/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Internal ledger only")).toBeVisible();
+
+    await page.getByText("Create supplier profile", { exact: true }).click();
+    await page.getByLabel("Supplier name").fill(supplierName);
+    await page.getByLabel("Supplier category").fill("DMC");
+    await page.getByLabel("Main contact name").fill(contactName);
+    await page
+      .getByLabel("Supplier email")
+      .fill(`supplier.${suffix}@example.invalid`);
+    await page.getByLabel("Payment terms (days)").fill("14");
+    await page.getByLabel("Quality rating").fill("4.7");
+    await page.getByRole("button", { name: "Create supplier" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Supplier profile created",
+    );
+    await expect(
+      page.getByRole("heading", { name: supplierName, exact: true }),
+    ).toBeVisible();
+
+    await page.getByText("Add supplier contact", { exact: true }).click();
+    await page
+      .getByLabel("Contact supplier")
+      .selectOption({ label: supplierName });
+    await page.getByLabel("Contact name", { exact: true }).fill(contactName);
+    await page
+      .getByLabel("Contact email")
+      .fill(`operations.${suffix}@example.invalid`);
+    await page.getByLabel("Primary contact").check();
+    await page.getByRole("button", { name: "Add contact" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Supplier contact added",
+    );
+
+    await page.getByText("Record supplier contract", { exact: true }).click();
+    await page
+      .getByLabel("Contract supplier")
+      .selectOption({ label: supplierName });
+    await page.getByLabel("Contract title").fill(contractTitle);
+    await page.getByLabel("Contract reference").fill(`RATE-${suffix}`);
+    await page.getByLabel("Internal status").selectOption("active");
+    await page.getByLabel("Starts on").fill("2026-08-01");
+    await page.getByLabel("Ends on").fill("2027-07-31");
+    await page
+      .getByLabel("Contract payment terms (days)")
+      .fill("14");
+    await page.getByRole("button", { name: "Record contract" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "No contract was signed or accepted",
+    );
+
+    await page.getByLabel("Payment direction").selectOption("payable");
+    await page.getByLabel("Obligation title").fill(paymentTitle);
+    await page.getByLabel("Amount", { exact: true }).fill("125000");
+    await page.getByLabel("Currency", { exact: true }).fill("INR");
+    await page.getByLabel("Due date").fill(overdueDate);
+    await page
+      .getByLabel("Related trip")
+      .selectOption(operationalTripId);
+    await page
+      .locator('.ledger-create select[name="supplierId"]')
+      .selectOption({ label: supplierName });
+    await page.getByLabel("Invoice number").fill(invoiceNumber);
+    await page.getByRole("button", { name: "Create obligation" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "No charge, payout, or invoice was sent",
+    );
+
+    const paymentCard = page
+      .locator(".payment-card")
+      .filter({ hasText: paymentTitle });
+    await expect(paymentCard).toBeVisible();
+    await expect(
+      paymentCard.getByText("overdue", { exact: true }),
+    ).toBeVisible();
+
+    await page.goto(`/trips/${operationalTripId}`);
+    await page
+      .locator(".operations-radar")
+      .getByRole("button", { name: "Scan now" })
+      .click();
+    await expect(
+      page
+        .locator(".radar-card")
+        .filter({ hasText: "Supplier payment needs attention" })
+        .filter({ hasText: paymentTitle }),
+    ).toBeVisible();
+
+    await page.goto("/finance");
+    const refreshedPaymentCard = page
+      .locator(".payment-card")
+      .filter({ hasText: paymentTitle });
+    await refreshedPaymentCard
+      .getByText("Record settlement", { exact: true })
+      .click();
+    await refreshedPaymentCard
+      .getByLabel(`Settlement amount for ${paymentTitle}`)
+      .fill("125000");
+    await refreshedPaymentCard
+      .getByLabel(`Settlement reference for ${paymentTitle}`)
+      .fill(settlementReference);
+    await refreshedPaymentCard
+      .getByRole("button", { name: "Record evidence" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "AIOS did not initiate any money movement",
+    );
+    await page
+      .getByRole("button", { name: "Settled", exact: true })
+      .click();
+    await expect(
+      refreshedPaymentCard.getByText("paid", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      refreshedPaymentCard.getByText(settlementReference, { exact: true }),
+    ).toBeVisible();
+
+    const { data: supplier, error: supplierError } = await admin!
+      .from("suppliers")
+      .select("id, payment_terms_days, quality_rating")
+      .eq("organization_id", organizationIds[0])
+      .eq("name", supplierName)
+      .single();
+    expect(supplierError).toBeNull();
+    const { data: payment, error: paymentError } = await admin!
+      .from("payments")
+      .select("id, status, amount, paid_amount, trip_id, supplier_id, created_by")
+      .eq("organization_id", organizationIds[0])
+      .eq("invoice_number", invoiceNumber)
+      .single();
+    expect(paymentError).toBeNull();
+    expect(payment).toMatchObject({
+      status: "paid",
+      amount: 125000,
+      paid_amount: 125000,
+      trip_id: operationalTripId,
+      supplier_id: supplier!.id,
+      created_by: userId,
+    });
+    const { data: paymentAllocations, error: allocationError } = await admin!
+      .from("payment_allocations")
+      .select("amount, reference, recorded_by")
+      .eq("payment_id", payment!.id);
+    expect(allocationError).toBeNull();
+    expect(paymentAllocations).toMatchObject([
+      {
+        amount: 125000,
+        reference: settlementReference,
+        recorded_by: userId,
+      },
+    ]);
+
+    await page.goto(`/trips/${operationalTripId}`);
+    await page
+      .locator(".operations-radar")
+      .getByRole("button", { name: "Scan now" })
+      .click();
+    await expect(
+      page
+        .locator(".radar-card")
+        .filter({ hasText: "Supplier payment needs attention" }),
+    ).toHaveCount(0);
+  });
+
   test("wires lead-capture creation, preview routing, pause, and resume", async ({
     page,
   }) => {
@@ -1871,6 +2055,7 @@ test.describe("authenticated owner workspace", () => {
       "/itineraries",
       "/trips",
       `/trips/${operationalTripId}`,
+      "/finance",
       "/aios",
       "/analytics",
       "/settings/lead-capture",

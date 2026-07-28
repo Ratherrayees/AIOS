@@ -19,5 +19,10 @@ export default defineConfig([
       },
     },
   },
-  globalIgnores([".next/**", "node_modules/**", "coverage/**"]),
+  globalIgnores([
+    ".next/**",
+    "node_modules/**",
+    "coverage/**",
+    "supabase/.temp/**",
+  ]),
 ]);

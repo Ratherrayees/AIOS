@@ -179,6 +179,7 @@ export default function TripsPage() {
         links={[
           { href: "/", label: "Command center" },
           { href: "/itineraries", label: "Itinerary Studio" },
+          { href: "/finance", label: "Suppliers & Finance" },
           { href: "/quotes", label: "Quotes" },
           { href: "/aios", label: "AIOS Control" },
         ]}

@@ -58,6 +58,13 @@ import {
   messageDraftUpdateSchema,
   messageTemplateInputSchema,
   messageTemplateStatusUpdateSchema,
+  paymentAllocationInputSchema,
+  paymentObligationInputSchema,
+  paymentStatusRefreshSchema,
+  paymentVoidInputSchema,
+  supplierContactInputSchema,
+  supplierContractInputSchema,
+  supplierProfileInputSchema,
   type ActivityNoteInput,
   type CompanyInput,
   type ContactInput,
@@ -110,6 +117,13 @@ import {
   type MessageDraftUpdateInput,
   type MessageTemplateInput,
   type MessageTemplateStatusUpdateInput,
+  type PaymentAllocationInput,
+  type PaymentObligationInput,
+  type PaymentStatusRefreshInput,
+  type PaymentVoidInput,
+  type SupplierContactInput,
+  type SupplierContractInput,
+  type SupplierProfileInput,
 } from "../../lib/crm/schemas";
 import { gateAiosAction } from "./aios";
 import {
@@ -171,6 +185,14 @@ const BOOKING_WRITE_ROLES = [
   "operations",
   "finance",
 ] as const;
+const SUPPLIER_WRITE_ROLES = [
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
+  "finance",
+] as const;
+const FINANCE_WRITE_ROLES = ["owner", "admin", "finance"] as const;
 
 async function assertActiveOrganizationMember(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -2134,6 +2156,225 @@ export async function updateOperationalExceptionStatus(
   if (error || !exception)
     throw error ?? new Error("The operational exception could not be updated.");
   return exception;
+}
+
+/** Creates a tenant-scoped supplier profile without contacting the supplier. */
+export async function createSupplierProfile(input: SupplierProfileInput) {
+  const data = supplierProfileInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: supplier, error } = await supabase
+    .from("suppliers")
+    .insert({
+      organization_id: data.organizationId,
+      name: data.name,
+      category: data.category ?? null,
+      contact_name: data.contactName ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      website: data.website ?? null,
+      preferred_currency: data.preferredCurrency,
+      payment_terms_days: data.paymentTermsDays ?? null,
+      cancellation_terms: data.cancellationTerms ?? null,
+      internal_notes: data.internalNotes ?? null,
+      quality_rating: data.qualityRating ?? null,
+      status: "active",
+    })
+    .select()
+    .single();
+  if (error || !supplier)
+    throw error ?? new Error("The supplier profile could not be created.");
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "supplier",
+    entityId: supplier.id,
+    metadata: {
+      event: "supplier.profile_created",
+      category: supplier.category,
+    },
+  });
+  return supplier;
+}
+
+/** Adds an internal supplier contact; no message is sent. */
+export async function createSupplierContact(input: SupplierContactInput) {
+  const data = supplierContactInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: supplier, error: supplierError } = await supabase
+    .from("suppliers")
+    .select("id")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.supplierId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (supplierError || !supplier)
+    throw new Error("That supplier is not available in this workspace.");
+
+  const { data: contact, error } = await supabase
+    .from("supplier_contacts")
+    .insert({
+      organization_id: data.organizationId,
+      supplier_id: data.supplierId,
+      name: data.name,
+      role_title: data.roleTitle ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      is_primary: data.isPrimary,
+      notes: data.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error?.code === "23505")
+    throw new Error(
+      "This supplier already has a primary contact. Add this person as another contact.",
+    );
+  if (error || !contact)
+    throw error ?? new Error("The supplier contact could not be added.");
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "supplier_contact",
+    entityId: contact.id,
+    metadata: {
+      event: "supplier.contact_created",
+      supplier_id: data.supplierId,
+      is_primary: contact.is_primary,
+    },
+  });
+  return contact;
+}
+
+/** Records contract terms for internal use; it never accepts or signs terms. */
+export async function createSupplierContract(input: SupplierContractInput) {
+  const data = supplierContractInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const actorId = claims?.claims.sub;
+  if (claimsError || !actorId) throw new Error("Sign in is required.");
+  const { data: contract, error } = await supabase
+    .from("supplier_contracts")
+    .insert({
+      organization_id: data.organizationId,
+      supplier_id: data.supplierId,
+      title: data.title,
+      contract_reference: data.contractReference ?? null,
+      status: data.status,
+      starts_on: data.startsOn ?? null,
+      ends_on: data.endsOn ?? null,
+      currency: data.currency,
+      payment_terms_days: data.paymentTermsDays ?? null,
+      cancellation_terms: data.cancellationTerms ?? null,
+      internal_notes: data.internalNotes ?? null,
+      created_by: actorId,
+    })
+    .select()
+    .single();
+  if (error || !contract)
+    throw error ?? new Error("The supplier contract could not be recorded.");
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.created",
+    entityType: "supplier_contract",
+    entityId: contract.id,
+    metadata: {
+      event: "supplier.contract_recorded",
+      supplier_id: data.supplierId,
+      status: contract.status,
+    },
+  });
+  return contract;
+}
+
+/** Creates an internal receivable or payable; no money is moved. */
+export async function createPaymentObligation(input: PaymentObligationInput) {
+  const data = paymentObligationInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const args = {
+    target_organization_id: data.organizationId,
+    target_direction: data.direction,
+    target_title: data.title,
+    target_amount: data.amount,
+    target_currency: data.currency,
+    ...(data.dueAt ? { target_due_at: data.dueAt } : {}),
+    ...(data.dealId ? { target_deal_id: data.dealId } : {}),
+    ...(data.tripId ? { target_trip_id: data.tripId } : {}),
+    ...(data.supplierId ? { target_supplier_id: data.supplierId } : {}),
+    ...(data.invoiceNumber
+      ? { target_invoice_number: data.invoiceNumber }
+      : {}),
+    ...(data.description ? { target_description: data.description } : {}),
+  };
+  const { data: payment, error } = await supabase
+    .rpc("create_payment_obligation", args)
+    .single();
+  if (error?.code === "23505")
+    throw new Error("That invoice number is already in this workspace.");
+  if (error || !payment)
+    throw error ?? new Error("The payment obligation could not be created.");
+  return payment;
+}
+
+/** Records evidence of a settlement that already happened; it cannot charge. */
+export async function recordPaymentAllocation(
+  input: PaymentAllocationInput,
+) {
+  const data = paymentAllocationInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const args = {
+    target_organization_id: data.organizationId,
+    target_payment_id: data.paymentId,
+    target_amount: data.amount,
+    target_occurred_at: data.occurredAt,
+    ...(data.reference ? { target_reference: data.reference } : {}),
+    ...(data.note ? { target_note: data.note } : {}),
+  };
+  const { data: payment, error } = await supabase
+    .rpc("record_payment_allocation", args)
+    .single();
+  if (error?.code === "23505")
+    throw new Error("That settlement reference has already been recorded.");
+  if (error || !payment)
+    throw error ?? new Error("The settlement could not be recorded.");
+  return payment;
+}
+
+/** Voids an unsettled internal obligation with explicit human evidence. */
+export async function voidPaymentObligation(input: PaymentVoidInput) {
+  const data = paymentVoidInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: payment, error } = await supabase
+    .rpc("void_payment_obligation", {
+      target_organization_id: data.organizationId,
+      target_payment_id: data.paymentId,
+      target_reason: data.reason,
+    })
+    .single();
+  if (error || !payment)
+    throw error ?? new Error("The payment obligation could not be voided.");
+  return payment;
+}
+
+/** Recomputes only deterministic internal ledger states from dates and totals. */
+export async function refreshPaymentStatuses(
+  input: PaymentStatusRefreshInput,
+) {
+  const data = paymentStatusRefreshSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: summary, error } = await supabase
+    .rpc("refresh_payment_obligation_statuses", {
+      target_organization_id: data.organizationId,
+    })
+    .single();
+  if (error || !summary)
+    throw error ?? new Error("The payment ledger could not refresh.");
+  return summary;
 }
 
 /** Appends a planning item atomically so two editors cannot share a position. */

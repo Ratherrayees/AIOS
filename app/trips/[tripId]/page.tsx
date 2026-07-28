@@ -670,6 +670,7 @@ export default function TripWorkspacePage() {
       <FeatureHeader
         links={[
           { href: "/trips", label: "Trip Operations" },
+          { href: "/finance", label: "Suppliers & Finance" },
           { href: "/itineraries", label: "Itinerary Studio" },
           { href: "/tasks", label: "Tasks" },
           { href: "/aios", label: "AIOS Control" },

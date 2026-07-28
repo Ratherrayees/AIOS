@@ -2329,53 +2329,148 @@ export type Database = {
         }
         Relationships: []
       }
-      payments: {
+      payment_allocations: {
         Row: {
           amount: number
           created_at: string
           currency: string
-          deal_id: string | null
-          direction: string
-          due_at: string | null
           id: string
+          note: string | null
+          occurred_at: string
           organization_id: string
-          paid_at: string | null
-          provider_reference: string | null
-          status: Database["public"]["Enums"]["payment_status"]
-          trip_id: string | null
-          updated_at: string
+          payment_id: string
+          recorded_by: string | null
+          reference: string | null
         }
         Insert: {
           amount: number
           created_at?: string
-          currency?: string
-          deal_id?: string | null
-          direction: string
-          due_at?: string | null
+          currency: string
           id?: string
+          note?: string | null
+          occurred_at: string
           organization_id: string
-          paid_at?: string | null
-          provider_reference?: string | null
-          status?: Database["public"]["Enums"]["payment_status"]
-          trip_id?: string | null
-          updated_at?: string
+          payment_id: string
+          recorded_by?: string | null
+          reference?: string | null
         }
         Update: {
           amount?: number
           created_at?: string
           currency?: string
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          organization_id?: string
+          payment_id?: string
+          recorded_by?: string | null
+          reference?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_payment_same_organization_fkey"
+            columns: ["organization_id", "payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          deal_id: string | null
+          description: string | null
+          direction: string
+          due_at: string | null
+          id: string
+          invoice_number: string | null
+          organization_id: string
+          paid_amount: number
+          paid_at: string | null
+          provider_reference: string | null
+          status: Database["public"]["Enums"]["payment_status"]
+          status_note: string | null
+          supplier_id: string | null
+          title: string
+          trip_id: string | null
+          updated_at: string
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
           deal_id?: string | null
-          direction?: string
+          description?: string | null
+          direction: string
           due_at?: string | null
           id?: string
-          organization_id?: string
+          invoice_number?: string | null
+          organization_id: string
+          paid_amount?: number
           paid_at?: string | null
           provider_reference?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
+          status_note?: string | null
+          supplier_id?: string | null
+          title: string
           trip_id?: string | null
           updated_at?: string
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deal_id?: string | null
+          description?: string | null
+          direction?: string
+          due_at?: string | null
+          id?: string
+          invoice_number?: string | null
+          organization_id?: string
+          paid_amount?: number
+          paid_at?: string | null
+          provider_reference?: string | null
+          status?: Database["public"]["Enums"]["payment_status"]
+          status_note?: string | null
+          supplier_id?: string | null
+          title?: string
+          trip_id?: string | null
+          updated_at?: string
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "payments_creator_same_organization_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
           {
             foreignKeyName: "payments_deal_same_organization_fkey"
             columns: ["organization_id", "deal_id"]
@@ -2391,11 +2486,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payments_supplier_same_organization_fkey"
+            columns: ["organization_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
             foreignKeyName: "payments_trip_same_organization_fkey"
             columns: ["organization_id", "trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payments_voider_same_organization_fkey"
+            columns: ["organization_id", "voided_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
           },
         ]
       }
@@ -2760,45 +2869,199 @@ export type Database = {
           },
         ]
       }
-      suppliers: {
+      supplier_contacts: {
         Row: {
-          archived_at: string | null
-          category: string | null
           created_at: string
           email: string | null
           id: string
+          is_primary: boolean
           name: string
+          notes: string | null
           organization_id: string
           phone: string | null
-          status: string
-          terms: Json
+          role_title: string | null
+          supplier_id: string
           updated_at: string
         }
         Insert: {
-          archived_at?: string | null
-          category?: string | null
           created_at?: string
           email?: string | null
           id?: string
+          is_primary?: boolean
           name: string
+          notes?: string | null
           organization_id: string
           phone?: string | null
-          status?: string
-          terms?: Json
+          role_title?: string | null
+          supplier_id: string
           updated_at?: string
         }
         Update: {
-          archived_at?: string | null
-          category?: string | null
           created_at?: string
           email?: string | null
           id?: string
+          is_primary?: boolean
           name?: string
+          notes?: string | null
           organization_id?: string
           phone?: string | null
+          role_title?: string | null
+          supplier_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_contacts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_contacts_supplier_same_organization_fkey"
+            columns: ["organization_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      supplier_contracts: {
+        Row: {
+          cancellation_terms: string | null
+          contract_reference: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          ends_on: string | null
+          id: string
+          internal_notes: string | null
+          organization_id: string
+          payment_terms_days: number | null
+          starts_on: string | null
+          status: string
+          supplier_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          cancellation_terms?: string | null
+          contract_reference?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          ends_on?: string | null
+          id?: string
+          internal_notes?: string | null
+          organization_id: string
+          payment_terms_days?: number | null
+          starts_on?: string | null
+          status?: string
+          supplier_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          cancellation_terms?: string | null
+          contract_reference?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          ends_on?: string | null
+          id?: string
+          internal_notes?: string | null
+          organization_id?: string
+          payment_terms_days?: number | null
+          starts_on?: string | null
+          status?: string
+          supplier_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_contracts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_contracts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_contracts_supplier_same_organization_fkey"
+            columns: ["organization_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      suppliers: {
+        Row: {
+          archived_at: string | null
+          cancellation_terms: string | null
+          category: string | null
+          contact_name: string | null
+          created_at: string
+          email: string | null
+          id: string
+          internal_notes: string | null
+          name: string
+          organization_id: string
+          payment_terms_days: number | null
+          phone: string | null
+          preferred_currency: string
+          quality_rating: number | null
+          status: string
+          terms: Json
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          archived_at?: string | null
+          cancellation_terms?: string | null
+          category?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          internal_notes?: string | null
+          name: string
+          organization_id: string
+          payment_terms_days?: number | null
+          phone?: string | null
+          preferred_currency?: string
+          quality_rating?: number | null
           status?: string
           terms?: Json
           updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          archived_at?: string | null
+          cancellation_terms?: string | null
+          category?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          internal_notes?: string | null
+          name?: string
+          organization_id?: string
+          payment_terms_days?: number | null
+          phone?: string | null
+          preferred_currency?: string
+          quality_rating?: number | null
+          status?: string
+          terms?: Json
+          updated_at?: string
+          website?: string | null
         }
         Relationships: [
           {
@@ -3331,6 +3594,51 @@ export type Database = {
         }
         Returns: string
       }
+      create_payment_obligation: {
+        Args: {
+          target_amount: number
+          target_currency: string
+          target_deal_id?: string
+          target_description?: string
+          target_direction: string
+          target_due_at?: string
+          target_invoice_number?: string
+          target_organization_id: string
+          target_supplier_id?: string
+          target_title: string
+          target_trip_id?: string
+        }
+        Returns: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          deal_id: string | null
+          description: string | null
+          direction: string
+          due_at: string | null
+          id: string
+          invoice_number: string | null
+          organization_id: string
+          paid_amount: number
+          paid_at: string | null
+          provider_reference: string | null
+          status: Database["public"]["Enums"]["payment_status"]
+          status_note: string | null
+          supplier_id: string | null
+          title: string
+          trip_id: string | null
+          updated_at: string
+          voided_at: string | null
+          voided_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "payments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_qualification_checklist_template: {
         Args: {
           target_description: string
@@ -3403,6 +3711,46 @@ export type Database = {
           surviving_contact_id: string
         }[]
       }
+      record_payment_allocation: {
+        Args: {
+          target_amount: number
+          target_note?: string
+          target_occurred_at: string
+          target_organization_id: string
+          target_payment_id: string
+          target_reference?: string
+        }
+        Returns: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          deal_id: string | null
+          description: string | null
+          direction: string
+          due_at: string | null
+          id: string
+          invoice_number: string | null
+          organization_id: string
+          paid_amount: number
+          paid_at: string | null
+          provider_reference: string | null
+          status: Database["public"]["Enums"]["payment_status"]
+          status_note: string | null
+          supplier_id: string | null
+          title: string
+          trip_id: string | null
+          updated_at: string
+          voided_at: string | null
+          voided_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "payments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       record_travel_document: {
         Args: {
           target_byte_size: number
@@ -3474,6 +3822,15 @@ export type Database = {
           critical_count: number
           resolved_count: number
           scanned_at: string
+        }[]
+      }
+      refresh_payment_obligation_statuses: {
+        Args: { target_organization_id: string }
+        Returns: {
+          open_count: number
+          overdue_count: number
+          refreshed_at: string
+          updated_count: number
         }[]
       }
       requeue_ai_job: {
@@ -3694,6 +4051,43 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      void_payment_obligation: {
+        Args: {
+          target_organization_id: string
+          target_payment_id: string
+          target_reason: string
+        }
+        Returns: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          deal_id: string | null
+          description: string | null
+          direction: string
+          due_at: string | null
+          id: string
+          invoice_number: string | null
+          organization_id: string
+          paid_amount: number
+          paid_at: string | null
+          provider_reference: string | null
+          status: Database["public"]["Enums"]["payment_status"]
+          status_note: string | null
+          supplier_id: string | null
+          title: string
+          trip_id: string | null
+          updated_at: string
+          voided_at: string | null
+          voided_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "payments"
           isOneToOne: false
           isSetofReturn: true
         }
