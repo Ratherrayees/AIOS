@@ -207,6 +207,7 @@ test.describe("authenticated owner workspace", () => {
       ["/aios", /Set how autonomous/i],
       ["/analytics", /See where momentum becomes revenue/i],
       ["/settings/lead-capture", /Lead capture that enters/i],
+      ["/settings/sales-workflows", /Qualify consistently/i],
       ["/settings/team", /Humans stay accountable/i],
       ["/settings/security", /One password should never/i],
     ] as const;
@@ -401,5 +402,125 @@ test.describe("authenticated owner workspace", () => {
       .download(document!.storage_path);
     expect(storageError).toBeNull();
     expect(await storedFile!.text()).toContain("%PDF-1.4");
+  });
+
+  test("gates advancement with reusable qualification evidence and schedules internal follow-up", async ({
+    page,
+  }) => {
+    const qualificationName = `E2E premium qualification ${Date.now()}`;
+    const sequenceName = `E2E qualified momentum ${Date.now()}`;
+
+    await page.goto("/sign-in");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await expect(page).toHaveURL("/");
+
+    await page.goto("/settings/sales-workflows");
+    await page.getByLabel("Qualification template name").fill(
+      qualificationName,
+    );
+    await page
+      .getByLabel("Checklist items")
+      .fill(
+        "Confirm travel dates :: Record flexibility\n? Record visa support preference",
+      );
+    await page.getByRole("button", { name: "Create checklist" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Qualification checklist is ready",
+    );
+    await expect(page.getByText(qualificationName, { exact: true })).toBeVisible();
+
+    await page.getByLabel("Follow-up sequence name").fill(sequenceName);
+    await page
+      .getByLabel("Sequence steps")
+      .fill(
+        "0 | Confirm the traveller brief\n2 | Review itinerary direction",
+      );
+    await page
+      .getByRole("button", { name: "Create internal sequence" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Internal follow-up sequence is ready",
+    );
+    await expect(page.getByText(sequenceName, { exact: true })).toBeVisible();
+
+    await page.goto(`/leads/${dealId}`);
+    await page.getByLabel("Reusable checklist").selectOption({
+      label: qualificationName,
+    });
+    await page.getByRole("button", { name: "Apply checklist" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "2 qualification checks added",
+    );
+
+    await page.getByLabel("Pipeline stage").selectOption("decision");
+    await page.getByRole("button", { name: "Update stage" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Complete every required qualification check",
+    );
+
+    await page
+      .getByRole("checkbox", { name: /Confirm travel dates/i })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Qualification evidence recorded",
+    );
+
+    await page.getByRole("button", { name: "Update stage" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Opportunity moved to decision",
+    );
+
+    await page.getByLabel("Internal sequence").selectOption({
+      label: sequenceName,
+    });
+    await page
+      .getByRole("button", { name: "Create sequence tasks" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "2 internal follow-up tasks created",
+    );
+
+    const { data: checks, error: checksError } = await admin!
+      .from("deal_qualification_checks")
+      .select("is_required, is_complete, completed_by, completed_at")
+      .eq("organization_id", organizationIds[0])
+      .eq("deal_id", dealId);
+    expect(checksError).toBeNull();
+    expect(checks).toHaveLength(2);
+    expect(
+      checks?.filter((check) => check.is_required).every(
+        (check) =>
+          check.is_complete &&
+          check.completed_by === userId &&
+          Boolean(check.completed_at),
+      ),
+    ).toBe(true);
+
+    const { data: tasks, error: tasksError } = await admin!
+      .from("tasks")
+      .select("title, assignee_id, due_at")
+      .eq("organization_id", organizationIds[0])
+      .eq("deal_id", dealId)
+      .in("title", [
+        "Confirm the traveller brief",
+        "Review itinerary direction",
+      ]);
+    expect(tasksError).toBeNull();
+    expect(tasks).toHaveLength(2);
+    expect(
+      tasks?.every(
+        (task) => task.assignee_id === userId && Boolean(task.due_at),
+      ),
+    ).toBe(true);
+
+    const { count: runCount, error: runError } = await admin!
+      .from("deal_follow_up_sequence_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationIds[0])
+      .eq("deal_id", dealId);
+    expect(runError).toBeNull();
+    expect(runCount).toBe(1);
   });
 });

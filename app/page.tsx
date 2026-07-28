@@ -708,11 +708,17 @@ export default function Home() {
 
     startMoving(async () => {
       try {
-        const updated = await updateDealStage({
+        const result = await updateDealStage({
           organizationId,
           dealId: lead.id,
           stage,
         });
+        if (!result.ok) {
+          setToast(result.message);
+          window.setTimeout(() => setToast(""), 3400);
+          return;
+        }
+        const updated = result.deal;
         setLeads((current) =>
           current.map((item, index) =>
             item.id === lead.id ? leadFromDeal(updated, index) : item,
@@ -816,6 +822,10 @@ export default function Home() {
           <a className="nav-link" href="/settings/lead-capture">
             <span className="nav-glyph">+</span>
             <span>Lead capture</span>
+          </a>
+          <a className="nav-link" href="/settings/sales-workflows">
+            <span className="nav-glyph">W</span>
+            <span>Sales workflows</span>
           </a>
           <a className="nav-link" href="/aios">
             <span className="nav-glyph">✦</span>

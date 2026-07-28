@@ -943,6 +943,153 @@ export type Database = {
           },
         ]
       }
+      deal_follow_up_sequence_runs: {
+        Row: {
+          created_at: string
+          deal_id: string
+          enrolled_by: string
+          id: string
+          organization_id: string
+          sequence_id: string
+          tasks_created: number
+        }
+        Insert: {
+          created_at?: string
+          deal_id: string
+          enrolled_by: string
+          id?: string
+          organization_id: string
+          sequence_id: string
+          tasks_created: number
+        }
+        Update: {
+          created_at?: string
+          deal_id?: string
+          enrolled_by?: string
+          id?: string
+          organization_id?: string
+          sequence_id?: string
+          tasks_created?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deal_follow_up_sequence_runs_enrolled_by_fkey"
+            columns: ["enrolled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_follow_up_sequence_runs_organization_id_deal_id_fkey"
+            columns: ["organization_id", "deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "deal_follow_up_sequence_runs_organization_id_enrolled_by_fkey"
+            columns: ["organization_id", "enrolled_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "deal_follow_up_sequence_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_follow_up_sequence_runs_organization_id_sequence_id_fkey"
+            columns: ["organization_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "follow_up_sequences"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      deal_qualification_checks: {
+        Row: {
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          deal_id: string
+          guidance: string | null
+          id: string
+          is_complete: boolean
+          is_required: boolean
+          label: string
+          organization_id: string
+          template_item_id: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          deal_id: string
+          guidance?: string | null
+          id?: string
+          is_complete?: boolean
+          is_required?: boolean
+          label: string
+          organization_id: string
+          template_item_id: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          deal_id?: string
+          guidance?: string | null
+          id?: string
+          is_complete?: boolean
+          is_required?: boolean
+          label?: string
+          organization_id?: string
+          template_item_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deal_qualification_checks_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_qualification_checks_organization_id_completed_by_fkey"
+            columns: ["organization_id", "completed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "deal_qualification_checks_organization_id_deal_id_fkey"
+            columns: ["organization_id", "deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "deal_qualification_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_qualification_checks_organization_id_template_item_id_fkey"
+            columns: ["organization_id", "template_item_id"]
+            isOneToOne: false
+            referencedRelation: "qualification_checklist_items"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       deal_stage_history: {
         Row: {
           changed_at: string
@@ -1237,6 +1384,106 @@ export type Database = {
           received_at?: string
         }
         Relationships: []
+      }
+      follow_up_sequence_steps: {
+        Row: {
+          created_at: string
+          delay_days: number
+          id: string
+          organization_id: string
+          position: number
+          sequence_id: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          delay_days: number
+          id?: string
+          organization_id: string
+          position: number
+          sequence_id: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          delay_days?: number
+          id?: string
+          organization_id?: string
+          position?: number
+          sequence_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "follow_up_sequence_steps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "follow_up_sequence_steps_organization_id_sequence_id_fkey"
+            columns: ["organization_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "follow_up_sequences"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      follow_up_sequences: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "follow_up_sequences_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "follow_up_sequences_organization_id_created_by_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "follow_up_sequences_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       itinerary_comments: {
         Row: {
@@ -2053,6 +2300,109 @@ export type Database = {
         }
         Relationships: []
       }
+      qualification_checklist_items: {
+        Row: {
+          created_at: string
+          guidance: string | null
+          id: string
+          is_required: boolean
+          label: string
+          organization_id: string
+          position: number
+          template_id: string
+        }
+        Insert: {
+          created_at?: string
+          guidance?: string | null
+          id?: string
+          is_required?: boolean
+          label: string
+          organization_id: string
+          position: number
+          template_id: string
+        }
+        Update: {
+          created_at?: string
+          guidance?: string | null
+          id?: string
+          is_required?: boolean
+          label?: string
+          organization_id?: string
+          position?: number
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qualification_checklist_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qualification_checklist_items_organization_id_template_id_fkey"
+            columns: ["organization_id", "template_id"]
+            isOneToOne: false
+            referencedRelation: "qualification_checklist_templates"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      qualification_checklist_templates: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qualification_checklist_templat_organization_id_created_by_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "qualification_checklist_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qualification_checklist_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_cost_estimates: {
         Row: {
           created_at: string
@@ -2661,6 +3011,25 @@ export type Database = {
           quote_version: number
         }[]
       }
+      apply_follow_up_sequence: {
+        Args: {
+          target_deal_id: string
+          target_organization_id: string
+          target_sequence_id: string
+        }
+        Returns: {
+          run_id: string
+          tasks_created: number
+        }[]
+      }
+      apply_qualification_checklist: {
+        Args: {
+          target_deal_id: string
+          target_organization_id: string
+          target_template_id: string
+        }
+        Returns: number
+      }
       capture_public_lead: {
         Args: {
           target_budget_amount: number
@@ -2699,6 +3068,30 @@ export type Database = {
           job_payload: Json
         }[]
       }
+      create_follow_up_sequence: {
+        Args: {
+          target_description: string
+          target_name: string
+          target_organization_id: string
+          target_steps: Json
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "follow_up_sequences"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_itinerary_template_from_trip: {
         Args: {
           source_trip_id: string
@@ -2707,6 +3100,30 @@ export type Database = {
           template_name: string
         }
         Returns: string
+      }
+      create_qualification_checklist_template: {
+        Args: {
+          target_description: string
+          target_items: Json
+          target_name: string
+          target_organization_id: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          organization_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "qualification_checklist_templates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       create_quote_draft: {
         Args: {
@@ -2810,6 +3227,33 @@ export type Database = {
           approval_payload: Json
           resolved_status: Database["public"]["Enums"]["approval_status"]
         }[]
+      }
+      set_deal_qualification_check: {
+        Args: {
+          target_check_id: string
+          target_is_complete: boolean
+          target_organization_id: string
+        }
+        Returns: {
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          deal_id: string
+          guidance: string | null
+          id: string
+          is_complete: boolean
+          is_required: boolean
+          label: string
+          organization_id: string
+          template_item_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deal_qualification_checks"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       settle_ai_job: {
         Args: {

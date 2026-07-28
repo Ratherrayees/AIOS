@@ -384,6 +384,258 @@ async function verifyAuthorization() {
       Boolean(forgedDocumentRecord.error),
     );
 
+    activeVerificationPhase = "sales workflow authorization";
+    const qualificationTemplate = await owner
+      .rpc("create_qualification_checklist_template", {
+        target_organization_id: organizationA.id,
+        target_name: `Qualification ${suffix}`,
+        target_description: "Authorization qualification fixture",
+        target_items: [
+          {
+            label: "Confirm travel dates",
+            guidance: "Record flexibility",
+            required: true,
+          },
+          {
+            label: "Record visa support preference",
+            guidance: null,
+            required: false,
+          },
+        ],
+      })
+      .single();
+    record(
+      "authorized owner can create an atomic qualification template",
+      !qualificationTemplate.error &&
+        Boolean(qualificationTemplate.data?.id),
+      qualificationTemplate.error?.message ?? null,
+    );
+    if (qualificationTemplate.error || !qualificationTemplate.data)
+      throw (
+        qualificationTemplate.error ??
+        new Error("Qualification template fixture was not created.")
+      );
+
+    const viewerQualificationTemplate = await viewer.rpc(
+      "create_qualification_checklist_template",
+      {
+        target_organization_id: organizationB.id,
+        target_name: `Blocked qualification ${suffix}`,
+        target_description: "",
+        target_items: [
+          {
+            label: "Viewer must not create this",
+            guidance: null,
+            required: true,
+          },
+        ],
+      },
+    );
+    record(
+      "viewer cannot create qualification templates",
+      Boolean(viewerQualificationTemplate.error),
+    );
+
+    const appliedQualification = await owner.rpc(
+      "apply_qualification_checklist",
+      {
+        target_organization_id: organizationA.id,
+        target_deal_id: governedDeal.id,
+        target_template_id: qualificationTemplate.data.id,
+      },
+    );
+    record(
+      "authorized owner can instantiate reusable qualification evidence",
+      !appliedQualification.error && appliedQualification.data === 2,
+      appliedQualification.error?.message ??
+        JSON.stringify({ data: appliedQualification.data ?? null }),
+    );
+
+    const { data: qualificationChecks, error: qualificationChecksError } =
+      await owner
+        .from("deal_qualification_checks")
+        .select("id, is_required, is_complete")
+        .eq("deal_id", governedDeal.id);
+    if (qualificationChecksError || qualificationChecks?.length !== 2)
+      throw (
+        qualificationChecksError ??
+        new Error("Qualification checks were not instantiated.")
+      );
+    const requiredCheck = qualificationChecks.find(
+      (check) => check.is_required,
+    );
+    if (!requiredCheck)
+      throw new Error("Required qualification check fixture is missing.");
+
+    const directQualificationUpdate = await owner
+      .from("deal_qualification_checks")
+      .update({
+        is_complete: true,
+        completed_by: ownerUser.id,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", requiredCheck.id)
+      .select("id");
+    record(
+      "browser clients cannot bypass qualification evidence auditing",
+      Boolean(directQualificationUpdate.error),
+    );
+
+    const blockedByQualification = await owner.rpc("transition_deal_stage", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_stage: "proposal",
+      target_lost_reason: null,
+    });
+    record(
+      "required qualification evidence blocks proposal advancement",
+      Boolean(blockedByQualification.error),
+    );
+
+    const completedQualification = await owner
+      .rpc("set_deal_qualification_check", {
+        target_organization_id: organizationA.id,
+        target_check_id: requiredCheck.id,
+        target_is_complete: true,
+      })
+      .single();
+    record(
+      "authorized qualification completion records actor evidence",
+      !completedQualification.error &&
+        completedQualification.data?.is_complete === true &&
+        completedQualification.data?.completed_by === ownerUser.id &&
+        Boolean(completedQualification.data?.completed_at),
+      completedQualification.error?.message ?? null,
+    );
+
+    const qualifiedProposal = await owner.rpc("transition_deal_stage", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_stage: "proposal",
+      target_lost_reason: null,
+    });
+    record(
+      "completed required evidence permits governed advancement",
+      !qualifiedProposal.error &&
+        qualifiedProposal.data?.length === 1 &&
+        qualifiedProposal.data[0].stage === "proposal",
+      qualifiedProposal.error?.message ?? null,
+    );
+
+    const followUpSequence = await owner
+      .rpc("create_follow_up_sequence", {
+        target_organization_id: organizationA.id,
+        target_name: `Momentum ${suffix}`,
+        target_description: "Authorization sequence fixture",
+        target_steps: [
+          { title: "Confirm the brief", delayDays: 0 },
+          { title: "Review itinerary direction", delayDays: 2 },
+        ],
+      })
+      .single();
+    record(
+      "authorized owner can create an atomic internal follow-up sequence",
+      !followUpSequence.error && Boolean(followUpSequence.data?.id),
+      followUpSequence.error?.message ?? null,
+    );
+    if (followUpSequence.error || !followUpSequence.data)
+      throw (
+        followUpSequence.error ??
+        new Error("Follow-up sequence fixture was not created.")
+      );
+
+    const backwardsSequence = await owner.rpc("create_follow_up_sequence", {
+      target_organization_id: organizationA.id,
+      target_name: `Backwards momentum ${suffix}`,
+      target_description: "This invalid sequence must roll back.",
+      target_steps: [
+        { title: "Late step", delayDays: 3 },
+        { title: "Earlier step", delayDays: 1 },
+      ],
+    });
+    record(
+      "database rejects follow-up sequence delays that move backwards",
+      Boolean(backwardsSequence.error),
+    );
+
+    const { data: unassignedDeal, error: unassignedDealError } = await admin
+      .from("deals")
+      .insert({
+        organization_id: organizationA.id,
+        contact_id: alphaContact.id,
+        owner_id: null,
+        title: `Unassigned sequence target ${suffix}`,
+        stage: "new",
+      })
+      .select("id")
+      .single();
+    if (unassignedDealError || !unassignedDeal)
+      throw (
+        unassignedDealError ??
+        new Error("Unassigned opportunity fixture was not created.")
+      );
+    const unassignedSequenceApply = await owner.rpc(
+      "apply_follow_up_sequence",
+      {
+        target_organization_id: organizationA.id,
+        target_deal_id: unassignedDeal.id,
+        target_sequence_id: followUpSequence.data.id,
+      },
+    );
+    record(
+      "follow-up sequences require an accountable opportunity owner",
+      Boolean(unassignedSequenceApply.error),
+    );
+
+    const appliedSequence = await owner
+      .rpc("apply_follow_up_sequence", {
+        target_organization_id: organizationA.id,
+        target_deal_id: governedDeal.id,
+        target_sequence_id: followUpSequence.data.id,
+      })
+      .single();
+    record(
+      "sequence application atomically creates bounded internal tasks",
+      !appliedSequence.error &&
+        appliedSequence.data?.tasks_created === 2,
+      appliedSequence.error?.message ?? null,
+    );
+
+    const { data: sequenceTasks, error: sequenceTasksError } = await owner
+      .from("tasks")
+      .select("title, assignee_id, due_at")
+      .eq("deal_id", governedDeal.id)
+      .in("title", ["Confirm the brief", "Review itinerary direction"]);
+    record(
+      "sequence tasks inherit the opportunity owner and explicit deadlines",
+      !sequenceTasksError &&
+        sequenceTasks?.length === 2 &&
+        sequenceTasks.every(
+          (task) => task.assignee_id === ownerUser.id && Boolean(task.due_at),
+        ),
+      sequenceTasksError?.message ?? null,
+    );
+
+    const duplicateSequence = await owner.rpc("apply_follow_up_sequence", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_sequence_id: followUpSequence.data.id,
+    });
+    record(
+      "a follow-up sequence cannot be applied twice to one opportunity",
+      Boolean(duplicateSequence.error),
+    );
+
+    const foreignSequenceApply = await viewer.rpc("apply_follow_up_sequence", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      target_sequence_id: followUpSequence.data.id,
+    });
+    record(
+      "foreign tenants cannot apply another workspace sequence",
+      Boolean(foreignSequenceApply.error),
+    );
+
     const { data: leadForm, error: leadFormError } = await owner
       .from("lead_capture_forms")
       .insert({

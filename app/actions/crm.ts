@@ -25,6 +25,11 @@ import {
   dealStageUpdateSchema,
   leadCaptureFormInputSchema,
   leadCaptureFormStatusUpdateSchema,
+  followUpSequenceApplySchema,
+  followUpSequenceInputSchema,
+  qualificationCheckUpdateSchema,
+  qualificationChecklistApplySchema,
+  qualificationChecklistTemplateInputSchema,
   travelDocumentUploadSchema,
   taskInputSchema,
   taskAssigneeUpdateSchema,
@@ -62,6 +67,11 @@ import {
   type DealStageUpdateInput,
   type LeadCaptureFormInput,
   type LeadCaptureFormStatusUpdateInput,
+  type FollowUpSequenceApplyInput,
+  type FollowUpSequenceInput,
+  type QualificationCheckUpdateInput,
+  type QualificationChecklistApplyInput,
+  type QualificationChecklistTemplateInput,
   type TravelDocumentUploadInput,
   type TaskInput,
   type TaskAssigneeUpdateInput,
@@ -89,8 +99,11 @@ import {
   travelDocumentDisplayName,
   travelDocumentStorageName,
 } from "../../lib/crm/travel-documents";
+import { safeDealStageError } from "../../lib/crm/deal-stage-errors";
+import { safeSalesWorkflowError } from "../../lib/crm/sales-workflow-errors";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import type { Json } from "../../types/database";
 
 const CRM_WRITE_ROLES = [
   "owner",
@@ -1128,8 +1141,11 @@ export async function updateDealStage(input: DealStageUpdateInput) {
     })
     .single();
   if (error || !deal)
-    throw new Error(error?.message || "The opportunity stage was not updated.");
-  return deal;
+    return {
+      ok: false as const,
+      message: safeDealStageError(error?.message),
+    };
+  return { ok: true as const, deal };
 }
 
 /** Records a human response and clears any open first-response escalation. */
@@ -1223,6 +1239,178 @@ export async function updateLeadCaptureFormStatus(
     },
   });
   return form;
+}
+
+/** Creates one reusable qualification checklist and all of its items atomically. */
+export async function createQualificationChecklistTemplate(
+  input: QualificationChecklistTemplateInput,
+) {
+  const parsed = qualificationChecklistTemplateInputSchema.safeParse(input);
+  if (!parsed.success)
+    return {
+      ok: false as const,
+      message:
+        parsed.error.issues[0]?.message ||
+        "The qualification template is invalid.",
+    };
+  const data = parsed.data;
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "sales",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: template, error } = await supabase
+    .rpc("create_qualification_checklist_template", {
+      target_organization_id: data.organizationId,
+      target_name: data.name,
+      target_description: data.description ?? "",
+      target_items: data.items as Json,
+    })
+    .single();
+  if (error || !template)
+    return {
+      ok: false as const,
+      message: safeSalesWorkflowError(
+        "create_qualification",
+        error?.message,
+        error?.code,
+      ),
+    };
+  return { ok: true as const, template };
+}
+
+/** Creates an ordered internal-task playbook; no external send is possible. */
+export async function createFollowUpSequence(input: FollowUpSequenceInput) {
+  const parsed = followUpSequenceInputSchema.safeParse(input);
+  if (!parsed.success)
+    return {
+      ok: false as const,
+      message:
+        parsed.error.issues[0]?.message || "The follow-up sequence is invalid.",
+    };
+  const data = parsed.data;
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "sales",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: sequence, error } = await supabase
+    .rpc("create_follow_up_sequence", {
+      target_organization_id: data.organizationId,
+      target_name: data.name,
+      target_description: data.description ?? "",
+      target_steps: data.steps as Json,
+    })
+    .single();
+  if (error || !sequence)
+    return {
+      ok: false as const,
+      message: safeSalesWorkflowError(
+        "create_sequence",
+        error?.message,
+        error?.code,
+      ),
+    };
+  return { ok: true as const, sequence };
+}
+
+/** Instantiates one reusable checklist on an opportunity without duplicating it. */
+export async function applyQualificationChecklist(
+  input: QualificationChecklistApplyInput,
+) {
+  const parsed = qualificationChecklistApplySchema.safeParse(input);
+  if (!parsed.success)
+    return {
+      ok: false as const,
+      message: "Choose a valid qualification checklist.",
+    };
+  const data = parsed.data;
+  await requireOrganizationRole(data.organizationId, DEAL_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: itemCount, error } = await supabase.rpc(
+    "apply_qualification_checklist",
+    {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+      target_template_id: data.templateId,
+    },
+  );
+  if (error)
+    return {
+      ok: false as const,
+      message: safeSalesWorkflowError(
+        "apply_qualification",
+        error.message,
+        error.code,
+      ),
+    };
+  return { ok: true as const, itemCount };
+}
+
+/** Completes or reopens a qualification item with actor and time evidence. */
+export async function updateQualificationCheck(
+  input: QualificationCheckUpdateInput,
+) {
+  const parsed = qualificationCheckUpdateSchema.safeParse(input);
+  if (!parsed.success)
+    return {
+      ok: false as const,
+      message: "Choose a valid qualification check.",
+    };
+  const data = parsed.data;
+  await requireOrganizationRole(data.organizationId, DEAL_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: check, error } = await supabase
+    .rpc("set_deal_qualification_check", {
+      target_organization_id: data.organizationId,
+      target_check_id: data.checkId,
+      target_is_complete: data.isComplete,
+    })
+    .single();
+  if (error || !check)
+    return {
+      ok: false as const,
+      message: safeSalesWorkflowError(
+        "update_qualification",
+        error?.message,
+        error?.code,
+      ),
+    };
+  return { ok: true as const, check };
+}
+
+/** Applies a reusable sequence once and atomically creates only internal tasks. */
+export async function applyFollowUpSequence(
+  input: FollowUpSequenceApplyInput,
+) {
+  const parsed = followUpSequenceApplySchema.safeParse(input);
+  if (!parsed.success)
+    return {
+      ok: false as const,
+      message: "Choose a valid follow-up sequence.",
+    };
+  const data = parsed.data;
+  await requireOrganizationRole(data.organizationId, DEAL_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: run, error } = await supabase
+    .rpc("apply_follow_up_sequence", {
+      target_organization_id: data.organizationId,
+      target_deal_id: data.dealId,
+      target_sequence_id: data.sequenceId,
+    })
+    .single();
+  if (error || !run)
+    return {
+      ok: false as const,
+      message: safeSalesWorkflowError(
+        "apply_sequence",
+        error?.message,
+        error?.code,
+      ),
+    };
+  return { ok: true as const, run };
 }
 
 /** Assigns an opportunity only to an active member of the current organization. */

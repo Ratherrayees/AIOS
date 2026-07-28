@@ -383,6 +383,60 @@ export const travelDocumentUploadSchema = z.object({
   contactId: z.uuid(),
 });
 
+const qualificationChecklistItemSchema = z.object({
+  label: z.string().trim().min(2).max(180),
+  guidance: z.string().trim().min(2).max(500).nullable(),
+  required: z.boolean(),
+});
+
+export const qualificationChecklistTemplateInputSchema = z.object({
+  organizationId: z.uuid(),
+  name: z.string().trim().min(2).max(100),
+  description: z.string().trim().min(2).max(500).nullable(),
+  items: z.array(qualificationChecklistItemSchema).min(1).max(20),
+});
+
+const followUpSequenceStepSchema = z.object({
+  title: z.string().trim().min(2).max(500),
+  delayDays: z.number().int().min(0).max(365),
+});
+
+export const followUpSequenceInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    name: z.string().trim().min(2).max(100),
+    description: z.string().trim().min(2).max(500).nullable(),
+    steps: z.array(followUpSequenceStepSchema).min(1).max(20),
+  })
+  .superRefine((value, context) => {
+    value.steps.forEach((step, index) => {
+      if (index > 0 && step.delayDays < value.steps[index - 1].delayDays)
+        context.addIssue({
+          code: "custom",
+          path: ["steps", index, "delayDays"],
+          message: "Sequence delays must not move backwards.",
+        });
+    });
+  });
+
+export const qualificationChecklistApplySchema = z.object({
+  organizationId: z.uuid(),
+  dealId: z.uuid(),
+  templateId: z.uuid(),
+});
+
+export const qualificationCheckUpdateSchema = z.object({
+  organizationId: z.uuid(),
+  checkId: z.uuid(),
+  isComplete: z.boolean(),
+});
+
+export const followUpSequenceApplySchema = z.object({
+  organizationId: z.uuid(),
+  dealId: z.uuid(),
+  sequenceId: z.uuid(),
+});
+
 export const leadCaptureFormInputSchema = z.object({
   organizationId: z.uuid(),
   name: z.string().trim().min(2).max(80),
@@ -528,6 +582,21 @@ export type DealCommercialPlanUpdateInput = z.infer<
 export type DealResponseInput = z.infer<typeof dealResponseInputSchema>;
 export type TravelDocumentUploadInput = z.infer<
   typeof travelDocumentUploadSchema
+>;
+export type QualificationChecklistTemplateInput = z.infer<
+  typeof qualificationChecklistTemplateInputSchema
+>;
+export type FollowUpSequenceInput = z.infer<
+  typeof followUpSequenceInputSchema
+>;
+export type QualificationChecklistApplyInput = z.infer<
+  typeof qualificationChecklistApplySchema
+>;
+export type QualificationCheckUpdateInput = z.infer<
+  typeof qualificationCheckUpdateSchema
+>;
+export type FollowUpSequenceApplyInput = z.infer<
+  typeof followUpSequenceApplySchema
 >;
 export type LeadCaptureFormInput = z.infer<typeof leadCaptureFormInputSchema>;
 export type LeadCaptureFormStatusUpdateInput = z.infer<

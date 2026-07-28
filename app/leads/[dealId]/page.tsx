@@ -1,14 +1,23 @@
 "use client";
 
-import { type FormEvent, useEffect, useState, useTransition } from "react";
+import {
+  type CSSProperties,
+  type FormEvent,
+  useEffect,
+  useState,
+  useTransition,
+} from "react";
 import { useParams } from "next/navigation";
 
 import {
   acknowledgeLeadResponse,
+  applyFollowUpSequence,
+  applyQualificationChecklist,
   createTask,
   updateDealCommercialPlan,
   updateDealOwner,
   updateDealStage,
+  updateQualificationCheck,
   uploadTravelDocument,
 } from "../../actions/crm";
 import { routeUnassignedDeal } from "../../actions/agents";
@@ -61,6 +70,21 @@ type TravelDocument = {
   storage_path: string;
   created_at: string;
 };
+type QualificationTemplate = { id: string; name: string };
+type QualificationCheck = {
+  id: string;
+  label: string;
+  guidance: string | null;
+  is_required: boolean;
+  is_complete: boolean;
+};
+type FollowUpSequence = { id: string; name: string };
+type FollowUpSequenceRun = {
+  id: string;
+  sequence_id: string;
+  tasks_created: number;
+  created_at: string;
+};
 type Member = { id: string; name: string; role: string };
 
 const stages: { value: Stage; label: string }[] = [
@@ -91,6 +115,9 @@ function label(type: string) {
         deal_response_recorded: "First response recorded",
         deal_sla_escalated: "Response SLA escalated",
         document_uploaded: "Travel document secured",
+        qualification_checklist_applied: "Qualification checklist applied",
+        qualification_check_updated: "Qualification evidence updated",
+        follow_up_sequence_applied: "Follow-up sequence applied",
         task_created: "Follow-up created",
         task_status_changed: "Follow-up updated",
         deal_commercial_plan_updated: "Commercial plan updated",
@@ -108,6 +135,16 @@ export default function LeadDetailPage() {
   const [contact, setContact] = useState<Contact | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [documents, setDocuments] = useState<TravelDocument[]>([]);
+  const [qualificationTemplates, setQualificationTemplates] = useState<
+    QualificationTemplate[]
+  >([]);
+  const [qualificationChecks, setQualificationChecks] = useState<
+    QualificationCheck[]
+  >([]);
+  const [followUpSequences, setFollowUpSequences] = useState<
+    FollowUpSequence[]
+  >([]);
+  const [followUpRuns, setFollowUpRuns] = useState<FollowUpSequenceRun[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -142,6 +179,10 @@ export default function LeadDetailPage() {
         { data: activityRows },
         { data: memberRows },
         { data: documentRows },
+        { data: qualificationTemplateRows },
+        { data: qualificationCheckRows },
+        { data: followUpSequenceRows },
+        { data: followUpRunRows },
       ] = await Promise.all([
         dealRow.contact_id
           ? supabase
@@ -175,6 +216,30 @@ export default function LeadDetailPage() {
               .order("created_at", { ascending: false })
               .limit(20)
           : Promise.resolve({ data: [] }),
+        supabase
+          .from("qualification_checklist_templates")
+          .select("id, name")
+          .eq("organization_id", membership.organization_id)
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("deal_qualification_checks")
+          .select("id, label, guidance, is_required, is_complete")
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .order("created_at"),
+        supabase
+          .from("follow_up_sequences")
+          .select("id, name")
+          .eq("organization_id", membership.organization_id)
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("deal_follow_up_sequence_runs")
+          .select("id, sequence_id, tasks_created, created_at")
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .order("created_at", { ascending: false }),
       ]);
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
@@ -197,6 +262,16 @@ export default function LeadDetailPage() {
       setContact(contactRow as Contact | null);
       setActivities((activityRows || []) as Activity[]);
       setDocuments((documentRows || []) as TravelDocument[]);
+      setQualificationTemplates(
+        (qualificationTemplateRows || []) as QualificationTemplate[],
+      );
+      setQualificationChecks(
+        (qualificationCheckRows || []) as QualificationCheck[],
+      );
+      setFollowUpSequences(
+        (followUpSequenceRows || []) as FollowUpSequence[],
+      );
+      setFollowUpRuns((followUpRunRows || []) as FollowUpSequenceRun[]);
       setLoadedAt(Date.now());
       setLoading(false);
     };
@@ -217,12 +292,17 @@ export default function LeadDetailPage() {
     ).trim();
     startTransition(async () => {
       try {
-        const updated = await updateDealStage({
+        const result = await updateDealStage({
           organizationId,
           dealId: deal.id,
           stage,
           lostReason: lostReason || null,
         });
+        if (!result.ok) {
+          setNotice(result.message);
+          return;
+        }
+        const updated = result.deal;
         setDeal((current) =>
           current
             ? {
@@ -517,6 +597,150 @@ export default function LeadDetailPage() {
     });
   }
 
+  function applyChecklist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || !deal || pending) return;
+    const templateId = String(
+      new FormData(event.currentTarget).get("templateId") || "",
+    );
+    if (!templateId) return;
+    startTransition(async () => {
+      try {
+        const result = await applyQualificationChecklist({
+          organizationId,
+          dealId: deal.id,
+          templateId,
+        });
+        if (!result.ok) {
+          setNotice(result.message);
+          return;
+        }
+        const supabase = createSupabaseBrowserClient();
+        const { data: rows, error } = await supabase
+          .from("deal_qualification_checks")
+          .select("id, label, guidance, is_required, is_complete")
+          .eq("organization_id", organizationId)
+          .eq("deal_id", deal.id)
+          .order("created_at");
+        if (error) throw error;
+        setQualificationChecks((rows || []) as QualificationCheck[]);
+        setActivities((current) => [
+          {
+            id: crypto.randomUUID(),
+            activity_type: "qualification_checklist_applied",
+            body: `Qualification checklist applied with ${result.itemCount} items.`,
+            created_at: new Date().toISOString(),
+          },
+          ...current,
+        ]);
+        setNotice(
+          `${result.itemCount} qualification checks added to this opportunity.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The qualification checklist was not applied.",
+        );
+      }
+    });
+  }
+
+  function toggleQualificationCheck(check: QualificationCheck) {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const updated = await updateQualificationCheck({
+          organizationId,
+          checkId: check.id,
+          isComplete: !check.is_complete,
+        });
+        if (!updated.ok) {
+          setNotice(updated.message);
+          return;
+        }
+        const updatedCheck = updated.check;
+        setQualificationChecks((current) =>
+          current.map((item) =>
+            item.id === check.id
+              ? { ...item, is_complete: updatedCheck.is_complete }
+              : item,
+          ),
+        );
+        setActivities((current) => [
+          {
+            id: crypto.randomUUID(),
+            activity_type: "qualification_check_updated",
+            body: `Qualification check ${updatedCheck.is_complete ? "completed" : "reopened"}: ${updatedCheck.label}`,
+            created_at: new Date().toISOString(),
+          },
+          ...current,
+        ]);
+        setNotice(
+          updatedCheck.is_complete
+            ? "Qualification evidence recorded."
+            : "Qualification check reopened.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The qualification check was not updated.",
+        );
+      }
+    });
+  }
+
+  function applySequence(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || !deal || pending) return;
+    const sequenceId = String(
+      new FormData(event.currentTarget).get("sequenceId") || "",
+    );
+    if (!sequenceId) return;
+    startTransition(async () => {
+      try {
+        const result = await applyFollowUpSequence({
+          organizationId,
+          dealId: deal.id,
+          sequenceId,
+        });
+        if (!result.ok) {
+          setNotice(result.message);
+          return;
+        }
+        const run = result.run;
+        setFollowUpRuns((current) => [
+          {
+            id: run.run_id,
+            sequence_id: sequenceId,
+            tasks_created: run.tasks_created,
+            created_at: new Date().toISOString(),
+          },
+          ...current,
+        ]);
+        setActivities((current) => [
+          {
+            id: crypto.randomUUID(),
+            activity_type: "follow_up_sequence_applied",
+            body: `Internal follow-up sequence created ${run.tasks_created} tasks.`,
+            created_at: new Date().toISOString(),
+          },
+          ...current,
+        ]);
+        setNotice(
+          `${run.tasks_created} internal follow-up tasks created and assigned.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The follow-up sequence was not applied.",
+        );
+      }
+    });
+  }
+
   if (loading)
     return (
       <main className="lead-page" id="main-content" tabIndex={-1}>
@@ -538,12 +762,19 @@ export default function LeadDetailPage() {
   const traveller = contact
     ? [contact.first_name, contact.last_name].filter(Boolean).join(" ")
     : "Traveller details not yet collected";
+  const requiredQualificationChecks = qualificationChecks.filter(
+    (check) => check.is_required,
+  );
+  const completedRequiredChecks = requiredQualificationChecks.filter(
+    (check) => check.is_complete,
+  ).length;
   return (
     <main className="lead-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
         links={[
           { href: "/", label: "Pipeline" },
           { href: "/tasks", label: "Tasks" },
+          { href: "/settings/sales-workflows", label: "Sales workflows" },
           { href: "/aios", label: "AIOS Control" },
         ]}
       />
@@ -704,8 +935,9 @@ export default function LeadDetailPage() {
               <span>
                 Qualification needs an owner, destination, next step, expected
                 close, and 20% probability. Proposal adds a positive value.
-                Decision requires 50% probability. Only managers can reopen
-                closed deals.
+                Decision requires 50% probability. Applied required checklist
+                items must be complete before Proposal, Decision, or Won. Only
+                managers can reopen closed deals.
               </span>
             </div>
             <form className="stage-form" onSubmit={moveStage}>
@@ -730,6 +962,90 @@ export default function LeadDetailPage() {
                 Update stage
               </button>
             </form>
+          </article>
+          <article className="lead-panel qualification-workflow">
+            <header>
+              <p>QUALIFICATION GATE</p>
+              <h2>Evidence before commercial movement.</h2>
+            </header>
+            <div className="qualification-progress">
+              <div>
+                <b>
+                  {completedRequiredChecks}/{requiredQualificationChecks.length}
+                </b>
+                <span>required checks complete</span>
+              </div>
+              <i
+                style={{
+                  "--qualification-progress": `${
+                    requiredQualificationChecks.length
+                      ? (completedRequiredChecks /
+                          requiredQualificationChecks.length) *
+                        100
+                      : 0
+                  }%`,
+                } as CSSProperties}
+              />
+            </div>
+            {qualificationTemplates.length > 0 ? (
+              <form className="workflow-apply" onSubmit={applyChecklist}>
+                <label>
+                  Reusable checklist
+                  <select name="templateId" defaultValue="" required>
+                    <option value="" disabled>
+                      Choose a qualification contract
+                    </option>
+                    {qualificationTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" disabled={pending}>
+                  Apply checklist
+                </button>
+              </form>
+            ) : (
+              <a
+                className="workflow-create-link"
+                href="/settings/sales-workflows"
+              >
+                Create a qualification template
+              </a>
+            )}
+            <div className="qualification-checks">
+              {qualificationChecks.length ? (
+                qualificationChecks.map((check) => (
+                  <label
+                    key={check.id}
+                    className={check.is_complete ? "complete" : ""}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={check.is_complete}
+                      disabled={pending}
+                      onChange={() => toggleQualificationCheck(check)}
+                    />
+                    <span>
+                      <b>{check.label}</b>
+                      <small>
+                        {check.guidance ||
+                          (check.is_required
+                            ? "Required before proposal"
+                            : "Optional context")}
+                      </small>
+                    </span>
+                    <em>{check.is_required ? "required" : "optional"}</em>
+                  </label>
+                ))
+              ) : (
+                <p className="lead-empty">
+                  No checklist applied. The built-in stage contract still
+                  protects commercial movement.
+                </p>
+              )}
+            </div>
           </article>
           <article className="lead-panel">
             <header>
@@ -855,6 +1171,56 @@ export default function LeadDetailPage() {
                 ))
               )}
             </div>
+          </article>
+          <article className="lead-panel sequence-panel">
+            <p>FOLLOW-UP PLAYBOOK</p>
+            <h2>Schedule the internal sequence.</h2>
+            <span>
+              Every step becomes an internal task assigned to the opportunity
+              owner. Nothing is sent to the traveller.
+            </span>
+            {followUpSequences.length ? (
+              <form onSubmit={applySequence}>
+                <label>
+                  Internal sequence
+                  <select name="sequenceId" defaultValue="" required>
+                    <option value="" disabled>
+                      Choose a playbook
+                    </option>
+                    {followUpSequences.map((sequence) => (
+                      <option key={sequence.id} value={sequence.id}>
+                        {sequence.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" disabled={pending}>
+                  Create sequence tasks
+                </button>
+              </form>
+            ) : (
+              <a
+                className="workflow-create-link"
+                href="/settings/sales-workflows"
+              >
+                Create an internal sequence
+              </a>
+            )}
+            {followUpRuns.length > 0 && (
+              <div className="sequence-runs">
+                {followUpRuns.map((run) => (
+                  <small key={run.id}>
+                    <b>
+                      {followUpSequences.find(
+                        (sequence) => sequence.id === run.sequence_id,
+                      )?.name || "Sequence"}
+                    </b>
+                    {run.tasks_created} tasks ·{" "}
+                    {new Date(run.created_at).toLocaleDateString()}
+                  </small>
+                ))}
+              </div>
+            )}
           </article>
           <article className="lead-panel follow-up">
             <p>FOLLOW-UP</p>

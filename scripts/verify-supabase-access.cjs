@@ -9,6 +9,12 @@ const protectedTables = [
   "contacts",
   "deals",
   "deal_stage_history",
+  "qualification_checklist_templates",
+  "qualification_checklist_items",
+  "deal_qualification_checks",
+  "follow_up_sequences",
+  "follow_up_sequence_steps",
+  "deal_follow_up_sequence_runs",
   "lead_capture_forms",
   "lead_submissions",
   "tasks",
@@ -152,6 +158,22 @@ async function verify() {
       target_byte_size: 10,
     },
   );
+  const { error: anonymousQualificationApplyError } = await anonymous.rpc(
+    "apply_qualification_checklist",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_deal_id: "22222222-2222-4222-8222-222222222222",
+      target_template_id: "33333333-3333-4333-8333-333333333333",
+    },
+  );
+  const { error: anonymousSequenceApplyError } = await anonymous.rpc(
+    "apply_follow_up_sequence",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_deal_id: "22222222-2222-4222-8222-222222222222",
+      target_sequence_id: "33333333-3333-4333-8333-333333333333",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -175,6 +197,16 @@ async function verify() {
       anonymousExecutionBlocked: Boolean(anonymousTravelDocumentError),
       anonymousErrorCode: anonymousTravelDocumentError?.code ?? null,
     },
+    {
+      function: "apply_qualification_checklist",
+      anonymousExecutionBlocked: Boolean(anonymousQualificationApplyError),
+      anonymousErrorCode: anonymousQualificationApplyError?.code ?? null,
+    },
+    {
+      function: "apply_follow_up_sequence",
+      anonymousExecutionBlocked: Boolean(anonymousSequenceApplyError),
+      anonymousErrorCode: anonymousSequenceApplyError?.code ?? null,
+    },
   ];
 
   console.log(JSON.stringify({ checks, rpcChecks }));
@@ -185,7 +217,9 @@ async function verify() {
     !rpcChecks[0].anonymousExecutionBlocked ||
     !rpcChecks[1].anonymousCannotSatisfy ||
     !rpcChecks[2].anonymousExecutionBlocked ||
-    !rpcChecks[3].anonymousExecutionBlocked
+    !rpcChecks[3].anonymousExecutionBlocked ||
+    !rpcChecks[4].anonymousExecutionBlocked ||
+    !rpcChecks[5].anonymousExecutionBlocked
   ) {
     process.exitCode = 1;
   }

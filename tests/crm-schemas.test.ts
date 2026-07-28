@@ -38,6 +38,8 @@ import {
   taskInputSchema,
   taskAssigneeUpdateSchema,
   taskStatusUpdateSchema,
+  followUpSequenceInputSchema,
+  qualificationChecklistTemplateInputSchema,
   travelDocumentUploadSchema,
 } from "../lib/crm/schemas";
 
@@ -545,6 +547,55 @@ test("travel document metadata must stay linked to real tenant records", () => {
       contactId: crypto.randomUUID(),
     }).success,
     false,
+  );
+});
+
+test("qualification templates require bounded reusable evidence items", () => {
+  const result = qualificationChecklistTemplateInputSchema.parse({
+    organizationId,
+    name: "Premium leisure qualification",
+    description: "Evidence required before proposal",
+    items: [
+      {
+        label: "Confirm travel dates",
+        guidance: "Record date flexibility",
+        required: true,
+      },
+      {
+        label: "Record visa support preference",
+        guidance: null,
+        required: false,
+      },
+    ],
+  });
+  assert.equal(result.items.length, 2);
+  assert.equal(result.items[0].required, true);
+});
+
+test("follow-up sequence delays cannot move backwards", () => {
+  assert.equal(
+    followUpSequenceInputSchema.safeParse({
+      organizationId,
+      name: "Qualified lead momentum",
+      description: null,
+      steps: [
+        { title: "Confirm the brief", delayDays: 3 },
+        { title: "Review itinerary direction", delayDays: 1 },
+      ],
+    }).success,
+    false,
+  );
+  assert.equal(
+    followUpSequenceInputSchema.safeParse({
+      organizationId,
+      name: "Qualified lead momentum",
+      description: null,
+      steps: [
+        { title: "Confirm the brief", delayDays: 0 },
+        { title: "Review itinerary direction", delayDays: 2 },
+      ],
+    }).success,
+    true,
   );
 });
 
