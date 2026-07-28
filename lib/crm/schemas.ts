@@ -602,6 +602,25 @@ export const tripDocumentDownloadSchema = z.object({
   documentId: z.uuid(),
 });
 
+export const operationsRadarRefreshSchema = z.object({
+  organizationId: z.uuid(),
+});
+
+export const operationalExceptionStatusSchema = z
+  .object({
+    organizationId: z.uuid(),
+    exceptionId: z.uuid(),
+    status: z.enum(["open", "acknowledged", "resolved"]),
+    note: z.string().trim().max(500).nullable().optional(),
+  })
+  .refine(
+    (value) => value.status !== "resolved" || Boolean(value.note?.trim()),
+    {
+      message: "Add a short resolution note before resolving this exception.",
+      path: ["note"],
+    },
+  );
+
 export const itineraryItemInputSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
@@ -733,6 +752,12 @@ export type TripDocumentUploadInput = z.infer<
 >;
 export type TripDocumentDownloadInput = z.infer<
   typeof tripDocumentDownloadSchema
+>;
+export type OperationsRadarRefreshInput = z.infer<
+  typeof operationsRadarRefreshSchema
+>;
+export type OperationalExceptionStatusInput = z.infer<
+  typeof operationalExceptionStatusSchema
 >;
 export type ItineraryItemInput = z.infer<typeof itineraryItemInputSchema>;
 export type ItineraryTemplateFromTripInput = z.infer<

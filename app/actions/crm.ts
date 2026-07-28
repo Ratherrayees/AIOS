@@ -44,6 +44,8 @@ import {
   tripDraftInputSchema,
   tripDocumentDownloadSchema,
   tripDocumentUploadSchema,
+  operationalExceptionStatusSchema,
+  operationsRadarRefreshSchema,
   tripOperationsUpdateSchema,
   tripStatusUpdateSchema,
   tripTravelerInputSchema,
@@ -94,6 +96,8 @@ import {
   type TripDraftInput,
   type TripDocumentDownloadInput,
   type TripDocumentUploadInput,
+  type OperationalExceptionStatusInput,
+  type OperationsRadarRefreshInput,
   type TripOperationsUpdateInput,
   type TripStatusUpdateInput,
   type TripTravelerInput,
@@ -2089,6 +2093,47 @@ export async function createTripDocumentDownload(
   if (signedError || !signed?.signedUrl)
     throw new Error("The secure download link could not be created.");
   return { url: signed.signedUrl, expiresInSeconds: 60 };
+}
+
+/**
+ * Runs the bounded internal rules engine. It can create or clear internal
+ * exception records, but it cannot contact suppliers or commit bookings.
+ */
+export async function refreshOperationsRadar(
+  input: OperationsRadarRefreshInput,
+) {
+  const data = operationsRadarRefreshSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, TRIP_OPERATIONS_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: summary, error } = await supabase
+    .rpc("refresh_operational_exceptions", {
+      target_organization_id: data.organizationId,
+    })
+    .single();
+  if (error || !summary)
+    throw error ?? new Error("Operations Radar could not complete its scan.");
+  return summary;
+}
+
+/** Records explicit human ownership or resolution of an operational risk. */
+export async function updateOperationalExceptionStatus(
+  input: OperationalExceptionStatusInput,
+) {
+  const data = operationalExceptionStatusSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, TRIP_OPERATIONS_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const args = {
+    target_organization_id: data.organizationId,
+    target_exception_id: data.exceptionId,
+    target_status: data.status,
+    ...(data.note ? { target_note: data.note } : {}),
+  };
+  const { data: exception, error } = await supabase
+    .rpc("set_operational_exception_status", args)
+    .single();
+  if (error || !exception)
+    throw error ?? new Error("The operational exception could not be updated.");
+  return exception;
 }
 
 /** Appends a planning item atomically so two editors cannot share a position. */

@@ -11,7 +11,7 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 38/38 browser journeys
-- 113/113 behavioral tests
+- 114/114 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -26,7 +26,7 @@ The audited build passed with:
 | Surface | UI wiring exercised | Persistence or security evidence | Result |
 | --- | --- | --- | --- |
 | Public and authentication routes | Health, sign-in, sign-up, recovery, recovery-session guard, invitation return path, MFA challenge path, anonymous 404 behavior | Private/no-store responses, security headers, protected redirects, guarded worker endpoint | Pass |
-| Command center | Tenant switching, route navigation, command search, lead creation, private pipeline views, mobile layout | Only RLS-visible organizations can be selected; created lead and view are persisted | Pass |
+| Command center | Dynamic signed-in identity/role, tenant switching, route navigation, command search, lead creation, private pipeline views, mobile layout | Only the verified profile and RLS-visible organizations can be presented; created lead and view are persisted | Pass |
 | Lead pipeline and detail | Public capture, attribution, response acknowledgement, commercial planning, qualification evidence, governed stage selector and drag/drop, follow-up playbook, direct follow-up, approvals, analytics linkage | Server and database rules block illegal movement; history, tasks, approvals, activity and audit evidence are persisted | Pass |
 | Contacts and companies | Company/contact creation, optional company linkage, ownership, communication consent/preferences, internal notes, CSV-style import, search and private saved views | Tenant-scoped rows, ownership, consent evidence, imported records, timeline events and views are persisted | Pass |
 | Duplicate review | Same-name/company candidate review, clearly differentiated older/newer records, explicit confirmation and merge | One record remains live, the other is archived, dependent data is re-linked and the merge is audited | Pass |
@@ -34,7 +34,7 @@ The audited build passed with:
 | Tasks | Creation, due date, ownership, open/in-progress/completed/reopened lifecycle, unassignment, filters, private views and deletion | Task state and ownership changes persist within the tenant | Pass |
 | Quotes | Draft creation, immutable revision, internal cost/margin signal and quote-sharing approval request | Version history and internal cost persist; sharing remains approval-gated and unsent | Pass |
 | Itinerary Studio | Trip drafts, day items, comments, conflict/readiness checks, reusable template creation and application | Trips, items, comments, readiness tasks and copied template items persist; no booking or external share occurs | Pass |
-| Trip Operations | Won-deal handoff, operating details, lead/additional travellers, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement | Conversion is idempotent, direct status writes are blocked, lifecycle history and actor/audit evidence persist, and no supplier message, inventory reservation, or payment occurs | Pass |
+| Trip Operations | Won-deal handoff, operating details, lead/additional travellers, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement, and Operations Radar scan/clear behavior | Conversion is idempotent, direct trip/booking/exception status writes are blocked, lifecycle history and actor/audit evidence persist, seven objective risk types are deduplicated and routed, and no supplier message, inventory reservation, or payment occurs | Pass |
 | Lead Capture settings | Form creation, public preview route, pause and resume | Form configuration and active state persist; public submission uses the governed endpoint | Pass |
 | Sales Workflows | Qualification and follow-up configuration visibility plus application from the lead workspace | Evidence and sequence operations use guarded tenant RPCs | Pass |
 | Team Access | Role change, teammate suspension/restoration, invitation creation and revocation | Membership state and one-way invitation-token hash persist; final-owner safeguards remain enforced | Pass |
@@ -52,6 +52,7 @@ The audited build passed with:
 4. Inbox and Itinerary creation controls were missing programmatic names. Their selects and inputs now have stable accessible labels.
 5. Adding Trip Operations caused the 390px bottom route bar to wrap onto a second row. The clarity pass now keeps five high-frequency destinations in one row and moves full navigation into the grouped feature header; the one-row assertion remains enforced.
 6. Feature depth outpaced product explanation: the dashboard, module headers, and settings used different navigation models and assumed prior CRM knowledge. The shell now groups work by intent, explains Contact → Lead → Trip, shows the four-stage customer journey, labels operational boundaries, and exposes a persistent field guide without adding another database dependency.
+7. The dashboard identity and owner role were hard-coded to Rayees Amin, so every authenticated teammate would appear to be the owner. The shell now loads the verified signed-in profile plus the active RLS-visible membership role and derives the greeting and initials dynamically.
 
 ## Deferred external acceptance
 

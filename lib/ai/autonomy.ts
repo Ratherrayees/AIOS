@@ -33,6 +33,14 @@ export const AIOS_ACTION_CATALOG = [
     hardApproval: false,
   },
   {
+    action: "trip.operations.monitor",
+    title: "Monitor operational trip risk",
+    description:
+      "Detect and route objective trip, booking, document, and task exceptions without creating an external commitment.",
+    defaultMode: "auto",
+    hardApproval: false,
+  },
+  {
     action: "crm.deal.route",
     title: "Route unassigned opportunities",
     description:

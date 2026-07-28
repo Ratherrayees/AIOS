@@ -124,6 +124,26 @@ function leadFiltersFromSavedView(savedView: SavedView | undefined) {
 
 const accents = ["violet", "pink", "blue", "lime", "orange"];
 
+function displayInitials(name: string) {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return initials || "TO";
+}
+
+function displayRole(role: WorkspaceChoice["role"] | null) {
+  if (!role) return "Team member";
+  return role
+    .split("_")
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
 function formatAmount(amount: number | null, currency = "INR") {
   if (amount === null) return "TBC";
   if (currency === "INR" && amount >= 100_000)
@@ -403,6 +423,10 @@ export default function Home() {
   const [active, setActive] = useState<View>("Command center");
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Your travel workspace");
+  const [userName, setUserName] = useState("Travel operator");
+  const [userRole, setUserRole] = useState<WorkspaceChoice["role"] | null>(
+    null,
+  );
   const [availableWorkspaces, setAvailableWorkspaces] = useState<
     WorkspaceChoice[]
   >([]);
@@ -446,12 +470,20 @@ export default function Home() {
 
       setOrganizationId(context.active.organization_id);
       setWorkspaceName(context.active.name);
+      setUserRole(context.active.role);
       setAvailableWorkspaces(context.workspaces);
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user)
+        throw userError ?? new Error("The signed-in profile is unavailable.");
       const [
         { data: deals },
         { data: tasks },
         { data: memberRows },
         { data: savedViewRows },
+        { data: signedInProfile },
       ] = await Promise.all([
         supabase
           .from("deals")
@@ -475,7 +507,17 @@ export default function Home() {
           .eq("organization_id", context.active.organization_id)
           .eq("feature", "leads")
           .order("updated_at", { ascending: false }),
+        supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", user.id)
+          .maybeSingle(),
       ]);
+      setUserName(
+        signedInProfile?.full_name?.trim() ||
+          user.email?.split("@")[0] ||
+          "Travel operator",
+      );
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
         ? await supabase
@@ -686,6 +728,8 @@ export default function Home() {
     0,
   );
   const pipelineValue = leads.reduce((sum, lead) => sum + lead.amount, 0);
+  const userInitials = displayInitials(userName);
+  const userFirstName = userName.trim().split(/\s+/)[0] || "there";
   const pipelineCurrencies = [...new Set(leads.map((lead) => lead.currency))];
   const pipelineCurrency =
     pipelineCurrencies.length === 1 ? pipelineCurrencies[0] : null;
@@ -1038,10 +1082,10 @@ export default function Home() {
           </div>
           <form action={signOut}>
             <button className="profile" type="submit" title="Sign out">
-              <Avatar initials="RA" accent="rayees" />
+              <Avatar initials={userInitials} accent="rayees" />
               <span>
-                <b>Rayees Amin</b>
-                <small>Owner · Admin · Sign out</small>
+                <b>{userName}</b>
+                <small>{displayRole(userRole)} · Sign out</small>
               </span>
             </button>
           </form>
@@ -1060,7 +1104,7 @@ export default function Home() {
           </button>
           <div className="header-actions">
             <span style={{ color: "#777588", fontSize: 11 }}>Live CRM</span>
-            <Avatar initials="RA" accent="rayees" />
+            <Avatar initials={userInitials} accent="rayees" />
           </div>
         </header>
         <div className="page-wrap">
@@ -1069,7 +1113,10 @@ export default function Home() {
               <section className="page-intro">
                 <div>
                   <p className="date">AIOS COMMAND CENTER</p>
-                  <h1>Good morning, Rayees. Start with what needs attention.</h1>
+                  <h1>
+                    Welcome back, {userFirstName}. Start with what needs
+                    attention.
+                  </h1>
                   <p>
                     One operating view for sales, delivery, AIOS and human
                     approvals in {workspaceName}.

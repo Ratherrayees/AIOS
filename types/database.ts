@@ -2125,6 +2125,116 @@ export type Database = {
           },
         ]
       }
+      operational_exceptions: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          assigned_to: string | null
+          created_at: string
+          dedupe_key: string
+          detected_at: string
+          detected_by: string
+          due_at: string | null
+          evidence: Json
+          exception_type: string
+          id: string
+          last_seen_at: string
+          operator_note: string | null
+          organization_id: string
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          source_entity_id: string
+          source_entity_type: string
+          status: string
+          summary: string
+          title: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          dedupe_key: string
+          detected_at?: string
+          detected_by?: string
+          due_at?: string | null
+          evidence?: Json
+          exception_type: string
+          id?: string
+          last_seen_at?: string
+          operator_note?: string | null
+          organization_id: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity: string
+          source_entity_id: string
+          source_entity_type: string
+          status?: string
+          summary: string
+          title: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          dedupe_key?: string
+          detected_at?: string
+          detected_by?: string
+          due_at?: string | null
+          evidence?: Json
+          exception_type?: string
+          id?: string
+          last_seen_at?: string
+          operator_note?: string | null
+          organization_id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          source_entity_id?: string
+          source_entity_type?: string
+          status?: string
+          summary?: string
+          title?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operational_exceptions_acknowledger_same_organization_fkey"
+            columns: ["organization_id", "acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "operational_exceptions_assignee_same_organization_fkey"
+            columns: ["organization_id", "assigned_to"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "operational_exceptions_resolver_same_organization_fkey"
+            columns: ["organization_id", "resolved_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "operational_exceptions_trip_same_organization_fkey"
+            columns: ["organization_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       organization_invitations: {
         Row: {
           accepted_at: string | null
@@ -3357,6 +3467,15 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      refresh_operational_exceptions: {
+        Args: { target_organization_id: string }
+        Returns: {
+          active_count: number
+          critical_count: number
+          resolved_count: number
+          scanned_at: string
+        }[]
+      }
       requeue_ai_job: {
         Args: { target_job_id: string }
         Returns: {
@@ -3403,6 +3522,46 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "deal_qualification_checks"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      set_operational_exception_status: {
+        Args: {
+          target_exception_id: string
+          target_note?: string
+          target_organization_id: string
+          target_status: string
+        }
+        Returns: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          assigned_to: string | null
+          created_at: string
+          dedupe_key: string
+          detected_at: string
+          detected_by: string
+          due_at: string | null
+          evidence: Json
+          exception_type: string
+          id: string
+          last_seen_at: string
+          operator_note: string | null
+          organization_id: string
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          source_entity_id: string
+          source_entity_type: string
+          status: string
+          summary: string
+          title: string
+          trip_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "operational_exceptions"
           isOneToOne: false
           isSetofReturn: true
         }

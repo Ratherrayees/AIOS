@@ -38,6 +38,7 @@ const protectedTables = [
   "suppliers",
   "trips",
   "trip_status_history",
+  "operational_exceptions",
   "travelers",
   "itinerary_items",
   "bookings",
@@ -196,6 +197,20 @@ async function verify() {
       target_status: "requested",
     },
   );
+  const { error: anonymousOperationsRadarError } = await anonymous.rpc(
+    "refresh_operational_exceptions",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
+  const { error: anonymousExceptionStatusError } = await anonymous.rpc(
+    "set_operational_exception_status",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_exception_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "acknowledged",
+    },
+  );
   const { error: anonymousQualificationApplyError } = await anonymous.rpc(
     "apply_qualification_checklist",
     {
@@ -254,6 +269,16 @@ async function verify() {
       function: "transition_booking_status",
       anonymousExecutionBlocked: Boolean(anonymousBookingTransitionError),
       anonymousErrorCode: anonymousBookingTransitionError?.code ?? null,
+    },
+    {
+      function: "refresh_operational_exceptions",
+      anonymousExecutionBlocked: Boolean(anonymousOperationsRadarError),
+      anonymousErrorCode: anonymousOperationsRadarError?.code ?? null,
+    },
+    {
+      function: "set_operational_exception_status",
+      anonymousExecutionBlocked: Boolean(anonymousExceptionStatusError),
+      anonymousErrorCode: anonymousExceptionStatusError?.code ?? null,
     },
     {
       function: "apply_qualification_checklist",

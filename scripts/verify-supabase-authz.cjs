@@ -568,6 +568,173 @@ async function verifyAuthorization() {
       confirmedBooking.error?.message ?? null,
     );
 
+    const firstRadarScan = await owner
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      })
+      .single();
+    record(
+      "authorized operator can scan bounded internal trip risks",
+      !firstRadarScan.error &&
+        firstRadarScan.data?.active_count >= 1 &&
+        firstRadarScan.data?.critical_count >= 1,
+      firstRadarScan.error?.message ?? null,
+    );
+
+    const { data: bookingException, error: bookingExceptionError } =
+      await owner
+        .from("operational_exceptions")
+        .select(
+          "id, status, severity, source_entity_id, acknowledged_by, resolved_by, operator_note",
+        )
+        .eq("organization_id", organizationA.id)
+        .eq("trip_id", firstConversion.data.id)
+        .eq("exception_type", "booking_schedule_missing")
+        .single();
+    record(
+      "Operations Radar persists one deduplicated critical booking exception",
+      !bookingExceptionError &&
+        bookingException?.status === "open" &&
+        bookingException?.severity === "critical" &&
+        bookingException?.source_entity_id === governedBooking.id,
+      bookingExceptionError?.message ?? null,
+    );
+    if (bookingExceptionError || !bookingException)
+      throw (
+        bookingExceptionError ??
+        new Error("Operational exception fixture was not detected.")
+      );
+
+    const directExceptionMutation = await owner
+      .from("operational_exceptions")
+      .update({ status: "resolved" })
+      .eq("id", bookingException.id)
+      .select("id");
+    record(
+      "browser clients cannot bypass the exception lifecycle",
+      Boolean(directExceptionMutation.error) ||
+        directExceptionMutation.data?.length === 0,
+    );
+
+    const [viewerForeignException, viewerRadarScan] = await Promise.all([
+      viewer
+        .from("operational_exceptions")
+        .select("id")
+        .eq("id", bookingException.id),
+      viewer.rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      }),
+    ]);
+    record(
+      "foreign tenants cannot read or refresh another workspace radar",
+      !viewerForeignException.error &&
+        viewerForeignException.data?.length === 0 &&
+        Boolean(viewerRadarScan.error),
+    );
+
+    const acknowledgedException = await owner
+      .rpc("set_operational_exception_status", {
+        target_organization_id: organizationA.id,
+        target_exception_id: bookingException.id,
+        target_status: "acknowledged",
+        target_note: null,
+      })
+      .single();
+    record(
+      "authorized operator can acknowledge an exception with actor evidence",
+      !acknowledgedException.error &&
+        acknowledgedException.data?.status === "acknowledged" &&
+        acknowledgedException.data?.acknowledged_by === ownerUser.id &&
+        Boolean(acknowledgedException.data?.acknowledged_at),
+      acknowledgedException.error?.message ?? null,
+    );
+
+    const unsupportedResolution = await owner.rpc(
+      "set_operational_exception_status",
+      {
+        target_organization_id: organizationA.id,
+        target_exception_id: bookingException.id,
+        target_status: "resolved",
+        target_note: null,
+      },
+    );
+    record(
+      "human resolution requires accountable evidence",
+      Boolean(unsupportedResolution.error),
+    );
+
+    const resolvedException = await owner
+      .rpc("set_operational_exception_status", {
+        target_organization_id: organizationA.id,
+        target_exception_id: bookingException.id,
+        target_status: "resolved",
+        target_note: "Booking timing reviewed by operations.",
+      })
+      .single();
+    record(
+      "authorized operator can resolve an exception with a note",
+      !resolvedException.error &&
+        resolvedException.data?.status === "resolved" &&
+        resolvedException.data?.resolved_by === ownerUser.id &&
+        resolvedException.data?.operator_note ===
+          "Booking timing reviewed by operations.",
+      resolvedException.error?.message ?? null,
+    );
+
+    const recurringRadarScan = await owner
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      })
+      .single();
+    const { data: reopenedException } = await owner
+      .from("operational_exceptions")
+      .select("status, resolved_at")
+      .eq("id", bookingException.id)
+      .single();
+    record(
+      "a recurring risk reopens after the next objective scan",
+      !recurringRadarScan.error &&
+        reopenedException?.status === "open" &&
+        reopenedException?.resolved_at === null,
+      recurringRadarScan.error?.message ?? null,
+    );
+
+    const fixedBookingSchedule = await owner
+      .from("bookings")
+      .update({
+        service_start_at: "2026-10-10T12:00:00.000Z",
+        service_end_at: "2026-10-18T10:00:00.000Z",
+      })
+      .eq("id", governedBooking.id)
+      .select("id")
+      .single();
+    if (fixedBookingSchedule.error)
+      throw new Error(
+        `Booking schedule risk could not be corrected: ${fixedBookingSchedule.error.message}`,
+      );
+    const clearedRadarScan = await owner
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      })
+      .single();
+    const { data: clearedException } = await owner
+      .from("operational_exceptions")
+      .select("status, resolved_by, resolved_at, operator_note")
+      .eq("id", bookingException.id)
+      .single();
+    record(
+      "Operations Radar auto-clears a corrected objective condition",
+      !clearedRadarScan.error &&
+        clearedRadarScan.data?.active_count === 0 &&
+        clearedRadarScan.data?.resolved_count >= 1 &&
+        clearedException?.status === "resolved" &&
+        clearedException?.resolved_by === null &&
+        Boolean(clearedException?.resolved_at) &&
+        clearedException?.operator_note ===
+          "Condition cleared by Operations Radar.",
+      clearedRadarScan.error?.message ?? null,
+    );
+
     const [ownerTripHistory, viewerForeignTrip, viewerTripHistory] =
       await Promise.all([
         owner

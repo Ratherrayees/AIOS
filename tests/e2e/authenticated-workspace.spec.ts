@@ -255,7 +255,14 @@ test.describe("authenticated owner workspace", () => {
 
     await expect(page).toHaveURL("/");
     await expect(
-      page.getByRole("heading", { name: /Good morning, Rayees/i }),
+      page.getByRole("heading", {
+        name: /Welcome back, Authenticated\. Start with what needs attention/i,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: /Authenticated E2E Owner Owner · Sign out/i,
+      }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Make AIOS fit your agency" }),
@@ -1401,6 +1408,19 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByRole("status")).toContainText(
       "Operational trip opened",
     );
+    await page
+      .locator(".operations-radar")
+      .getByRole("button", { name: "Scan now" })
+      .click();
+    await expect(
+      page.locator(".operations-radar").getByRole("status"),
+    ).toContainText("Scan complete");
+    await expect(
+      page
+        .locator(".radar-card")
+        .filter({ hasText: "Kyoto discovery journey" })
+        .filter({ hasText: "Trip dates are incomplete" }),
+    ).toBeVisible();
 
     const tripLink = page
       .locator(".trip-grid > a")
@@ -1440,6 +1460,8 @@ test.describe("authenticated owner workspace", () => {
 
     await page.getByLabel("Booking title").fill(bookingTitle);
     await page.getByLabel("Booking type").selectOption("hotel");
+    await page.getByLabel("Service start").fill("2026-10-10T15:00");
+    await page.getByLabel("Service end").fill("2026-10-18T10:00");
     await page.getByLabel("Booking cost").fill("125000");
     await page
       .getByLabel("Booking notes")
@@ -1514,6 +1536,16 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByRole("status")).toContainText(
       "Trip moved to in travel",
     );
+    await page
+      .locator(".operations-radar")
+      .getByRole("button", { name: "Scan now" })
+      .click();
+    await expect(
+      page.locator(".operations-radar").getByRole("status"),
+    ).toContainText("0 active");
+    await expect(
+      page.getByText("No active operational exceptions"),
+    ).toBeVisible();
 
     const { data: trip, error: tripError } = await admin!
       .from("trips")

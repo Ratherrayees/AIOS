@@ -8,6 +8,7 @@ export const AUTONOMOUS_INTERNAL_ACTIONS = [
   "itinerary.draft.prepare",
   "crm.lead.triage",
   "inbox.sla.triage",
+  "trip.operations.monitor",
 ] as const;
 
 export type AutonomousInternalAction =

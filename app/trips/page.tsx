@@ -3,9 +3,16 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
-import { convertWonDealToTrip } from "../actions/crm";
+import {
+  convertWonDealToTrip,
+  refreshOperationsRadar,
+} from "../actions/crm";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import {
+  OperationsRadar,
+  type OperationalException,
+} from "../../components/ui/operations-radar";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import "./trips.css";
@@ -36,6 +43,7 @@ const conversionRoles = new Set([
   "trip_designer",
   "operations",
 ]);
+const radarRoles = new Set(["owner", "admin", "trip_designer", "operations"]);
 
 const statusLabel: Record<Trip["status"], string> = {
   draft: "Planning",
@@ -50,10 +58,12 @@ export default function TripsPage() {
   const [role, setRole] = useState<string | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [wonDeals, setWonDeals] = useState<WonDeal[]>([]);
+  const [exceptions, setExceptions] = useState<OperationalException[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
   const canConvert = role ? conversionRoles.has(role) : false;
+  const canManageRadar = role ? radarRoles.has(role) : false;
 
   const eligibleDeals = useMemo(() => {
     const convertedDealIds = new Set(
@@ -73,8 +83,22 @@ export default function TripsPage() {
       }
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
-      const [{ data: tripRows, error: tripError }, { data: dealRows, error: dealError }] =
-        await Promise.all([
+      let radarWarning = "";
+      if (radarRoles.has(membership.role)) {
+        try {
+          await refreshOperationsRadar({
+            organizationId: membership.organization_id,
+          });
+        } catch {
+          radarWarning =
+            "Trip data loaded, but Operations Radar could not refresh.";
+        }
+      }
+      const [
+        { data: tripRows, error: tripError },
+        { data: dealRows, error: dealError },
+        { data: exceptionRows, error: exceptionError },
+      ] = await Promise.all([
           supabase
             .from("trips")
             .select(
@@ -89,11 +113,24 @@ export default function TripsPage() {
             .eq("stage", "won")
             .is("archived_at", null)
             .order("updated_at", { ascending: false }),
+          supabase
+            .from("operational_exceptions")
+            .select("*")
+            .eq("organization_id", membership.organization_id)
+            .in("status", ["open", "acknowledged"])
+            .order("last_seen_at", { ascending: false }),
         ]);
-      if (tripError || dealError)
-        throw tripError ?? dealError ?? new Error("Trip data is unavailable.");
+      if (tripError || dealError || exceptionError)
+        throw (
+          tripError ??
+          dealError ??
+          exceptionError ??
+          new Error("Trip data is unavailable.")
+        );
       setTrips((tripRows ?? []) as Trip[]);
       setWonDeals((dealRows ?? []) as WonDeal[]);
+      setExceptions(exceptionRows ?? []);
+      if (radarWarning) setNotice(radarWarning);
       setLoading(false);
     };
     void load().catch(() => {
@@ -134,7 +171,7 @@ export default function TripsPage() {
   const inTravelCount = trips.filter(
     (trip) => trip.status === "in_travel",
   ).length;
-  const undatedCount = liveTrips.filter((trip) => !trip.start_date).length;
+  const activeExceptionCount = exceptions.length;
 
   return (
     <main className="trips-page" id="main-content" tabIndex={-1}>
@@ -188,10 +225,19 @@ export default function TripsPage() {
         </article>
         <article>
           <span>ATTENTION</span>
-          <b>{undatedCount}</b>
-          <small>active trips without dates</small>
+          <b>{activeExceptionCount}</b>
+          <small>active operational exceptions</small>
         </article>
       </section>
+
+      {!loading && organizationId && (
+        <OperationsRadar
+          organizationId={organizationId}
+          initialExceptions={exceptions}
+          canManage={canManageRadar}
+          onExceptionsChange={setExceptions}
+        />
+      )}
 
       {canConvert && (
         <section

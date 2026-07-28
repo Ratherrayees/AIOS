@@ -22,6 +22,10 @@ test("AIOS may auto-route only the bounded internal lead-routing action", () => 
 
 test("AIOS may auto-triage only bounded internal lead risks", () => {
   assert.equal(evaluateAutonomy("crm.lead.triage", "auto").decision, "execute");
+  assert.equal(
+    evaluateAutonomy("trip.operations.monitor", "auto").decision,
+    "execute",
+  );
 });
 
 test("AIOS may auto-triage overdue Inbox SLAs only as internal work", () => {
@@ -48,6 +52,7 @@ test("every external-effect catalog action is non-bypassable", () => {
         "crm.deal.route",
         "crm.lead.triage",
         "inbox.sla.triage",
+        "trip.operations.monitor",
       ].includes(action.action),
   );
   assert.ok(externalActions.length > 0);

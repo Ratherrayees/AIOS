@@ -15,6 +15,7 @@ import {
   createTask,
   createTripBooking,
   createTripDocumentDownload,
+  refreshOperationsRadar,
   transitionTripStatus,
   updateTaskStatus,
   updateTripBookingStatus,
@@ -23,6 +24,10 @@ import {
 } from "../../actions/crm";
 import { EmptyState, LoadingState } from "../../../components/ui/empty-state";
 import { FeatureHeader } from "../../../components/ui/feature-header";
+import {
+  OperationsRadar,
+  type OperationalException,
+} from "../../../components/ui/operations-radar";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
 import "../trips.css";
@@ -195,6 +200,7 @@ export default function TripWorkspacePage() {
   const [history, setHistory] = useState<StatusHistory[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [exceptions, setExceptions] = useState<OperationalException[]>([]);
   const [confirmationDrafts, setConfirmationDrafts] = useState<
     Record<string, string>
   >({});
@@ -221,6 +227,17 @@ export default function TripWorkspacePage() {
       }
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
+      let radarWarning = "";
+      if (operationsRoles.has(membership.role)) {
+        try {
+          await refreshOperationsRadar({
+            organizationId: membership.organization_id,
+          });
+        } catch {
+          radarWarning =
+            "Trip data loaded, but Operations Radar could not refresh.";
+        }
+      }
       const [
         { data: tripRow, error: tripError },
         { data: travelerRows },
@@ -230,6 +247,7 @@ export default function TripWorkspacePage() {
         { data: historyRows },
         { data: activityRows },
         { data: supplierRows },
+        { data: exceptionRows },
       ] = await Promise.all([
         supabase
           .from("trips")
@@ -291,6 +309,13 @@ export default function TripWorkspacePage() {
           .eq("status", "active")
           .is("archived_at", null)
           .order("name"),
+        supabase
+          .from("operational_exceptions")
+          .select("*")
+          .eq("organization_id", membership.organization_id)
+          .eq("trip_id", tripId)
+          .in("status", ["open", "acknowledged"])
+          .order("last_seen_at", { ascending: false }),
       ]);
       if (tripError || !tripRow)
         throw tripError ?? new Error("This trip is not available.");
@@ -302,6 +327,8 @@ export default function TripWorkspacePage() {
       setHistory((historyRows ?? []) as StatusHistory[]);
       setActivities((activityRows ?? []) as Activity[]);
       setSuppliers((supplierRows ?? []) as Supplier[]);
+      setExceptions(exceptionRows ?? []);
+      if (radarWarning) setNotice(radarWarning);
       setLoading(false);
     };
     void load().catch((error) => {
@@ -700,6 +727,13 @@ export default function TripWorkspacePage() {
 
       <div className="trip-ops-layout">
         <div className="trip-ops-main">
+          <OperationsRadar
+            organizationId={organizationId!}
+            initialExceptions={exceptions}
+            canManage={canOperate}
+            tripId={trip.id}
+          />
+
           <section className="ops-panel">
             <div className="ops-panel-heading">
               <div>

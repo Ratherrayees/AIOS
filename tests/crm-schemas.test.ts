@@ -19,6 +19,8 @@ import {
   quoteDraftInputSchema,
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
+  operationalExceptionStatusSchema,
+  operationsRadarRefreshSchema,
   tripBookingInputSchema,
   tripDocumentDownloadSchema,
   tripDocumentUploadSchema,
@@ -792,6 +794,30 @@ test("trip document metadata requires bounded tenant identities", () => {
       organizationId,
       tripId,
       documentId: "not-a-document",
+    }).success,
+    false,
+  );
+});
+
+test("operations radar refresh and exception resolution stay tenant scoped", () => {
+  assert.equal(
+    operationsRadarRefreshSchema.safeParse({ organizationId }).success,
+    true,
+  );
+  assert.equal(
+    operationalExceptionStatusSchema.safeParse({
+      organizationId,
+      exceptionId: crypto.randomUUID(),
+      status: "acknowledged",
+    }).success,
+    true,
+  );
+  assert.equal(
+    operationalExceptionStatusSchema.safeParse({
+      organizationId,
+      exceptionId: crypto.randomUUID(),
+      status: "resolved",
+      note: " ",
     }).success,
     false,
   );
