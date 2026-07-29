@@ -18,6 +18,10 @@ import {
   transitionKnowledgeSource,
   updateKnowledgeSection,
 } from "../actions/knowledge";
+import {
+  composeKnowledgeAnswer,
+  type KnowledgeAnswerResponse,
+} from "../actions/knowledge-answer";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import type { KnowledgeSearchResult } from "../../lib/knowledge/schemas";
@@ -93,6 +97,9 @@ export default function KnowledgePage() {
   const [sections, setSections] = useState<KnowledgeSection[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState("");
   const [results, setResults] = useState<KnowledgeSearchResult[]>([]);
+  const [answerResponse, setAnswerResponse] =
+    useState<KnowledgeAnswerResponse | null>(null);
+  const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchRan, setSearchRan] = useState(false);
   const [notice, setNotice] = useState("");
@@ -386,9 +393,9 @@ export default function KnowledgePage() {
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId) return;
-    const formData = new FormData(event.currentTarget);
-    const query = String(formData.get("query") || "").trim();
+    const query = knowledgeQuery.trim();
     setSearchTerm(query);
+    setAnswerResponse(null);
     setNotice("");
     startTransition(async () => {
       try {
@@ -404,6 +411,30 @@ export default function KnowledgePage() {
           error instanceof Error
             ? error.message
             : "Approved knowledge could not be searched.",
+        );
+      }
+    });
+  }
+
+  function askAios() {
+    if (!organizationId || knowledgeQuery.trim().length < 2) return;
+    const question = knowledgeQuery.trim();
+    setSearchTerm(question);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const response = await composeKnowledgeAnswer({
+          organizationId,
+          question,
+        });
+        setAnswerResponse(response);
+        setSearchRan(false);
+        setResults([]);
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not open the Answer Desk.",
         );
       }
     });
@@ -545,10 +576,12 @@ export default function KnowledgePage() {
           >
             <div>
               <p>AIOS RETRIEVAL PREVIEW</p>
-              <h2 id="retrieval-title">Search only approved knowledge.</h2>
+              <h2 id="retrieval-title">
+                Ask AIOS, then inspect every source.
+              </h2>
               <span>
-                This is the same permission-aware evidence boundary future
-                agents will use before producing a cited recommendation.
+                Preview approved passages directly, or let the Answer Desk
+                compose bounded claims that keep their citations attached.
               </span>
             </div>
             <form onSubmit={submitSearch}>
@@ -557,16 +590,116 @@ export default function KnowledgePage() {
                 <input
                   id="knowledge-query"
                   name="query"
+                  value={knowledgeQuery}
+                  onChange={(event) => setKnowledgeQuery(event.target.value)}
                   minLength={2}
                   maxLength={240}
                   placeholder="Example: Kyoto rail pass cancellation"
                   required
                 />
                 <button type="submit" disabled={pending}>
-                  {pending ? "Searching…" : "Search approved sources"}
+                  Preview evidence
+                </button>
+                <button
+                  type="button"
+                  className="answer-button"
+                  disabled={pending || knowledgeQuery.trim().length < 2}
+                  onClick={askAios}
+                >
+                  {pending ? "AIOS is checking…" : "Ask AIOS with citations"}
                 </button>
               </div>
             </form>
+            {answerResponse ? (
+              <section
+                className={`knowledge-answer ${answerResponse.state}`}
+                aria-labelledby="answer-desk-result"
+                aria-live="polite"
+              >
+                <header>
+                  <div>
+                    <span>AIOS ANSWER DESK</span>
+                    <h3 id="answer-desk-result">
+                      {answerResponse.state === "supported"
+                        ? "Grounded answer"
+                        : answerResponse.state === "needs_human_review"
+                          ? "Cited advisory · human decision required"
+                          : answerResponse.state === "unsupported"
+                            ? "Unsupported · AIOS refused to guess"
+                            : answerResponse.state === "stale"
+                              ? "Out of date · renewal required"
+                              : "Composition safely stopped"}
+                    </h3>
+                  </div>
+                  <i>{answerResponse.state.replaceAll("_", " ")}</i>
+                </header>
+                <p>{answerResponse.message}</p>
+                {answerResponse.answer ? (
+                  <>
+                    <div className="knowledge-answer-claims">
+                      {answerResponse.answer.claims.map((claim, index) => (
+                        <article key={`${claim.text}-${index}`}>
+                          <span>
+                            CLAIM {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <p>{claim.text}</p>
+                          <footer>
+                            {claim.citations.map((citation) =>
+                              citation.sourceUrl ? (
+                                <a
+                                  href={citation.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  key={citation.sectionId}
+                                >
+                                  {citation.label} · v
+                                  {citation.versionLabel} ↗
+                                </a>
+                              ) : (
+                                <b key={citation.sectionId}>
+                                  {citation.label} · v
+                                  {citation.versionLabel}
+                                </b>
+                              ),
+                            )}
+                          </footer>
+                        </article>
+                      ))}
+                    </div>
+                    {answerResponse.answer.caveats.length > 0 ? (
+                      <div className="knowledge-answer-caveats">
+                        <b>Caveats</b>
+                        <ul>
+                          {answerResponse.answer.caveats.map((caveat) => (
+                            <li key={caveat}>{caveat}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <small>
+                      Confidence{" "}
+                      {Math.round(answerResponse.answer.confidence * 100)}%
+                      {answerResponse.provider && answerResponse.model
+                        ? ` · ${answerResponse.provider}/${answerResponse.model}`
+                        : ""}
+                    </small>
+                  </>
+                ) : answerResponse.evidence.length > 0 ? (
+                  <div className="knowledge-answer-evidence">
+                    {answerResponse.evidence.map((item) => (
+                      <article key={item.sectionId}>
+                        <span>
+                          {item.isStale ? "STALE EVIDENCE" : "APPROVED EVIDENCE"}
+                        </span>
+                        <b>{item.citationLabel}</b>
+                        <p>{item.excerpt}</p>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+                <small>Run {answerResponse.runId}</small>
+              </section>
+            ) : null}
             <div className="knowledge-results" aria-live="polite">
               {results.map((result) => (
                 <article key={result.section_id}>

@@ -26,7 +26,7 @@ const glossary = [
   {
     term: "Knowledge",
     definition:
-      "Human-reviewed evidence AIOS may retrieve with a visible citation and freshness state.",
+      "Human-reviewed evidence AIOS may answer from only when every material claim has a current visible citation.",
   },
 ];
 

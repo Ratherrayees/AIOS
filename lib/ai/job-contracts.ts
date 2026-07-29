@@ -19,6 +19,13 @@ export const modelJobPayloadSchema = z.discriminatedUnion("workflow", [
       provider: modelProviderSchema,
     })
     .strict(),
+  z
+    .object({
+      workflow: z.literal("knowledge_answer"),
+      prompt_version: z.string().trim().min(3).max(120),
+      provider: modelProviderSchema,
+    })
+    .strict(),
 ]);
 
 export type ModelJobPayload = z.infer<typeof modelJobPayloadSchema>;

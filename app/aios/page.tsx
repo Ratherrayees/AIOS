@@ -257,7 +257,11 @@ export default function AiosControlPage() {
             "id, status, input_tokens, output_tokens, estimated_cost, estimated_cost_currency",
           )
           .eq("organization_id", membership.organization_id)
-          .in("agent_type", ["lead_intake", "itinerary_draft"])
+          .in("agent_type", [
+            "lead_intake",
+            "itinerary_draft",
+            "knowledge_answer",
+          ])
           .gte("created_at", utcDayStart.toISOString())
           .limit(1000),
         supabase

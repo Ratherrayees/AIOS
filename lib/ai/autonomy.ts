@@ -65,6 +65,14 @@ export const AIOS_ACTION_CATALOG = [
     hardApproval: false,
   },
   {
+    action: "knowledge.answer.compose",
+    title: "Compose cited knowledge answers",
+    description:
+      "Answer internal questions only from approved, permission-visible evidence with server-attached citations.",
+    defaultMode: "auto",
+    hardApproval: false,
+  },
+  {
     action: "external_message.send",
     title: "Send traveller follow-ups",
     description: "Send approved, personalized customer communications.",

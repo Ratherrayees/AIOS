@@ -5,4 +5,5 @@
 export const AIOS_PROMPT_VERSIONS = {
   leadIntake: "lead-intake.2026-07-26.1",
   itineraryDraft: "itinerary-draft.2026-07-26.1",
+  knowledgeAnswer: "knowledge-answer.2026-07-29.1",
 } as const;

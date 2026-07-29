@@ -5062,7 +5062,7 @@ export type Database = {
         | "failed"
         | "cancelled"
         | "dead_letter"
-      ai_job_type: "lead_intake" | "itinerary_draft"
+      ai_job_type: "lead_intake" | "itinerary_draft" | "knowledge_answer"
       ai_run_status:
         | "queued"
         | "running"
@@ -5272,7 +5272,7 @@ export const Constants = {
         "cancelled",
         "dead_letter",
       ],
-      ai_job_type: ["lead_intake", "itinerary_draft"],
+      ai_job_type: ["lead_intake", "itinerary_draft", "knowledge_answer"],
       ai_run_status: [
         "queued",
         "running",

@@ -8,7 +8,11 @@ import {
 import { createSupabaseAdminClient } from "../supabase/admin";
 import { dailyRunLimitExceeded, resolveAiosBudgetPolicy } from "./budget";
 import { getAiosProviderStatus } from "./openai-provider";
-import { ITINERARY_DRAFT_AGENT, LEAD_INTAKE_AGENT } from "./runtime";
+import {
+  ITINERARY_DRAFT_AGENT,
+  KNOWLEDGE_ANSWER_AGENT,
+  LEAD_INTAKE_AGENT,
+} from "./runtime";
 
 export async function loadOrganizationModelBudget(organizationId: string) {
   const dayStart = new Date();
@@ -25,6 +29,7 @@ export async function loadOrganizationModelBudget(organizationId: string) {
       .in("agent_type", [
         LEAD_INTAKE_AGENT.type,
         ITINERARY_DRAFT_AGENT.type,
+        KNOWLEDGE_ANSWER_AGENT.type,
       ])
       .gte("created_at", dayStart.toISOString()),
     admin

@@ -318,7 +318,7 @@
 .governed-knowledge-search form > div {
   display: grid;
   margin-top: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
 }
 
@@ -363,6 +363,154 @@
 .knowledge-page button:disabled {
   cursor: wait;
   opacity: 0.55;
+}
+
+.knowledge-page button.answer-button {
+  border-color: rgb(141 132 255 / 28%);
+  color: #f0eeff;
+  background:
+    linear-gradient(120deg, rgb(107 96 236 / 48%), rgb(82 72 197 / 30%)),
+    #171a3b;
+}
+
+.knowledge-answer {
+  margin-top: 26px;
+  padding: 22px;
+  border: 1px solid rgb(114 239 211 / 18%);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 95% 4%, rgb(84 92 230 / 15%), transparent 20rem),
+    rgb(5 16 25 / 72%);
+}
+
+.knowledge-answer.needs_human_review,
+.knowledge-answer.stale {
+  border-color: rgb(255 171 116 / 23%);
+}
+
+.knowledge-answer.blocked,
+.knowledge-answer.unsupported {
+  border-color: rgb(151 160 177 / 19%);
+}
+
+.knowledge-answer > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: start;
+}
+
+.knowledge-answer > header span {
+  color: #66e5cd;
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.knowledge-answer > header h3 {
+  margin: 7px 0 0;
+  color: #f6fbfd;
+  font-size: 1.2rem;
+}
+
+.knowledge-answer > header i {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #ada7ee;
+  font-size: 0.61rem;
+  font-style: normal;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: rgb(96 85 207 / 15%);
+}
+
+.knowledge-answer > p {
+  margin: 14px 0 0;
+  color: #9bb0ba;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.knowledge-answer-claims,
+.knowledge-answer-evidence {
+  display: grid;
+  margin-top: 18px;
+  gap: 10px;
+}
+
+.knowledge-answer-claims article,
+.knowledge-answer-evidence article {
+  padding: 17px;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 12px;
+  background: rgb(3 12 19 / 56%);
+}
+
+.knowledge-answer-claims article > span,
+.knowledge-answer-evidence article > span {
+  color: #7770cd;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.knowledge-answer-claims article > p,
+.knowledge-answer-evidence article > p {
+  margin: 9px 0 12px;
+  color: #d7e4e9;
+  line-height: 1.6;
+}
+
+.knowledge-answer-claims footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.knowledge-answer-claims footer a,
+.knowledge-answer-claims footer b {
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: #7fe3cf;
+  font-size: 0.65rem;
+  font-weight: 720;
+  text-decoration: none;
+  background: rgb(50 152 132 / 11%);
+}
+
+.knowledge-answer-caveats {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-left: 2px solid #b98762;
+  color: #9fabb0;
+  font-size: 0.72rem;
+  background: rgb(137 78 42 / 7%);
+}
+
+.knowledge-answer-caveats b {
+  color: #e7c5af;
+}
+
+.knowledge-answer-caveats ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.knowledge-answer-caveats li + li {
+  margin-top: 5px;
+}
+
+.knowledge-answer > small {
+  display: block;
+  margin-top: 13px;
+  color: #5d7480;
+  font-size: 0.64rem;
+}
+
+.knowledge-answer-evidence article b {
+  display: block;
+  margin-top: 7px;
+  color: #e5eef2;
 }
 
 .knowledge-results {
@@ -878,6 +1026,14 @@
 
   .governed-knowledge-search form > div {
     grid-template-columns: 1fr;
+  }
+
+  .knowledge-answer > header {
+    display: grid;
+  }
+
+  .knowledge-answer > header i {
+    justify-self: start;
   }
 
   .knowledge-pulse {

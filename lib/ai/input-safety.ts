@@ -204,3 +204,68 @@ export function inspectItineraryDraftInput(source: ItineraryDraftSource) {
     } satisfies Json,
   };
 }
+
+export type KnowledgeAnswerInput = {
+  question: string;
+  evidence: Array<{
+    sectionId: string;
+    heading: string;
+    excerpt: string;
+  }>;
+};
+
+/**
+ * Treats both the operator question and retrieved passage text as untrusted
+ * model input. Approved status is a governance signal, not permission for a
+ * passage to override the Answer Desk instructions.
+ */
+export function inspectKnowledgeAnswerInput(input: KnowledgeAnswerInput) {
+  const questionTooLarge = input.question.length > 240;
+  const evidenceTooLarge = input.evidence.length > 8;
+  const questionSignals = suspiciousSignals([input.question]);
+  const evidenceSignals = suspiciousSignals(
+    input.evidence.flatMap((item) => [item.heading, item.excerpt]),
+  );
+  const blocked =
+    questionTooLarge ||
+    evidenceTooLarge ||
+    questionSignals.length > 0 ||
+    evidenceSignals.length > 0;
+  const errorCode =
+    questionSignals.length > 0
+      ? "UNTRUSTED_KNOWLEDGE_QUESTION"
+      : evidenceSignals.length > 0
+        ? "UNTRUSTED_KNOWLEDGE_CONTENT"
+        : questionTooLarge || evidenceTooLarge
+          ? "KNOWLEDGE_INPUT_TOO_LARGE"
+          : null;
+  const redactionCounts = emptyRedactionCounts();
+  const redact = (value: string, maxLength: number) => {
+    const result = redactSensitiveModelText(
+      cleanUntrustedText(value, maxLength),
+    );
+    addRedactionCounts(redactionCounts, result.counts);
+    return result.value || "";
+  };
+
+  return {
+    input: {
+      question: redact(input.question, 240),
+      evidence: input.evidence.slice(0, 8).map((item) => ({
+        sectionId: item.sectionId,
+        heading: redact(item.heading, 180),
+        excerpt: redact(item.excerpt, 500),
+      })),
+    },
+    blocked,
+    errorCode,
+    audit: {
+      suspicious_question_signals: questionSignals,
+      suspicious_evidence_signals: evidenceSignals,
+      question_truncated: questionTooLarge,
+      evidence_count: input.evidence.length,
+      evidence_truncated: evidenceTooLarge,
+      sensitive_redactions: redactionCounts,
+    } satisfies Json,
+  };
+}

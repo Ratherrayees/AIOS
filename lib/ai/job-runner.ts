@@ -2,12 +2,14 @@ import "server-only";
 
 import {
   inspectItineraryDraftInput,
+  inspectKnowledgeAnswerInput,
   inspectLeadIntakeInput,
 } from "./input-safety";
 import {
   AiosProviderNotConfiguredError,
   getAiosProviderStatus,
   runItineraryDraft,
+  runKnowledgeAnswer,
   runLeadIntake,
 } from "./openai-provider";
 import {
@@ -22,6 +24,7 @@ import {
   modelBudgetBlockReason,
 } from "./execution-policy";
 import { AIOS_PROMPT_VERSIONS } from "./prompt-versions";
+import { knowledgeAnswerNeedsHumanReview } from "./knowledge-answer";
 import { estimateModelRunCost } from "./pricing";
 import {
   completeAgentRun,
@@ -30,6 +33,10 @@ import {
 } from "./runtime";
 import { createSupabaseAdminClient } from "../supabase/admin";
 import type { Json } from "../../types/database";
+import {
+  knowledgeAnswerRunReferenceSchema,
+  loadKnowledgeAnswerEvidenceForActor,
+} from "../knowledge/answer-evidence";
 
 type JobOutcome = "succeeded" | "retried" | "dead_lettered" | "skipped";
 
@@ -112,7 +119,9 @@ async function processRunnableJob(
   const admin = createSupabaseAdminClient();
   const { data: run, error: runError } = await admin
     .from("ai_runs")
-    .select("id, status, approval_request_id")
+    .select(
+      "id, status, approval_request_id, initiated_by, input_reference",
+    )
     .eq("id", job.ai_run_id)
     .eq("organization_id", job.organization_id)
     .maybeSingle();
@@ -186,7 +195,9 @@ async function processRunnableJob(
   const currentPromptVersion =
     payload.workflow === "lead_intake"
       ? AIOS_PROMPT_VERSIONS.leadIntake
-      : AIOS_PROMPT_VERSIONS.itineraryDraft;
+      : payload.workflow === "itinerary_draft"
+        ? AIOS_PROMPT_VERSIONS.itineraryDraft
+        : AIOS_PROMPT_VERSIONS.knowledgeAnswer;
   if (payload.prompt_version !== currentPromptVersion) {
     return markPermanentFailure({
       organizationId: job.organization_id,
@@ -296,6 +307,113 @@ async function processRunnableJob(
       return "succeeded";
     }
 
+    if (payload.workflow === "knowledge_answer") {
+      const reference = knowledgeAnswerRunReferenceSchema.safeParse(
+        run.input_reference,
+      );
+      if (!reference.success || !run.initiated_by)
+        return markPermanentFailure({
+          organizationId: job.organization_id,
+          runId: run.id,
+          jobId: job.id,
+          workerId: claimed.workerId,
+          approvalRequestId: run.approval_request_id,
+          errorCode: "AI_JOB_REFERENCE_INVALID",
+          startedAt,
+        });
+      const evidence = await loadKnowledgeAnswerEvidenceForActor({
+        organizationId: job.organization_id,
+        actorId: run.initiated_by,
+        sectionIds: reference.data.section_ids,
+      });
+      const freshEvidence = evidence.filter((item) => !item.isStale);
+      if (freshEvidence.length === 0)
+        return markPermanentFailure({
+          organizationId: job.organization_id,
+          runId: run.id,
+          jobId: job.id,
+          workerId: claimed.workerId,
+          approvalRequestId: run.approval_request_id,
+          errorCode: "KNOWLEDGE_EVIDENCE_UNAVAILABLE",
+          startedAt,
+        });
+      const inspected = inspectKnowledgeAnswerInput({
+        question: reference.data.question,
+        evidence: freshEvidence,
+      });
+      if (inspected.blocked)
+        return markPermanentFailure({
+          organizationId: job.organization_id,
+          runId: run.id,
+          jobId: job.id,
+          workerId: claimed.workerId,
+          approvalRequestId: run.approval_request_id,
+          errorCode:
+            inspected.errorCode ?? "UNTRUSTED_KNOWLEDGE_CONTENT",
+          startedAt,
+        });
+      const safeEvidence = freshEvidence.map((item) => {
+        const safe = inspected.input.evidence.find(
+          (candidate) => candidate.sectionId === item.sectionId,
+        );
+        return {
+          ...item,
+          heading: safe?.heading ?? item.heading,
+          excerpt: safe?.excerpt ?? item.excerpt,
+        };
+      });
+      const modelResult = await runKnowledgeAnswer(
+        {
+          question: inspected.input.question,
+          evidence: safeEvidence,
+        },
+        payload.provider,
+      );
+      await settleModelJob({
+        jobId: job.id,
+        workerId: claimed.workerId,
+        attempt: claimed.job_attempts,
+        succeeded: true,
+      });
+      const estimatedCost = await estimateModelRunCost({
+        organizationId: job.organization_id,
+        provider: modelResult.provider,
+        model: modelResult.model,
+        inputTokens: modelResult.inputTokens,
+        outputTokens: modelResult.outputTokens,
+      });
+      const humanReviewRequired = knowledgeAnswerNeedsHumanReview(
+        inspected.input.question,
+      );
+      await completeAgentRun({
+        organizationId: job.organization_id,
+        runId: run.id,
+        status: "succeeded",
+        result: {
+          answer_state: humanReviewRequired
+            ? "needs_human_review"
+            : "supported",
+          answer: modelResult.answer,
+          provider: modelResult.provider,
+          model: modelResult.model,
+          prompt_version: modelResult.promptVersion,
+          response_id: modelResult.responseId,
+          input_safety: inspected.audit,
+        } as Json,
+        citations: safeEvidence.map((item) => ({
+          sourceType: "knowledge",
+          sourceId: item.sourceId,
+          label: item.citationLabel,
+        })) as Json,
+        durationMs: Date.now() - startedAt,
+        inputTokens: modelResult.inputTokens,
+        outputTokens: modelResult.outputTokens,
+        estimatedCost,
+        approvalRequestId: run.approval_request_id,
+      });
+      return "succeeded";
+    }
+
     const { data: trip, error: tripError } = await admin
       .from("trips")
       .select("id, name, start_date, end_date")
@@ -385,7 +503,9 @@ async function processRunnableJob(
         ? "AI_PROVIDER_NOT_CONFIGURED"
         : payload.workflow === "lead_intake"
           ? "LEAD_INTAKE_FAILED"
-          : "ITINERARY_DRAFT_FAILED";
+          : payload.workflow === "itinerary_draft"
+            ? "ITINERARY_DRAFT_FAILED"
+            : "KNOWLEDGE_ANSWER_FAILED";
     return markRetryableFailure({
       organizationId: job.organization_id,
       runId: run.id,

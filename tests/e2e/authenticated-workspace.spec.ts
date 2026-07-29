@@ -2297,7 +2297,7 @@ test.describe("authenticated owner workspace", () => {
       .getByLabel("Question or evidence needed")
       .fill("cancellation windows");
     await page
-      .getByRole("button", { name: "Search approved sources" })
+      .getByRole("button", { name: "Preview evidence" })
       .click();
     await expect(page.getByText("Kyoto rail policy §4")).toBeVisible();
     await expect(page.getByText("Current review")).toBeVisible();
@@ -2365,11 +2365,26 @@ test.describe("authenticated owner workspace", () => {
       "Knowledge moved to approved",
     );
     await page
-      .getByRole("button", { name: "Search approved sources" })
+      .getByRole("button", { name: "Preview evidence" })
       .click();
     await expect(page.getByText("Kyoto rail policy §5")).toBeVisible();
     await expect(
       page.getByText(`${sourceTitle} · v2026.2 · official`),
+    ).toBeVisible();
+
+    await page
+      .getByLabel("Question or evidence needed")
+      .fill("quantum submarine reimbursement protocol");
+    await page
+      .getByRole("button", { name: "Ask AIOS with citations" })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Unsupported · AIOS refused to guess",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No approved evidence supports an answer."),
     ).toBeVisible();
 
     const { data: sources, error: sourceError } = await admin!
@@ -2406,6 +2421,28 @@ test.describe("authenticated owner workspace", () => {
       .eq("source_id", replacementSource!.id);
     expect(sectionError).toBeNull();
     expect(sections).toEqual([{ citation_label: "Kyoto rail policy §5" }]);
+
+    const { data: answerRun, error: answerRunError } = await admin!
+      .from("ai_runs")
+      .select("id, status, result, input_tokens, output_tokens")
+      .eq("organization_id", organizationIds[0])
+      .eq("agent_type", "knowledge_answer")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    expect(answerRunError).toBeNull();
+    expect(answerRun?.status).toBe("succeeded");
+    expect(answerRun?.result).toMatchObject({
+      answer_state: "unsupported",
+    });
+    expect(answerRun?.input_tokens).toBeNull();
+    expect(answerRun?.output_tokens).toBeNull();
+    const { count: answerJobCount, error: answerJobError } = await admin!
+      .from("ai_jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("ai_run_id", answerRun!.id);
+    expect(answerJobError).toBeNull();
+    expect(answerJobCount).toBe(0);
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({

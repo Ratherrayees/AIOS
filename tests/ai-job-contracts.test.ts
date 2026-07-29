@@ -12,6 +12,14 @@ test("durable model jobs accept only reference metadata", () => {
   });
   assert.equal(parsed.workflow, "lead_intake");
   assert.equal("notes" in parsed, false);
+
+  const knowledgeJob = modelJobPayloadSchema.parse({
+    workflow: "knowledge_answer",
+    prompt_version: "knowledge-answer.2026-07-29.1",
+    provider: "glm",
+  });
+  assert.equal(knowledgeJob.workflow, "knowledge_answer");
+  assert.equal("question" in knowledgeJob, false);
 });
 
 test("durable model jobs reject raw text and mismatched record references", () => {

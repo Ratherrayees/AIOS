@@ -42,6 +42,17 @@ test("itinerary drafts remain reviewable suggestions in assist mode", () => {
   );
 });
 
+test("cited knowledge answers are bounded internal work", () => {
+  assert.equal(
+    evaluateAutonomy("knowledge.answer.compose", "auto").decision,
+    "execute",
+  );
+  assert.equal(
+    evaluateAgentAction("knowledge.answer.compose").mode,
+    "allowed",
+  );
+});
+
 test("every external-effect catalog action is non-bypassable", () => {
   const externalActions = AIOS_ACTION_CATALOG.filter(
     (action) =>
@@ -53,6 +64,7 @@ test("every external-effect catalog action is non-bypassable", () => {
         "crm.lead.triage",
         "inbox.sla.triage",
         "trip.operations.monitor",
+        "knowledge.answer.compose",
       ].includes(action.action),
   );
   assert.ok(externalActions.length > 0);

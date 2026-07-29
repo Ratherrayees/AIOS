@@ -11,8 +11,8 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 44/44 browser journeys
-- 136/136 behavioral tests
-- 15/15 zero-provider AI safety evaluations
+- 142/142 behavioral tests
+- 21/21 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
 - zero browser console errors or warnings across the protected-route sweep
@@ -44,7 +44,7 @@ The audited build passed with:
 | Team Access | Role change, teammate suspension/restoration, invitation creation and revocation | Membership state and one-way invitation-token hash persist; final-owner safeguards remain enforced | Pass |
 | Account Security | TOTP enrollment, live code verification, verified-factor display and removal | Supabase Auth reports the factor, then confirms it is removed | Pass |
 | AIOS Control | Daily budget, provider selection, model kill switch, approved price version, lead and Inbox triage, autonomy modes, workflow disable/enable and non-bypassable external-action guard | Budget, price and autonomy policy rows persist; triage writes only bounded internal work; quote sharing cannot be set to Auto | Pass |
-| Governed Knowledge | Versioned source draft, source authority/sensitivity/freshness metadata, citation-ready passages, human review, approval, stale-source queue, controlled replacement draft, draft-only passage revision, atomic supersession, approved retrieval, source link, and visible freshness state | Direct writes are denied; drafts, restricted material, and retired sources are permission-filtered; guarded transitions and renewal RPCs record reviewer/lineage/audit evidence; the prior version stays live until successor approval retires it atomically; retrieval returns only tenant-permitted approved citations | Pass |
+| Governed Knowledge | Versioned source draft, source authority/sensitivity/freshness metadata, citation-ready passages, human review, approval, stale-source queue, controlled replacement draft, draft-only passage revision, atomic supersession, approved retrieval, and an Answer Desk with claim-level source links, explicit unsupported/stale states, and high-impact human review | Direct writes are denied; drafts, restricted material, and retired sources are permission-filtered; guarded transitions and renewal RPCs record reviewer/lineage/audit evidence; the prior version stays live until successor approval retires it atomically; the answer path sends only permitted fresh evidence, validates model claims against exact retrieved passages, attaches citations server-side, and makes no provider call for unsupported evidence | Pass |
 | Analytics | Authenticated loading and lead/source conversion evidence from prior workflow tests | Metrics derive from tenant-authorized deal/history data | Pass |
 | Private document vault | UI upload from lead detail and metadata verification | Object bytes and metadata exist in the private tenant path; anonymous/foreign access and browser deletion are denied | Pass |
 | Responsive and runtime integrity | All principal protected routes at desktop and 390px mobile widths | No horizontal overflow; route sweep produced no browser errors or warnings | Pass |
@@ -69,6 +69,7 @@ The audited build passed with:
 16. The first knowledge-source reviewer foreign key used `ON DELETE SET NULL`, which conflicted with the requirement that approved evidence preserve its reviewer and could block disposable tenant cleanup. Creator and reviewer relationships now use deferred same-tenant constraints, so an organization cascades atomically while standalone membership removal cannot erase historical review accountability.
 17. The initial knowledge lifecycle allowed a curator to add passages while a source was already in review. The UI and guarded RPCs now freeze both metadata and passages in review; corrections require an explicit return to Draft before approval can resume.
 18. The first Knowledge retrieval panel reused a legacy global `.knowledge-search` dashboard selector. At a mid-width viewport that inherited a fixed-height flex layout and let approved citation cards overlap the inventory below. The governed workspace now uses an isolated selector namespace, and browser layout inspection covers the exact failing width plus the 390px overflow boundary.
+19. The initial Answer Desk browser assertion targeted a generic search button after the evidence preview label became more explicit. The journey now selects the actual “Preview evidence” control and separately proves that an unsupported question creates an auditable deterministic refusal with zero model job or token usage.
 
 ## Deferred external acceptance
 
