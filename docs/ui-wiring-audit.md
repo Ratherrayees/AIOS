@@ -11,7 +11,7 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 44/44 browser journeys
-- 134/134 behavioral tests
+- 136/136 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -19,7 +19,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 58-table/29-RPC anonymous-access probes and 202 authenticated authorization assertions
+- all 58-table/32-RPC anonymous-access probes and 208 authenticated authorization assertions
 
 ## Feature evidence
 
@@ -44,7 +44,7 @@ The audited build passed with:
 | Team Access | Role change, teammate suspension/restoration, invitation creation and revocation | Membership state and one-way invitation-token hash persist; final-owner safeguards remain enforced | Pass |
 | Account Security | TOTP enrollment, live code verification, verified-factor display and removal | Supabase Auth reports the factor, then confirms it is removed | Pass |
 | AIOS Control | Daily budget, provider selection, model kill switch, approved price version, lead and Inbox triage, autonomy modes, workflow disable/enable and non-bypassable external-action guard | Budget, price and autonomy policy rows persist; triage writes only bounded internal work; quote sharing cannot be set to Auto | Pass |
-| Governed Knowledge | Versioned source draft, source authority/sensitivity/freshness metadata, citation-ready passages, human review, approval, approved retrieval, source link, and visible freshness state | Direct writes are denied; drafts, restricted material, and retired sources are permission-filtered; guarded transitions record reviewer/audit evidence; retrieval returns only tenant-permitted approved citations | Pass |
+| Governed Knowledge | Versioned source draft, source authority/sensitivity/freshness metadata, citation-ready passages, human review, approval, stale-source queue, controlled replacement draft, draft-only passage revision, atomic supersession, approved retrieval, source link, and visible freshness state | Direct writes are denied; drafts, restricted material, and retired sources are permission-filtered; guarded transitions and renewal RPCs record reviewer/lineage/audit evidence; the prior version stays live until successor approval retires it atomically; retrieval returns only tenant-permitted approved citations | Pass |
 | Analytics | Authenticated loading and lead/source conversion evidence from prior workflow tests | Metrics derive from tenant-authorized deal/history data | Pass |
 | Private document vault | UI upload from lead detail and metadata verification | Object bytes and metadata exist in the private tenant path; anonymous/foreign access and browser deletion are denied | Pass |
 | Responsive and runtime integrity | All principal protected routes at desktop and 390px mobile widths | No horizontal overflow; route sweep produced no browser errors or warnings | Pass |

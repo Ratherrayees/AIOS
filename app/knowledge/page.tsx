@@ -11,9 +11,12 @@ import {
 
 import {
   addKnowledgeSection,
+  deleteKnowledgeSection,
+  renewKnowledgeSource,
   saveKnowledgeSource,
   searchApprovedKnowledge,
   transitionKnowledgeSource,
+  updateKnowledgeSection,
 } from "../actions/knowledge";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
@@ -62,6 +65,16 @@ function defaultReviewDate() {
   return date.toISOString().slice(0, 10);
 }
 
+function todayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nextVersionLabel(current: string) {
+  const match = current.match(/^(.*?)(\d+)$/);
+  if (!match) return `${current} renewal`;
+  return `${match[1]}${Number(match[2]) + 1}`;
+}
+
 function displayDate(value: string | null) {
   if (!value) return "No review date";
   return new Intl.DateTimeFormat("en-IN", {
@@ -83,6 +96,9 @@ export default function KnowledgePage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchRan, setSearchRan] = useState(false);
   const [notice, setNotice] = useState("");
+  const [removalConfirmationId, setRemovalConfirmationId] = useState<
+    string | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
 
@@ -102,12 +118,25 @@ export default function KnowledgePage() {
   const reviewCount = sources.filter(
     (source) => source.status === "in_review",
   ).length;
-  const staleCount = sources.filter(
+  const staleSources = sources.filter(
     (source) =>
       source.status === "approved" &&
       (!source.review_due_on ||
-        source.review_due_on < new Date().toISOString().slice(0, 10)),
-  ).length;
+        source.review_due_on < todayDate()),
+  );
+  const staleCount = staleSources.length;
+  const selectedPredecessor = selectedSource?.supersedes_source_id
+    ? sources.find(
+        (source) => source.id === selectedSource.supersedes_source_id,
+      ) ?? null
+    : null;
+  const selectedSuccessor = selectedSource
+    ? sources.find(
+        (source) =>
+          source.supersedes_source_id === selectedSource.id &&
+          source.status !== "retired",
+      ) ?? null
+    : null;
 
   async function loadKnowledge(targetOrganizationId: string) {
     const supabase = createSupabaseBrowserClient();
@@ -246,6 +275,89 @@ export default function KnowledgePage() {
     });
   }
 
+  function submitSectionRevision(
+    event: FormEvent<HTMLFormElement>,
+    section: KnowledgeSection,
+  ) {
+    event.preventDefault();
+    if (!organizationId || !selectedSource) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        await updateKnowledgeSection({
+          organizationId,
+          sourceId: selectedSource.id,
+          sectionId: section.id,
+          heading: String(formData.get("heading") || ""),
+          content: String(formData.get("content") || ""),
+          citationLabel: String(formData.get("citationLabel") || ""),
+          position: section.position,
+        });
+        await loadKnowledge(organizationId);
+        setNotice("Draft passage revised with new audit evidence.");
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The passage could not be revised.",
+        );
+      }
+    });
+  }
+
+  function removeSection(section: KnowledgeSection) {
+    if (!organizationId || !selectedSource) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        await deleteKnowledgeSection({
+          organizationId,
+          sourceId: selectedSource.id,
+          sectionId: section.id,
+        });
+        await loadKnowledge(organizationId);
+        setRemovalConfirmationId(null);
+        setNotice("Obsolete draft passage removed.");
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The passage could not be removed.",
+        );
+      }
+    });
+  }
+
+  function submitRenewal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || !selectedSource) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const source = await renewKnowledgeSource({
+          organizationId,
+          sourceId: selectedSource.id,
+          versionLabel: String(formData.get("versionLabel") || ""),
+          validFrom: optionalText(formData, "validFrom"),
+          reviewDueOn: String(formData.get("reviewDueOn") || ""),
+        });
+        await loadKnowledge(organizationId);
+        setSelectedSourceId(source.id);
+        setNotice(
+          "Replacement draft prepared. Review every cloned passage before human approval.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The replacement draft could not be prepared.",
+        );
+      }
+    });
+  }
+
   function transition(
     sourceId: string,
     status: "draft" | "in_review" | "approved" | "retired",
@@ -371,6 +483,62 @@ export default function KnowledgePage() {
             </article>
           </section>
 
+          {staleSources.length > 0 ? (
+            <section
+              className="knowledge-renewal-queue"
+              aria-labelledby="renewal-queue-title"
+            >
+              <header>
+                <div>
+                  <p>FRESHNESS QUEUE</p>
+                  <h2 id="renewal-queue-title">
+                    Evidence that needs a human renewal decision
+                  </h2>
+                </div>
+                <span>{staleSources.length} due</span>
+              </header>
+              <div>
+                {staleSources.map((source) => {
+                  const successor = sources.find(
+                    (candidate) =>
+                      candidate.supersedes_source_id === source.id &&
+                      candidate.status !== "retired",
+                  );
+                  return (
+                    <article key={source.id}>
+                      <span
+                        className={
+                          successor
+                            ? "renewal-state active"
+                            : "renewal-state attention"
+                        }
+                      >
+                        {successor
+                          ? `${statusLabel[successor.status]} replacement`
+                          : "Renewal required"}
+                      </span>
+                      <h3>{source.title}</h3>
+                      <p>
+                        Version {source.version_label} · review due{" "}
+                        {displayDate(source.review_due_on)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedSourceId(successor?.id ?? source.id)
+                        }
+                      >
+                        {successor
+                          ? "Open replacement draft"
+                          : "Review source"}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           <section
             className="governed-knowledge-search"
             aria-labelledby="retrieval-title"
@@ -476,6 +644,15 @@ export default function KnowledgePage() {
                       <small>
                         {kindLabel[source.source_kind]} · v{source.version_label}
                       </small>
+                      {source.supersedes_source_id ? (
+                        <em>
+                          Replaces v
+                          {sources.find(
+                            (candidate) =>
+                              candidate.id === source.supersedes_source_id,
+                          )?.version_label ?? "prior"}
+                        </em>
+                      ) : null}
                       <i>{displayDate(source.review_due_on)}</i>
                     </button>
                   ))}
@@ -493,6 +670,20 @@ export default function KnowledgePage() {
                       {selectedSource.summary ||
                         "No curator summary was recorded."}
                     </p>
+                    {selectedPredecessor ? (
+                      <div className="knowledge-lineage">
+                        Replacement draft for v
+                        {selectedPredecessor.version_label}. The prior approved
+                        version remains live until this version is approved.
+                      </div>
+                    ) : null}
+                    {selectedSuccessor ? (
+                      <div className="knowledge-lineage">
+                        Version {selectedSuccessor.version_label} is already{" "}
+                        {statusLabel[selectedSuccessor.status].toLowerCase()} as
+                        this source&apos;s controlled replacement.
+                      </div>
+                    ) : null}
                     <dl>
                       <div>
                         <dt>Authority</dt>
@@ -517,6 +708,86 @@ export default function KnowledgePage() {
                           <h3>{section.heading}</h3>
                           <p>{section.content}</p>
                           <small>CITE · {section.citation_label}</small>
+                          {canCurate &&
+                          selectedSource.status === "draft" ? (
+                            <details className="knowledge-section-editor">
+                              <summary>Revise passage</summary>
+                              <form
+                                onSubmit={(event) =>
+                                  submitSectionRevision(event, section)
+                                }
+                              >
+                                <label>
+                                  Section heading
+                                  <input
+                                    name="heading"
+                                    defaultValue={section.heading}
+                                    minLength={2}
+                                    maxLength={180}
+                                    required
+                                  />
+                                </label>
+                                <label>
+                                  Evidence content
+                                  <textarea
+                                    name="content"
+                                    defaultValue={section.content}
+                                    minLength={2}
+                                    maxLength={8000}
+                                    required
+                                  />
+                                </label>
+                                <label>
+                                  Citation label
+                                  <input
+                                    name="citationLabel"
+                                    defaultValue={section.citation_label}
+                                    minLength={2}
+                                    maxLength={300}
+                                    required
+                                  />
+                                </label>
+                                <div>
+                                  <button type="submit" disabled={pending}>
+                                    Save revision
+                                  </button>
+                                  {removalConfirmationId === section.id ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="danger"
+                                        disabled={pending}
+                                        onClick={() => removeSection(section)}
+                                      >
+                                        Confirm removal
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="secondary"
+                                        disabled={pending}
+                                        onClick={() =>
+                                          setRemovalConfirmationId(null)
+                                        }
+                                      >
+                                        Keep passage
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="danger"
+                                      disabled={pending}
+                                      onClick={() =>
+                                        setRemovalConfirmationId(section.id)
+                                      }
+                                    >
+                                      Remove passage
+                                    </button>
+                                  )}
+                                </div>
+                              </form>
+                            </details>
+                          ) : null}
                         </div>
                       </article>
                     ))}
@@ -601,16 +872,74 @@ export default function KnowledgePage() {
                         </>
                       ) : null}
                       {selectedSource.status === "approved" ? (
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={pending}
-                          onClick={() =>
-                            transition(selectedSource.id, "retired")
-                          }
-                        >
-                          Retire from retrieval
-                        </button>
+                        <>
+                          {!selectedSuccessor ? (
+                            <form
+                              className="knowledge-renewal-form"
+                              key={selectedSource.id}
+                              onSubmit={submitRenewal}
+                            >
+                              <header>
+                                <h3>Prepare a replacement</h3>
+                                <p>
+                                  AIOS keeps this version live while cloned
+                                  passages are revised and reviewed.
+                                </p>
+                              </header>
+                              <label>
+                                Replacement version
+                                <input
+                                  name="versionLabel"
+                                  defaultValue={nextVersionLabel(
+                                    selectedSource.version_label,
+                                  )}
+                                  maxLength={80}
+                                  required
+                                />
+                              </label>
+                              <label>
+                                Valid from
+                                <input
+                                  name="validFrom"
+                                  type="date"
+                                  defaultValue={todayDate()}
+                                />
+                              </label>
+                              <label>
+                                Review due
+                                <input
+                                  name="reviewDueOn"
+                                  type="date"
+                                  defaultValue={defaultReviewDate()}
+                                  required
+                                />
+                              </label>
+                              <button type="submit" disabled={pending}>
+                                Prepare replacement draft
+                              </button>
+                            </form>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedSourceId(selectedSuccessor.id)
+                              }
+                            >
+                              Open replacement v
+                              {selectedSuccessor.version_label}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="danger"
+                            disabled={pending}
+                            onClick={() =>
+                              transition(selectedSource.id, "retired")
+                            }
+                          >
+                            Retire without replacement
+                          </button>
+                        </>
                       ) : null}
                     </div>
                   ) : null}

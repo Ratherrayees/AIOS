@@ -20,9 +20,11 @@ It is not a web crawler, a legal or immigration decision engine, or an external 
 2. **Passages:** Add ordered, bounded evidence passages. Every passage needs its own human-readable citation label.
 3. **In review:** Submit the complete source for a deliberate human review. Its metadata and passages are frozen and it is still excluded from approved retrieval. Return it to Draft before making a correction.
 4. **Approved:** An authorized reviewer approves a source only when it has at least one cited passage and a current review deadline.
-5. **Retired:** Remove an approved version from retrieval without deleting its audit evidence.
+5. **Renewal:** Prepare a successor draft from an approved source. The system clones its passages into an editable draft, records the predecessor relationship, and keeps the approved version retrievable while people revise the replacement.
+6. **Replacement approval:** The successor follows the same in-review and approval gates. Its approval atomically retires the superseded version, so retrieval never sees an unsafe gap or two active versions in the same lineage.
+7. **Retired:** Remove an approved version from retrieval without deleting its audit evidence.
 
-Approved and retired versions are immutable through the application. Correct material by creating a new version, not by silently rewriting what AIOS previously cited.
+Approved, in-review, and retired versions are immutable through the application. Passages can be revised or removed only while their source is a draft. Correct approved material through the controlled replacement workflow, not by silently rewriting what AIOS previously cited.
 
 ## Retrieval contract
 
@@ -51,11 +53,11 @@ Before a future AI answer composer uses this material, it must:
 ## Operational review
 
 - Review the **In review** queue before expanding agent access.
-- Treat **Stale** as work requiring source verification and a new version.
-- Retire superseded versions after the replacement is approved.
+- Treat **Stale** as work requiring source verification and a controlled replacement version.
+- Review every cloned passage in the replacement draft. Its approval retires the superseded version atomically.
 - Use restricted sensitivity for commercial or operational content that ordinary members should not retrieve.
 - Confirm the source URL and citation labels are useful to a human reviewer, not only machine-readable.
 
 ## Release status
 
-The current foundation supports manual curation, lifecycle review, permission-aware lexical retrieval, freshness disclosure, citations, and audit evidence. File parsing, automated chunking, pgvector semantic retrieval, conflict resolution, and the cited AI answer composer remain Phase 17 work and require their own evaluation and release gates.
+The current foundation supports manual curation, lifecycle review, immutable source renewal, draft passage revision/removal, permission-aware lexical retrieval, freshness queues, citations, and audit evidence. File parsing, automated chunking, pgvector semantic retrieval, conflict resolution, bulk freshness policy, and the cited AI answer composer remain Phase 17 work and require their own evaluation and release gates.

@@ -1,12 +1,17 @@
 "use server";
 
 import {
+  knowledgeRenewalInputSchema,
   knowledgeSearchInputSchema,
   knowledgeSearchResultSchema,
+  knowledgeSectionDeleteInputSchema,
   knowledgeSectionInputSchema,
+  knowledgeSectionRevisionInputSchema,
   knowledgeSourceInputSchema,
   knowledgeTransitionInputSchema,
+  type KnowledgeRenewalInput,
   type KnowledgeSectionInput,
+  type KnowledgeSectionRevisionInput,
   type KnowledgeSourceInput,
 } from "../../lib/knowledge/schemas";
 import {
@@ -65,6 +70,67 @@ export async function addKnowledgeSection(input: KnowledgeSectionInput) {
   if (error || !section)
     throw error ?? new Error("The cited knowledge section could not be added.");
   return section;
+}
+
+export async function updateKnowledgeSection(
+  input: KnowledgeSectionRevisionInput,
+) {
+  const data = knowledgeSectionRevisionInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, KNOWLEDGE_CURATOR_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: section, error } = await supabase
+    .rpc("update_knowledge_section", {
+      target_organization_id: data.organizationId,
+      target_source_id: data.sourceId,
+      target_section_id: data.sectionId,
+      target_heading: data.heading,
+      target_content: data.content,
+      target_citation_label: data.citationLabel,
+      target_position: data.position,
+    })
+    .single();
+  if (error || !section)
+    throw error ?? new Error("The knowledge passage could not be revised.");
+  return section;
+}
+
+export async function deleteKnowledgeSection(input: {
+  organizationId: string;
+  sourceId: string;
+  sectionId: string;
+}) {
+  const data = knowledgeSectionDeleteInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, KNOWLEDGE_CURATOR_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: removed, error } = await supabase.rpc(
+    "delete_knowledge_section",
+    {
+      target_organization_id: data.organizationId,
+      target_source_id: data.sourceId,
+      target_section_id: data.sectionId,
+    },
+  );
+  if (error || removed !== true)
+    throw error ?? new Error("The knowledge passage could not be removed.");
+  return removed;
+}
+
+export async function renewKnowledgeSource(input: KnowledgeRenewalInput) {
+  const data = knowledgeRenewalInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, KNOWLEDGE_CURATOR_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: source, error } = await supabase
+    .rpc("renew_knowledge_source", {
+      target_organization_id: data.organizationId,
+      target_source_id: data.sourceId,
+      target_version_label: data.versionLabel,
+      target_review_due_on: data.reviewDueOn,
+      ...(data.validFrom ? { target_valid_from: data.validFrom } : {}),
+    })
+    .single();
+  if (error || !source)
+    throw error ?? new Error("The replacement draft could not be prepared.");
+  return source;
 }
 
 export async function transitionKnowledgeSource(input: {

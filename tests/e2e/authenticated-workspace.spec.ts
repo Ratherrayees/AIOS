@@ -2236,7 +2236,7 @@ test.describe("authenticated owner workspace", () => {
     expect(invitation?.revoked_at).toBeTruthy();
   });
 
-  test("curates, approves, and retrieves permission-aware knowledge with a citation", async ({
+  test("curates, renews, and retrieves permission-aware knowledge with a citation", async ({
     page,
   }) => {
     const sourceTitle = `Kyoto rail policy ${Date.now()}`;
@@ -2320,24 +2320,92 @@ test.describe("authenticated owner workspace", () => {
     );
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    const { data: source, error: sourceError } = await admin!
+    await expect(page.getByLabel("Replacement version")).toHaveValue(
+      "2026.2",
+    );
+    await page
+      .getByRole("button", { name: "Prepare replacement draft" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Replacement draft prepared",
+    );
+    await expect(
+      page.getByText(
+        "Replacement draft for v2026.1. The prior approved version remains live until this version is approved.",
+      ),
+    ).toBeVisible();
+
+    const passageEditor = page.locator(".knowledge-section-editor").first();
+    await passageEditor.getByText("Revise passage").click();
+    await passageEditor
+      .getByLabel("Section heading")
+      .fill("Revised cancellation windows");
+    await passageEditor
+      .getByLabel("Evidence content")
+      .fill(
+        "The 2026.2 Kyoto rail policy requires operator confirmation before any traveller-facing commitment.",
+      );
+    await passageEditor
+      .getByLabel("Citation label")
+      .fill("Kyoto rail policy §5");
+    await passageEditor
+      .getByRole("button", { name: "Save revision" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Draft passage revised",
+    );
+
+    await page
+      .getByRole("button", { name: "Send to human review" })
+      .click();
+    await page
+      .getByRole("button", { name: "Approve for AIOS retrieval" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Knowledge moved to approved",
+    );
+    await page
+      .getByRole("button", { name: "Search approved sources" })
+      .click();
+    await expect(page.getByText("Kyoto rail policy §5")).toBeVisible();
+    await expect(
+      page.getByText(`${sourceTitle} · v2026.2 · official`),
+    ).toBeVisible();
+
+    const { data: sources, error: sourceError } = await admin!
       .from("knowledge_sources")
-      .select("id, status, reviewed_by, source_url")
+      .select(
+        "id, status, reviewed_by, source_url, version_label, supersedes_source_id, retired_at",
+      )
       .eq("organization_id", organizationIds[0])
       .eq("title", sourceTitle)
-      .single();
+      .order("version_label");
     expect(sourceError).toBeNull();
-    expect(source).toMatchObject({
+    expect(sources).toHaveLength(2);
+    const originalSource = sources!.find(
+      (source) => source.version_label === "2026.1",
+    );
+    const replacementSource = sources!.find(
+      (source) => source.version_label === "2026.2",
+    );
+    expect(originalSource).toMatchObject({
+      status: "retired",
+      reviewed_by: userId,
+      source_url: "https://example.com/kyoto-rail-policy",
+    });
+    expect(originalSource?.retired_at).toBeTruthy();
+    expect(replacementSource).toMatchObject({
       status: "approved",
       reviewed_by: userId,
       source_url: "https://example.com/kyoto-rail-policy",
+      supersedes_source_id: originalSource?.id,
     });
     const { data: sections, error: sectionError } = await admin!
       .from("knowledge_sections")
       .select("citation_label")
-      .eq("source_id", source!.id);
+      .eq("source_id", replacementSource!.id);
     expect(sectionError).toBeNull();
-    expect(sections).toEqual([{ citation_label: "Kyoto rail policy §4" }]);
+    expect(sections).toEqual([{ citation_label: "Kyoto rail policy §5" }]);
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({

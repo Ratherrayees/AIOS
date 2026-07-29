@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   isKnowledgeReviewStale,
+  knowledgeRenewalInputSchema,
   knowledgeSearchInputSchema,
   knowledgeSearchResultSchema,
+  knowledgeSectionDeleteInputSchema,
   knowledgeSectionInputSchema,
+  knowledgeSectionRevisionInputSchema,
   knowledgeSourceInputSchema,
 } from "../lib/knowledge/schemas";
 
@@ -50,6 +53,38 @@ test("citation-ready sections enforce bounded evidence", () => {
     position: 0,
   });
   assert.equal(parsed.citationLabel, "Policy §4");
+});
+
+test("draft passage revisions retain source and section boundaries", () => {
+  const parsed = knowledgeSectionRevisionInputSchema.parse({
+    organizationId,
+    sourceId,
+    sectionId: "33333333-3333-4333-8333-333333333333",
+    heading: "Revised cancellation windows",
+    content: "The reviewed replacement policy requires a human confirmation.",
+    citationLabel: "Policy §5",
+    position: 0,
+  });
+  assert.equal(parsed.sourceId, sourceId);
+  assert.equal(
+    knowledgeSectionDeleteInputSchema.parse({
+      organizationId,
+      sourceId,
+      sectionId: parsed.sectionId,
+    }).sectionId,
+    parsed.sectionId,
+  );
+});
+
+test("knowledge replacements require a valid review window", () => {
+  const parsed = knowledgeRenewalInputSchema.safeParse({
+    organizationId,
+    sourceId,
+    versionLabel: "2027.1",
+    validFrom: "2027-08-01",
+    reviewDueOn: "2027-07-31",
+  });
+  assert.equal(parsed.success, false);
 });
 
 test("knowledge searches trim the question and cap retrieval", () => {

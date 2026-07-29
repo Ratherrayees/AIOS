@@ -2141,47 +2141,228 @@ async function verifyAuthorization() {
       staleKnowledgeSearch.error?.message ?? null,
     );
 
-    const retiredKnowledge = await owner
-      .rpc("transition_knowledge_source", {
+    const viewerRenewalAttempt = await viewer.rpc("renew_knowledge_source", {
+      target_organization_id: organizationA.id,
+      target_source_id: governedKnowledgeSource.data.id,
+      target_version_label: "2026.2",
+      target_review_due_on: knowledgeReviewDueOn,
+      target_valid_from: new Date().toISOString().slice(0, 10),
+    });
+    record(
+      "ordinary members cannot prepare replacement knowledge",
+      Boolean(viewerRenewalAttempt.error),
+    );
+
+    const renewedKnowledge = await owner
+      .rpc("renew_knowledge_source", {
         target_organization_id: organizationA.id,
         target_source_id: governedKnowledgeSource.data.id,
-        target_status: "retired",
+        target_version_label: "2026.2",
+        target_review_due_on: knowledgeReviewDueOn,
+        target_valid_from: new Date().toISOString().slice(0, 10),
       })
       .single();
-    const retiredKnowledgeSearch = await viewer.rpc(
+    record(
+      "curators prepare an immutable successor draft with lineage",
+      !renewedKnowledge.error &&
+        renewedKnowledge.data?.status === "draft" &&
+        renewedKnowledge.data?.version_label === "2026.2" &&
+        renewedKnowledge.data?.supersedes_source_id ===
+          governedKnowledgeSource.data.id,
+      renewedKnowledge.error?.message ?? null,
+    );
+    if (renewedKnowledge.error || !renewedKnowledge.data)
+      throw renewedKnowledge.error ??
+        new Error("Renewed knowledge fixture was not created.");
+
+    const [clonedKnowledgeSections, duplicateRenewal, draftSafeSearch] =
+      await Promise.all([
+        owner
+          .from("knowledge_sections")
+          .select("id, heading, citation_label, position")
+          .eq("source_id", renewedKnowledge.data.id),
+        owner.rpc("renew_knowledge_source", {
+          target_organization_id: organizationA.id,
+          target_source_id: governedKnowledgeSource.data.id,
+          target_version_label: "2026.3",
+          target_review_due_on: knowledgeReviewDueOn,
+          target_valid_from: new Date().toISOString().slice(0, 10),
+        }),
+        viewer.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "cancellation windows",
+          target_limit: 8,
+        }),
+      ]);
+    record(
+      "replacement drafts clone citation-ready passages without a retrieval gap",
+      !clonedKnowledgeSections.error &&
+        clonedKnowledgeSections.data?.length === 1 &&
+        !draftSafeSearch.error &&
+        draftSafeSearch.data?.length === 1 &&
+        draftSafeSearch.data[0].source_id === governedKnowledgeSource.data.id,
+      clonedKnowledgeSections.error?.message ??
+        draftSafeSearch.error?.message ??
+        null,
+    );
+    record(
+      "one source cannot accumulate competing active successors",
+      Boolean(duplicateRenewal.error),
+    );
+
+    const revisedKnowledgeSection = await owner
+      .rpc("update_knowledge_section", {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_section_id: clonedKnowledgeSections.data[0].id,
+        target_heading: "Revised cancellation windows",
+        target_content:
+          "The 2026.2 Kyoto rail policy requires operator confirmation before any traveller-facing commitment.",
+        target_citation_label: "Kyoto rail policy §5",
+        target_position: 0,
+      })
+      .single();
+    record(
+      "curators revise cloned passages only inside the replacement draft",
+      !revisedKnowledgeSection.error &&
+        revisedKnowledgeSection.data?.heading ===
+          "Revised cancellation windows" &&
+        revisedKnowledgeSection.data?.citation_label ===
+          "Kyoto rail policy §5",
+      revisedKnowledgeSection.error?.message ?? null,
+    );
+
+    const temporaryRenewalSection = await owner
+      .rpc("add_knowledge_section", {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_heading: "Temporary passage",
+        target_content: "This draft-only passage will be removed.",
+        target_citation_label: "Temporary citation",
+        target_position: 1,
+      })
+      .single();
+    if (temporaryRenewalSection.error || !temporaryRenewalSection.data)
+      throw temporaryRenewalSection.error ??
+        new Error("Temporary renewal passage was not created.");
+    const removedRenewalSection = await owner.rpc(
+      "delete_knowledge_section",
+      {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_section_id: temporaryRenewalSection.data.id,
+      },
+    );
+    record(
+      "curators remove obsolete passages before replacement review",
+      !removedRenewalSection.error && removedRenewalSection.data === true,
+      removedRenewalSection.error?.message ?? null,
+    );
+
+    const replacementReview = await owner.rpc(
+      "transition_knowledge_source",
+      {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_status: "in_review",
+      },
+    );
+    if (replacementReview.error) throw replacementReview.error;
+    const frozenReplacementRevision = await owner.rpc(
+      "update_knowledge_section",
+      {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_section_id: clonedKnowledgeSections.data[0].id,
+        target_heading: "Late replacement change",
+        target_content: "This must remain blocked during review.",
+        target_citation_label: "Blocked replacement citation",
+        target_position: 0,
+      },
+    );
+    record(
+      "replacement passages freeze during human review",
+      Boolean(frozenReplacementRevision.error),
+    );
+
+    const approvedReplacement = await owner
+      .rpc("transition_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_source_id: renewedKnowledge.data.id,
+        target_status: "approved",
+      })
+      .single();
+    const [replacementStates, replacementSearch] = await Promise.all([
+      owner
+        .from("knowledge_sources")
+        .select("id, status, retired_at")
+        .in("id", [
+          governedKnowledgeSource.data.id,
+          renewedKnowledge.data.id,
+        ]),
+      viewer.rpc(
       "search_approved_knowledge",
       {
         target_organization_id: organizationA.id,
         target_query: "cancellation windows",
         target_limit: 8,
       },
+      ),
+    ]);
+    const originalState = replacementStates.data?.find(
+      (source) => source.id === governedKnowledgeSource.data.id,
+    );
+    const successorState = replacementStates.data?.find(
+      (source) => source.id === renewedKnowledge.data.id,
     );
     record(
-      "retiring a source removes it from AIOS retrieval immediately",
-      !retiredKnowledge.error &&
-        retiredKnowledge.data?.status === "retired" &&
-        !retiredKnowledgeSearch.error &&
-        retiredKnowledgeSearch.data?.length === 0,
-      retiredKnowledge.error?.message ??
-        retiredKnowledgeSearch.error?.message ??
+      "human approval atomically retires the old source and activates its successor",
+      !approvedReplacement.error &&
+        approvedReplacement.data?.status === "approved" &&
+        !replacementStates.error &&
+        originalState?.status === "retired" &&
+        Boolean(originalState?.retired_at) &&
+        successorState?.status === "approved" &&
+        !replacementSearch.error &&
+        replacementSearch.data?.length === 1 &&
+        replacementSearch.data[0].source_id === renewedKnowledge.data.id &&
+        replacementSearch.data[0].version_label === "2026.2" &&
+        replacementSearch.data[0].citation_label === "Kyoto rail policy §5",
+      approvedReplacement.error?.message ??
+        replacementStates.error?.message ??
+        replacementSearch.error?.message ??
         null,
     );
 
-    const knowledgeAudit = await owner
+    const [knowledgeAudit, renewalAudit] = await Promise.all([
+      owner
       .from("audit_events")
       .select("event_type")
       .eq("entity_id", governedKnowledgeSource.data.id)
-      .order("created_at");
+        .order("created_at"),
+      owner
+        .from("audit_events")
+        .select("event_type")
+        .eq("entity_id", renewedKnowledge.data.id)
+        .order("created_at"),
+    ]);
     record(
-      "knowledge lifecycle decisions preserve an audit trail",
+      "knowledge lifecycle and renewal decisions preserve an audit trail",
       !knowledgeAudit.error &&
+        !renewalAudit.error &&
         knowledgeAudit.data?.some(
           (event) => event.event_type === "knowledge.source.created",
         ) &&
         knowledgeAudit.data?.filter(
           (event) => event.event_type === "knowledge.source.transitioned",
-        ).length === 3,
-      knowledgeAudit.error?.message ?? null,
+        ).length === 3 &&
+        renewalAudit.data?.some(
+          (event) => event.event_type === "knowledge.source.renewal_started",
+        ) &&
+        renewalAudit.data?.some(
+          (event) => event.event_type === "knowledge.source.transitioned",
+        ),
+      knowledgeAudit.error?.message ?? renewalAudit.error?.message ?? null,
     );
 
     const { error: temporaryViewerMembershipDeleteError } = await admin

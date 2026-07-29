@@ -73,6 +73,35 @@ export const knowledgeSectionInputSchema = z.object({
   position: z.number().int().min(0).max(10_000),
 });
 
+export const knowledgeSectionRevisionInputSchema =
+  knowledgeSectionInputSchema.extend({
+    sectionId: z.uuid(),
+  });
+
+export const knowledgeSectionDeleteInputSchema = z.object({
+  organizationId: z.uuid(),
+  sourceId: z.uuid(),
+  sectionId: z.uuid(),
+});
+
+export const knowledgeRenewalInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    sourceId: z.uuid(),
+    versionLabel: z.string().trim().min(1).max(80),
+    validFrom: optionalDateSchema,
+    reviewDueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  })
+  .superRefine((value, context) => {
+    if (value.validFrom && value.reviewDueOn < value.validFrom) {
+      context.addIssue({
+        code: "custom",
+        path: ["reviewDueOn"],
+        message: "The review date cannot precede the replacement start date.",
+      });
+    }
+  });
+
 export const knowledgeTransitionInputSchema = z.object({
   organizationId: z.uuid(),
   sourceId: z.uuid(),
@@ -104,6 +133,12 @@ export const knowledgeSearchResultSchema = z.object({
 
 export type KnowledgeSourceInput = z.infer<typeof knowledgeSourceInputSchema>;
 export type KnowledgeSectionInput = z.infer<typeof knowledgeSectionInputSchema>;
+export type KnowledgeSectionRevisionInput = z.infer<
+  typeof knowledgeSectionRevisionInputSchema
+>;
+export type KnowledgeRenewalInput = z.infer<
+  typeof knowledgeRenewalInputSchema
+>;
 export type KnowledgeSearchResult = z.infer<
   typeof knowledgeSearchResultSchema
 >;

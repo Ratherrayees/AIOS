@@ -383,6 +383,36 @@ async function verify() {
       target_status: "in_review",
     },
   );
+  const { error: anonymousKnowledgeRenewalError } = await anonymous.rpc(
+    "renew_knowledge_source",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_source_id: "22222222-2222-4222-8222-222222222222",
+      target_version_label: "2",
+      target_review_due_on: "2027-07-29",
+      target_valid_from: "2026-07-29",
+    },
+  );
+  const { error: anonymousKnowledgeRevisionError } = await anonymous.rpc(
+    "update_knowledge_section",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_source_id: "22222222-2222-4222-8222-222222222222",
+      target_section_id: "33333333-3333-4333-8333-333333333333",
+      target_heading: "Blocked revision",
+      target_content: "Anonymous users cannot revise knowledge.",
+      target_citation_label: "Blocked citation",
+      target_position: 0,
+    },
+  );
+  const { error: anonymousKnowledgeDeleteError } = await anonymous.rpc(
+    "delete_knowledge_section",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_source_id: "22222222-2222-4222-8222-222222222222",
+      target_section_id: "33333333-3333-4333-8333-333333333333",
+    },
+  );
   const { error: anonymousKnowledgeSearchError } = await anonymous.rpc(
     "search_approved_knowledge",
     {
@@ -536,6 +566,21 @@ async function verify() {
       function: "transition_knowledge_source",
       anonymousExecutionBlocked: Boolean(anonymousKnowledgeTransitionError),
       anonymousErrorCode: anonymousKnowledgeTransitionError?.code ?? null,
+    },
+    {
+      function: "renew_knowledge_source",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeRenewalError),
+      anonymousErrorCode: anonymousKnowledgeRenewalError?.code ?? null,
+    },
+    {
+      function: "update_knowledge_section",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeRevisionError),
+      anonymousErrorCode: anonymousKnowledgeRevisionError?.code ?? null,
+    },
+    {
+      function: "delete_knowledge_section",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeDeleteError),
+      anonymousErrorCode: anonymousKnowledgeDeleteError?.code ?? null,
     },
     {
       function: "search_approved_knowledge",

@@ -1787,6 +1787,7 @@ export type Database = {
           source_url: string | null
           status: Database["public"]["Enums"]["knowledge_source_status"]
           summary: string | null
+          supersedes_source_id: string | null
           title: string
           updated_at: string
           valid_from: string | null
@@ -1807,6 +1808,7 @@ export type Database = {
           source_url?: string | null
           status?: Database["public"]["Enums"]["knowledge_source_status"]
           summary?: string | null
+          supersedes_source_id?: string | null
           title: string
           updated_at?: string
           valid_from?: string | null
@@ -1827,6 +1829,7 @@ export type Database = {
           source_url?: string | null
           status?: Database["public"]["Enums"]["knowledge_source_status"]
           summary?: string | null
+          supersedes_source_id?: string | null
           title?: string
           updated_at?: string
           valid_from?: string | null
@@ -1853,6 +1856,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "memberships"
             referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "knowledge_sources_supersedes_same_organization_fkey"
+            columns: ["organization_id", "supersedes_source_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_sources"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -4269,6 +4279,14 @@ export type Database = {
           job_status: Database["public"]["Enums"]["ai_job_status"]
         }[]
       }
+      delete_knowledge_section: {
+        Args: {
+          target_organization_id: string
+          target_section_id: string
+          target_source_id: string
+        }
+        Returns: boolean
+      }
       get_traveler_portal_document: {
         Args: { target_document_id: string; target_token_hash: string }
         Returns: {
@@ -4458,6 +4476,42 @@ export type Database = {
           refreshed_at: string
           updated_count: number
         }[]
+      }
+      renew_knowledge_source: {
+        Args: {
+          target_organization_id: string
+          target_review_due_on: string
+          target_source_id: string
+          target_valid_from?: string
+          target_version_label: string
+        }
+        Returns: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          retired_at: string | null
+          review_due_on: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url: string | null
+          status: Database["public"]["Enums"]["knowledge_source_status"]
+          summary: string | null
+          supersedes_source_id: string | null
+          title: string
+          updated_at: string
+          valid_from: string | null
+          version_label: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sources"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       requeue_ai_job: {
         Args: { target_job_id: string }
@@ -4756,6 +4810,7 @@ export type Database = {
           source_url: string | null
           status: Database["public"]["Enums"]["knowledge_source_status"]
           summary: string | null
+          supersedes_source_id: string | null
           title: string
           updated_at: string
           valid_from: string | null
@@ -4800,6 +4855,36 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      update_knowledge_section: {
+        Args: {
+          target_citation_label: string
+          target_content: string
+          target_heading: string
+          target_organization_id: string
+          target_position: number
+          target_section_id: string
+          target_source_id: string
+        }
+        Returns: {
+          citation_label: string
+          content: string
+          created_at: string
+          created_by: string
+          heading: string
+          id: string
+          organization_id: string
+          position: number
+          search_document: unknown
+          source_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sections"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       upsert_knowledge_source: {
         Args: {
           target_authority: Database["public"]["Enums"]["knowledge_authority"]
@@ -4829,6 +4914,7 @@ export type Database = {
           source_url: string | null
           status: Database["public"]["Enums"]["knowledge_source_status"]
           summary: string | null
+          supersedes_source_id: string | null
           title: string
           updated_at: string
           valid_from: string | null

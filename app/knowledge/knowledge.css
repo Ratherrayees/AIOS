@@ -12,6 +12,7 @@
 .knowledge-boundary,
 .knowledge-notice,
 .knowledge-pulse,
+.knowledge-renewal-queue,
 .governed-knowledge-search,
 .knowledge-workspace,
 .knowledge-create {
@@ -176,6 +177,95 @@
 
 .knowledge-pulse small {
   color: #78909d;
+}
+
+.knowledge-renewal-queue {
+  margin-bottom: 24px;
+  padding: 28px;
+  border: 1px solid rgb(255 158 112 / 18%);
+  border-radius: 22px;
+  background:
+    linear-gradient(125deg, rgb(168 79 42 / 12%), transparent 44%),
+    rgb(8 20 29 / 86%);
+}
+
+.knowledge-renewal-queue > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+}
+
+.knowledge-renewal-queue > header p {
+  margin: 0 0 10px;
+  color: #ffb088;
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.19em;
+}
+
+.knowledge-renewal-queue h2 {
+  margin: 0;
+  color: #f7fbfd;
+  font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+  letter-spacing: -0.035em;
+}
+
+.knowledge-renewal-queue > header > span {
+  color: #a37c69;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.knowledge-renewal-queue > div {
+  display: grid;
+  margin-top: 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.knowledge-renewal-queue article {
+  padding: 18px;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 14px;
+  background: rgb(5 14 21 / 58%);
+}
+
+.knowledge-renewal-queue h3 {
+  margin: 13px 0 6px;
+  color: #f2f7f9;
+  font-size: 0.95rem;
+}
+
+.knowledge-renewal-queue article p {
+  margin: 0 0 16px;
+  color: #7d939e;
+  font-size: 0.72rem;
+}
+
+.renewal-state {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 0.59rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.renewal-state.attention {
+  color: #ffc09f;
+  background: rgb(192 78 34 / 16%);
+}
+
+.renewal-state.active {
+  color: #c6c0ff;
+  background: rgb(91 78 199 / 18%);
+}
+
+.knowledge-renewal-queue button {
+  padding: 8px 11px;
+  font-size: 0.69rem;
 }
 
 .governed-knowledge-search {
@@ -422,6 +512,13 @@
   color: #708b98;
 }
 
+.source-list button em {
+  margin-top: 5px;
+  color: #8c84d4;
+  font-size: 0.65rem;
+  font-style: normal;
+}
+
 .source-list button i {
   margin-top: 9px;
   color: #57707d;
@@ -473,6 +570,17 @@
 .knowledge-inspector > header > p {
   color: #93a9b5;
   line-height: 1.6;
+}
+
+.knowledge-lineage {
+  margin-top: 16px;
+  padding: 11px 13px;
+  border: 1px solid rgb(112 102 224 / 18%);
+  border-radius: 10px;
+  color: #a9a4e0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  background: rgb(79 70 177 / 8%);
 }
 
 .knowledge-inspector dl {
@@ -546,6 +654,54 @@
   font-size: 0.63rem;
 }
 
+.knowledge-section-editor {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgb(255 255 255 / 7%);
+}
+
+.knowledge-section-editor summary {
+  width: max-content;
+  color: #aaa4e9;
+  font-size: 0.69rem;
+  cursor: pointer;
+}
+
+.knowledge-section-editor form {
+  display: grid;
+  margin-top: 14px;
+  gap: 12px;
+}
+
+.knowledge-section-editor label,
+.knowledge-renewal-form label {
+  display: grid;
+  gap: 7px;
+  color: #8ea4af;
+  font-size: 0.68rem;
+  font-weight: 720;
+}
+
+.knowledge-section-editor form > div {
+  display: flex;
+  gap: 8px;
+}
+
+.knowledge-section-editor button {
+  justify-self: start;
+}
+
+.knowledge-section-editor button.danger {
+  border-color: rgb(252 144 125 / 24%);
+  color: #ffb6aa;
+  background: rgb(152 51 42 / 13%);
+}
+
+.knowledge-section-editor button.secondary {
+  color: #bdcbd2;
+  background: rgb(255 255 255 / 5%);
+}
+
 .knowledge-section-form {
   display: grid;
   margin-top: 26px;
@@ -563,12 +719,45 @@
 }
 
 .knowledge-transitions {
-  display: flex;
+  display: grid;
   margin-top: 22px;
   padding-top: 20px;
   gap: 9px;
-  justify-content: flex-end;
+  justify-items: end;
   border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.knowledge-renewal-form {
+  display: grid;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  border: 1px solid rgb(109 99 220 / 17%);
+  border-radius: 13px;
+  background: rgb(77 68 170 / 7%);
+}
+
+.knowledge-renewal-form header {
+  grid-column: 1 / -1;
+}
+
+.knowledge-renewal-form h3 {
+  margin: 0;
+  color: #eceaff;
+}
+
+.knowledge-renewal-form header p {
+  margin: 7px 0 0;
+  color: #8781bb;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.knowledge-renewal-form > button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .knowledge-transitions button.secondary {
@@ -616,6 +805,7 @@
   .knowledge-boundary,
   .knowledge-notice,
   .knowledge-pulse,
+  .knowledge-renewal-queue,
   .governed-knowledge-search,
   .knowledge-workspace,
   .knowledge-create {
@@ -649,6 +839,10 @@
     grid-template-columns: 1fr;
   }
 
+  .knowledge-renewal-queue > div {
+    grid-template-columns: 1fr;
+  }
+
   .knowledge-create form {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -659,6 +853,7 @@
   .knowledge-boundary,
   .knowledge-notice,
   .knowledge-pulse,
+  .knowledge-renewal-queue,
   .governed-knowledge-search,
   .knowledge-workspace,
   .knowledge-create {
@@ -675,6 +870,7 @@
   }
 
   .governed-knowledge-search,
+  .knowledge-renewal-queue,
   .knowledge-inspector,
   .knowledge-create {
     padding: 22px;
@@ -698,6 +894,7 @@
   }
 
   .knowledge-inspector dl,
+  .knowledge-renewal-form,
   .knowledge-create form {
     grid-template-columns: 1fr;
   }
@@ -716,6 +913,10 @@
   }
 
   .knowledge-transitions {
-    flex-direction: column;
+    justify-items: stretch;
+  }
+
+  .knowledge-transitions > button {
+    width: 100%;
   }
 }
