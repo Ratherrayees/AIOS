@@ -545,6 +545,77 @@ export const tripTravelerInputSchema = z.object({
   preferences: z.string().trim().max(2_000).nullable().optional(),
 });
 
+const isoCountryCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z]{2}$/, "Use a two-letter ISO country code.")
+  .transform((value) => value.toUpperCase());
+
+export const travelerEntryCheckInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tripId: z.uuid(),
+    travelerId: z.uuid(),
+    destinationCountryCode: isoCountryCodeSchema,
+    citizenshipCountryCode: isoCountryCodeSchema,
+    passportIssuingCountryCode: isoCountryCodeSchema.nullable().optional(),
+    passportExpiresOn: z.iso.date().nullable().optional(),
+    passportValidityMonthsRequired: z.number().int().min(0).max(12),
+    visaRequirement: z.enum([
+      "unknown",
+      "not_required",
+      "required",
+      "conditional",
+    ]),
+    visaStatus: z.enum([
+      "unknown",
+      "not_applicable",
+      "researching",
+      "application_pending",
+      "granted",
+      "refused",
+    ]),
+    visaValidUntil: z.iso.date().nullable().optional(),
+    actionDueOn: z.iso.date().nullable().optional(),
+    evidenceSourceLabel: z.string().trim().min(2).max(180).nullable().optional(),
+    evidenceSourceUrl: z
+      .url()
+      .max(1_000)
+      .refine((value) => new URL(value).protocol === "https:", {
+        message: "The evidence link must use HTTPS.",
+      })
+      .nullable()
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.visaRequirement !== "unknown" &&
+      !value.evidenceSourceLabel
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceSourceLabel"],
+        message: "Name the human-reviewed visa evidence source.",
+      });
+    }
+
+    const stateIsValid =
+      (value.visaRequirement === "not_required" &&
+        value.visaStatus === "not_applicable") ||
+      (["required", "conditional"].includes(value.visaRequirement) &&
+        value.visaStatus !== "not_applicable") ||
+      (value.visaRequirement === "unknown" &&
+        ["unknown", "researching"].includes(value.visaStatus));
+
+    if (!stateIsValid) {
+      context.addIssue({
+        code: "custom",
+        path: ["visaStatus"],
+        message: "The visa requirement and workflow state do not agree.",
+      });
+    }
+  });
+
 export const tripBookingInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -871,6 +942,9 @@ export type TripOperationsUpdateInput = z.infer<
 >;
 export type TripStatusUpdateInput = z.infer<typeof tripStatusUpdateSchema>;
 export type TripTravelerInput = z.infer<typeof tripTravelerInputSchema>;
+export type TravelerEntryCheckInput = z.infer<
+  typeof travelerEntryCheckInputSchema
+>;
 export type TripBookingInput = z.infer<typeof tripBookingInputSchema>;
 export type TripBookingStatusUpdateInput = z.infer<
   typeof tripBookingStatusUpdateSchema

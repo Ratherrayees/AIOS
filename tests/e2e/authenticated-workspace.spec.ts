@@ -1476,7 +1476,9 @@ test.describe("authenticated owner workspace", () => {
     ).toBeVisible();
     await expect(page.getByText("Sales handoff", { exact: true })).toBeVisible();
 
-    await page.getByLabel("Destination").fill("Kyoto and Osaka, Japan");
+    await page
+      .getByLabel("Destination", { exact: true })
+      .fill("Kyoto and Osaka, Japan");
     await page.getByLabel("Start date").fill("2026-10-10");
     await page.getByLabel("End date").fill("2026-10-18");
     await page
@@ -1500,6 +1502,70 @@ test.describe("authenticated owner workspace", () => {
     );
     await expect(page.getByText(travelerEmail)).toBeVisible();
 
+    const { data: operationalTravelers, error: operationalTravelersError } =
+      await admin!
+        .from("travelers")
+        .select("id, first_name, last_name")
+        .eq("trip_id", operationalTripId)
+        .order("created_at");
+    expect(operationalTravelersError).toBeNull();
+    expect(operationalTravelers).toHaveLength(2);
+
+    const readinessPanel = page.locator(".entry-readiness-panel");
+    await expect(
+      readinessPanel.getByRole("heading", {
+        name: "Passport & visa checkpoints",
+      }),
+    ).toBeVisible();
+    await expect(readinessPanel).toContainText(
+      "AIOS compares human-reviewed dates",
+    );
+    for (const traveler of operationalTravelers ?? []) {
+      await readinessPanel
+        .getByLabel("Traveller")
+        .selectOption(traveler.id);
+      await readinessPanel.getByLabel("Destination country").fill("JP");
+      await readinessPanel.getByLabel("Citizenship").fill("IN");
+      await readinessPanel.getByLabel("Passport issuer").fill("IN");
+      await readinessPanel
+        .getByLabel("Passport expires")
+        .fill("2028-12-31");
+      await readinessPanel
+        .getByLabel("Required validity after trip")
+        .selectOption("6");
+      await readinessPanel
+        .getByLabel("Visa requirement")
+        .selectOption("required");
+      await readinessPanel
+        .getByLabel("Visa workflow state")
+        .selectOption("granted");
+      await readinessPanel
+        .getByLabel("Visa valid until")
+        .fill("2027-12-31");
+      await readinessPanel
+        .getByLabel("Evidence source")
+        .fill("E2E embassy advisory reviewed by operator");
+      await readinessPanel
+        .getByLabel("Evidence link (HTTPS)")
+        .fill("https://official.example/entry");
+      await readinessPanel
+        .getByRole("button", { name: "Save human review" })
+        .click();
+      await expect(readinessPanel.getByRole("status")).toContainText(
+        "Human review saved",
+      );
+      await expect(
+        readinessPanel
+          .locator(".entry-check-list article")
+          .filter({
+            hasText: `${traveler.first_name}${
+              traveler.last_name ? ` ${traveler.last_name}` : ""
+            }`,
+          })
+          .getByText("clear", { exact: true }),
+      ).toBeVisible();
+    }
+
     await page.getByLabel("Booking title").fill(bookingTitle);
     await page.getByLabel("Booking type").selectOption("hotel");
     await page.getByLabel("Service start").fill("2026-10-10T15:00");
@@ -1511,7 +1577,7 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByRole("button", { name: "Create internal record" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "No supplier was contacted",
     );
     const bookingCard = page
@@ -1520,7 +1586,7 @@ test.describe("authenticated owner workspace", () => {
     await bookingCard
       .getByRole("button", { name: "Mark requested" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "moved to requested",
     );
     await bookingCard
@@ -1529,7 +1595,7 @@ test.describe("authenticated owner workspace", () => {
     await bookingCard
       .getByRole("button", { name: "Mark confirmed" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "moved to confirmed",
     );
 
@@ -1537,14 +1603,14 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByRole("button", { name: "Add task" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "Operational follow-up added",
     );
     const taskCard = page
       .locator(".task-stack article")
       .filter({ hasText: taskTitle });
     await taskCard.getByRole("button", { name: "Complete" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "Follow-up marked completed",
     );
 
@@ -1559,7 +1625,7 @@ test.describe("authenticated owner workspace", () => {
       .locator(".document-form input[name='expiresAt']")
       .fill("2027-01-01");
     await page.getByRole("button", { name: "Store privately" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "Private trip document stored",
     );
     const documentRow = page
@@ -1582,9 +1648,23 @@ test.describe("authenticated owner workspace", () => {
     expect(voucher?.document_kind).toBe("voucher");
     operationalVoucherId = voucher!.id;
 
+    const { error: operationalItineraryError } = await admin!
+      .from("itinerary_items")
+      .insert(
+        Array.from({ length: 9 }, (_, index) => ({
+          organization_id: organizationIds[0],
+          trip_id: operationalTripId,
+          day_number: index + 1,
+          position: 1,
+          item_type: "note" as const,
+          title: `E2E operational day ${index + 1}`,
+        })),
+      );
+    expect(operationalItineraryError).toBeNull();
+
     await page.getByLabel("Trip status note").fill("Lead traveller checked in");
     await page.getByRole("button", { name: "Move to in travel" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".trip-workspace-notice")).toContainText(
       "Trip moved to in travel",
     );
     await page
@@ -1616,8 +1696,13 @@ test.describe("authenticated owner workspace", () => {
     });
     expect(trip?.converted_at).toBeTruthy();
 
-    const [{ data: roster }, { data: booking }, { data: task }, { data: statusRows }] =
-      await Promise.all([
+    const [
+      { data: roster },
+      { data: booking },
+      { data: task },
+      { data: statusRows },
+      { data: entryChecks },
+    ] = await Promise.all([
         admin!
           .from("travelers")
           .select("email, role")
@@ -1639,6 +1724,12 @@ test.describe("authenticated owner workspace", () => {
           .select("from_status, to_status, change_source")
           .eq("trip_id", operationalTripId)
           .order("changed_at"),
+        admin!
+          .from("traveler_entry_checks")
+          .select(
+            "destination_country_code, passport_expires_on, visa_requirement, visa_status, evidence_source_label",
+          )
+          .eq("trip_id", operationalTripId),
       ]);
     expect(roster?.some((item) => item.role === "lead_traveler")).toBe(true);
     expect(roster?.some((item) => item.email === travelerEmail)).toBe(true);
@@ -1650,6 +1741,17 @@ test.describe("authenticated owner workspace", () => {
       status: "completed",
       trip_id: operationalTripId,
     });
+    expect(entryChecks).toHaveLength(2);
+    expect(
+      entryChecks?.every(
+        (entryCheck) =>
+          entryCheck.destination_country_code === "JP" &&
+          entryCheck.passport_expires_on === "2028-12-31" &&
+          entryCheck.visa_requirement === "required" &&
+          entryCheck.visa_status === "granted" &&
+          Boolean(entryCheck.evidence_source_label),
+      ),
+    ).toBe(true);
     expect(statusRows?.map((item) => item.to_status)).toEqual([
       "confirmed",
       "in_travel",

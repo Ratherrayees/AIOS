@@ -172,9 +172,10 @@ export function OperationsRadar({
             {tripId ? "Risks on this journey" : "Exceptions before incidents"}
           </h2>
           <span>
-            AIOS detects objective internal risk, including payment due dates.
-            It cannot contact suppliers, confirm inventory, move money, or
-            share documents from here.
+            AIOS detects objective internal risk across services, payments,
+            itinerary coverage, and human-reviewed passport or visa dates. It
+            cannot make an immigration decision, contact suppliers, confirm
+            inventory, move money, or share documents from here.
           </span>
         </div>
         <div className="radar-controls">

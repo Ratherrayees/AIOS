@@ -44,6 +44,7 @@ const protectedTables = [
   "operations_radar_policies",
   "operations_radar_runs",
   "travelers",
+  "traveler_entry_checks",
   "itinerary_items",
   "bookings",
   "payments",
@@ -337,6 +338,19 @@ async function verify() {
       target_error_code: "blocked",
     },
   );
+  const { error: anonymousTravelerEntryCheckError } = await anonymous.rpc(
+    "upsert_traveler_entry_check",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_traveler_id: "33333333-3333-4333-8333-333333333333",
+      target_destination_country_code: "JP",
+      target_citizenship_country_code: "IN",
+      target_passport_validity_months_required: 6,
+      target_visa_requirement: "unknown",
+      target_visa_status: "unknown",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -462,6 +476,11 @@ async function verify() {
       function: "settle_operations_radar_run",
       anonymousExecutionBlocked: Boolean(anonymousRadarSettleError),
       anonymousErrorCode: anonymousRadarSettleError?.code ?? null,
+    },
+    {
+      function: "upsert_traveler_entry_check",
+      anonymousExecutionBlocked: Boolean(anonymousTravelerEntryCheckError),
+      anonymousErrorCode: anonymousTravelerEntryCheckError?.code ?? null,
     },
   ];
 

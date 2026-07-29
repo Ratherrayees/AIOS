@@ -11,7 +11,7 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 43/43 browser journeys
-- 126/126 behavioral tests
+- 129/129 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -19,7 +19,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all anonymous-access and authenticated authorization probes
+- all 56-table/25-RPC anonymous-access probes and 187 authenticated authorization assertions
 
 ## Feature evidence
 
@@ -34,7 +34,8 @@ The audited build passed with:
 | Tasks | Creation, due date, ownership, open/in-progress/completed/reopened lifecycle, unassignment, filters, private views and deletion | Task state and ownership changes persist within the tenant | Pass |
 | Quotes | Draft creation, immutable revision, internal cost/margin signal and quote-sharing approval request | Version history and internal cost persist; sharing remains approval-gated and unsent | Pass |
 | Itinerary Studio | Trip drafts, day items, comments, conflict/readiness checks, reusable template creation and application | Trips, items, comments, readiness tasks and copied template items persist; no booking or external share occurs | Pass |
-| Trip Operations | Won-deal handoff, operating details, lead/additional travellers, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement, and Operations Radar scan/clear behavior | Conversion is idempotent, direct trip/booking/exception status writes are blocked, lifecycle history and actor/audit evidence persist, eight objective risk types are deduplicated and routed, and no supplier message, inventory reservation, or money movement occurs | Pass |
+| Trip Operations | Won-deal handoff, operating details, lead/additional travellers, human-reviewed passport/visa checkpoints, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement, and Operations Radar scan/clear behavior | Conversion is idempotent, direct trip/traveler-entry/booking/exception status writes are blocked, lifecycle history and actor/audit evidence persist, twelve objective risk types are deduplicated and routed, and no immigration decision, supplier message, inventory reservation, or money movement occurs | Pass |
+| Traveler entry readiness | Per-traveler/destination citizenship and issuer codes, passport expiry/buffer, visa requirement/workflow, action deadline, evidence source, clear/attention presentation, and edit/upsert behavior | The guarded RPC records reviewer/audit evidence, requires a named source for non-unknown visa requirements, stores no passport number, rejects viewers/direct writes/foreign relationships, and feeds passport/visa/itinerary risks into Radar | Pass |
 | Durable Operations Radar | Enable/pause, cadence, bounded confirmation/document/payment/task thresholds, same-workspace fallback owner, operator-triggered durable run, recent history, and unavailable-without-secret worker endpoint | Policy/run tables are browser-read-only; service claims are tenant-scoped and `SKIP LOCKED`; one active lease is enforced; abandoned leases and failure retry state are bounded; wrong workers, viewers, foreign owners, duplicate claims, and anonymous calls are denied | Pass |
 | Traveler Portal | Traveler-file classification, exact-scope approval request, human approval, expiring publication, safe public journey/payment/document rendering, approved voucher download, and immediate evidence-backed revocation | Only a frozen narrow snapshot and selected normal-sensitivity file mappings are exposed; raw tokens are returned once and stored only as SHA-256 hashes; identity documents, internal notes, supplier terms, margins, payables, and storage paths remain absent | Pass |
 | Suppliers & Finance | Supplier profile, named contact, contract terms, receivable creation, settlement evidence, currency-separated balances, due-date Radar signal, and settled-filter workflow | Tenant and role boundaries persist; direct payment/allocation writes are denied; guarded RPCs record actor/audit evidence; the ledger records facts without charging, paying, refunding, or messaging anyone | Pass |
@@ -63,6 +64,7 @@ The audited build passed with:
 12. The generic anonymous-access verifier assumed every protected table had a single `id` column. The portal document-mapping table correctly uses a composite primary key, so the verifier now selects the table shape generically and covers all 53 tables.
 13. The first durable-schedule migration referenced the immutable-tenant trigger helper in the public schema instead of the established private schema. Clean zero-state replay failed immediately; the migration now uses the shared private helper and replays cleanly.
 14. The initial schedule component mixed its external fetch and state application in one effect helper. React 19 lint rejected the cascading pattern; fetching is now side-effect-free and state is applied only from the guarded promise continuation.
+15. The first entry-readiness placement put passport/visa controls before the traveller roster, and the compact global help trigger could overlap a status pill around the 733px breakpoint. The roster now establishes the people context first, while the readiness cards reserve space for the persistent help control at that intermediate width.
 
 ## Deferred external acceptance
 

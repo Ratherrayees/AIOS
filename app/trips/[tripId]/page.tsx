@@ -28,8 +28,10 @@ import {
   OperationsRadar,
   type OperationalException,
 } from "../../../components/ui/operations-radar";
+import { TravelerEntryReadiness } from "../../../components/ui/traveler-entry-readiness";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
+import type { Database } from "../../../types/database";
 import "../trips.css";
 import "./workspace.css";
 
@@ -63,6 +65,9 @@ type Traveler = {
   date_of_birth: string | null;
   role: string;
 };
+
+type EntryCheck =
+  Database["public"]["Tables"]["traveler_entry_checks"]["Row"];
 
 type BookingStatus =
   | "draft"
@@ -143,6 +148,13 @@ const operationsRoles = new Set([
   "operations",
 ]);
 const travelerRoles = new Set([...planningRoles, "agent"]);
+const entryReadinessRoles = new Set([
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
+  "agent",
+]);
 const bookingRoles = new Set([
   "owner",
   "admin",
@@ -201,6 +213,7 @@ export default function TripWorkspacePage() {
   const [role, setRole] = useState<string | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [travelers, setTravelers] = useState<Traveler[]>([]);
+  const [entryChecks, setEntryChecks] = useState<EntryCheck[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -219,6 +232,9 @@ export default function TripWorkspacePage() {
   const canPlan = role ? planningRoles.has(role) : false;
   const canOperate = role ? operationsRoles.has(role) : false;
   const canManageTravelers = role ? travelerRoles.has(role) : false;
+  const canManageEntryReadiness = role
+    ? entryReadinessRoles.has(role)
+    : false;
   const canBook = role ? bookingRoles.has(role) : false;
   const canManageTasks = role ? taskRoles.has(role) : false;
   const canManageDocuments = role ? documentRoles.has(role) : false;
@@ -248,6 +264,7 @@ export default function TripWorkspacePage() {
       const [
         { data: tripRow, error: tripError },
         { data: travelerRows },
+        { data: entryCheckRows },
         { data: bookingRows },
         { data: taskRows },
         { data: documentRows },
@@ -272,6 +289,12 @@ export default function TripWorkspacePage() {
           .eq("organization_id", membership.organization_id)
           .eq("trip_id", tripId)
           .order("created_at"),
+        supabase
+          .from("traveler_entry_checks")
+          .select("*")
+          .eq("organization_id", membership.organization_id)
+          .eq("trip_id", tripId)
+          .order("updated_at", { ascending: false }),
         supabase
           .from("bookings")
           .select(
@@ -328,6 +351,7 @@ export default function TripWorkspacePage() {
         throw tripError ?? new Error("This trip is not available.");
       setTrip(tripRow as Trip);
       setTravelers((travelerRows ?? []) as Traveler[]);
+      setEntryChecks(entryCheckRows ?? []);
       setBookings((bookingRows ?? []) as Booking[]);
       setTasks((taskRows ?? []) as Task[]);
       setDocuments((documentRows ?? []) as Document[]);
@@ -354,6 +378,10 @@ export default function TripWorkspacePage() {
       Boolean(trip.destination),
       Boolean(trip.start_date && trip.end_date),
       travelers.length > 0,
+      travelers.length > 0 &&
+        travelers.every((traveler) =>
+          entryChecks.some((check) => check.traveler_id === traveler.id),
+        ),
       bookings.length > 0,
       tasks.every((task) => !["open", "in_progress"].includes(task.status)),
       documents.length > 0,
@@ -361,7 +389,14 @@ export default function TripWorkspacePage() {
     return Math.round(
       (checks.filter(Boolean).length / Math.max(checks.length, 1)) * 100,
     );
-  }, [bookings.length, documents.length, tasks, travelers.length, trip]);
+  }, [
+    bookings.length,
+    documents.length,
+    entryChecks,
+    tasks,
+    travelers,
+    trip,
+  ]);
 
   function updateOperations(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -852,6 +887,16 @@ export default function TripWorkspacePage() {
               </form>
             )}
           </section>
+
+          <TravelerEntryReadiness
+            organizationId={organizationId!}
+            tripId={trip.id}
+            tripEndDate={trip.end_date}
+            travelers={travelers}
+            initialChecks={entryChecks}
+            canManage={canManageEntryReadiness}
+            onChecksChange={setEntryChecks}
+          />
 
           <section className="ops-panel">
             <div className="ops-panel-heading">

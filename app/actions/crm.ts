@@ -54,6 +54,7 @@ import {
   tripOperationsUpdateSchema,
   tripStatusUpdateSchema,
   tripTravelerInputSchema,
+  travelerEntryCheckInputSchema,
   wonDealConversionSchema,
   itineraryItemInputSchema,
   itineraryTemplateApplyInputSchema,
@@ -116,6 +117,7 @@ import {
   type TripOperationsUpdateInput,
   type TripStatusUpdateInput,
   type TripTravelerInput,
+  type TravelerEntryCheckInput,
   type WonDealConversionInput,
   type ItineraryItemInput,
   type ItineraryTemplateApplyInput,
@@ -1941,6 +1943,65 @@ export async function addTripTraveler(input: TripTravelerInput) {
     metadata: { event: "trip.traveler_added", trip_id: trip.id },
   });
   return traveler;
+}
+
+/**
+ * Records a human-reviewed entry-readiness checkpoint without storing a
+ * passport number or allowing AIOS to make an immigration determination.
+ */
+export async function upsertTravelerEntryCheck(
+  input: TravelerEntryCheckInput,
+) {
+  const data = travelerEntryCheckInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "trip_designer",
+    "operations",
+    "agent",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: entryCheck, error } = await supabase
+    .rpc("upsert_traveler_entry_check", {
+      target_organization_id: data.organizationId,
+      target_trip_id: data.tripId,
+      target_traveler_id: data.travelerId,
+      target_destination_country_code: data.destinationCountryCode,
+      target_citizenship_country_code: data.citizenshipCountryCode,
+      target_passport_validity_months_required:
+        data.passportValidityMonthsRequired,
+      target_visa_requirement: data.visaRequirement,
+      target_visa_status: data.visaStatus,
+      ...(data.passportIssuingCountryCode
+        ? {
+            target_passport_issuing_country_code:
+              data.passportIssuingCountryCode,
+          }
+        : {}),
+      ...(data.passportExpiresOn
+        ? { target_passport_expires_on: data.passportExpiresOn }
+        : {}),
+      ...(data.visaValidUntil
+        ? { target_visa_valid_until: data.visaValidUntil }
+        : {}),
+      ...(data.actionDueOn
+        ? { target_action_due_on: data.actionDueOn }
+        : {}),
+      ...(data.evidenceSourceLabel
+        ? { target_evidence_source_label: data.evidenceSourceLabel }
+        : {}),
+      ...(data.evidenceSourceUrl
+        ? { target_evidence_source_url: data.evidenceSourceUrl }
+        : {}),
+    })
+    .single();
+  if (error || !entryCheck) {
+    throw (
+      error ??
+      new Error("The traveler entry-readiness review could not be saved.")
+    );
+  }
+  return entryCheck;
 }
 
 /** Records an internal supplier-service booking; it never contacts a supplier. */

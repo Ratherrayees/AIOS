@@ -725,7 +725,6 @@ async function verifyAuthorization() {
     record(
       "Operations Radar auto-clears a corrected objective condition",
       !clearedRadarScan.error &&
-        clearedRadarScan.data?.active_count === 0 &&
         clearedRadarScan.data?.resolved_count >= 1 &&
         clearedException?.status === "resolved" &&
         clearedException?.resolved_by === null &&
@@ -733,6 +732,254 @@ async function verifyAuthorization() {
         clearedException?.operator_note ===
           "Condition cleared by Operations Radar.",
       clearedRadarScan.error?.message ?? null,
+    );
+
+    activeVerificationPhase = "traveler entry-readiness authorization";
+    const { data: alphaTraveler, error: alphaTravelerError } = await owner
+      .from("travelers")
+      .select("id")
+      .eq("organization_id", organizationA.id)
+      .eq("trip_id", firstConversion.data.id)
+      .single();
+    if (alphaTravelerError || !alphaTraveler)
+      throw (
+        alphaTravelerError ??
+        new Error("Converted traveler fixture was not available.")
+      );
+
+    const [missingEntryReview, missingItineraryReview] = await Promise.all([
+      owner
+        .from("operational_exceptions")
+        .select("id, severity, status")
+        .eq("organization_id", organizationA.id)
+        .eq("trip_id", firstConversion.data.id)
+        .eq("exception_type", "traveler_entry_review_missing")
+        .single(),
+      owner
+        .from("operational_exceptions")
+        .select("id, severity, status")
+        .eq("organization_id", organizationA.id)
+        .eq("trip_id", firstConversion.data.id)
+        .eq("exception_type", "itinerary_readiness_at_risk")
+        .single(),
+    ]);
+    record(
+      "Operations Radar detects missing entry and itinerary readiness",
+      !missingEntryReview.error &&
+        missingEntryReview.data?.severity === "critical" &&
+        missingEntryReview.data?.status === "open" &&
+        !missingItineraryReview.error &&
+        missingItineraryReview.data?.severity === "critical" &&
+        missingItineraryReview.data?.status === "open",
+      missingEntryReview.error?.message ??
+        missingItineraryReview.error?.message ??
+        null,
+    );
+
+    const directEntryCheckWrite = await owner
+      .from("traveler_entry_checks")
+      .insert({
+        organization_id: organizationA.id,
+        trip_id: firstConversion.data.id,
+        traveler_id: alphaTraveler.id,
+        destination_country_code: "JP",
+        citizenship_country_code: "IN",
+        passport_validity_months_required: 6,
+        visa_requirement: "unknown",
+        visa_status: "unknown",
+        reviewed_by: ownerUser.id,
+      });
+    record(
+      "browser clients cannot write entry-readiness evidence directly",
+      Boolean(directEntryCheckWrite.error),
+    );
+
+    const viewerEntryCheckWrite = await viewer.rpc(
+      "upsert_traveler_entry_check",
+      {
+        target_organization_id: organizationB.id,
+        target_trip_id: firstConversion.data.id,
+        target_traveler_id: alphaTraveler.id,
+        target_destination_country_code: "JP",
+        target_citizenship_country_code: "IN",
+        target_passport_validity_months_required: 6,
+        target_visa_requirement: "unknown",
+        target_visa_status: "unknown",
+      },
+    );
+    record(
+      "viewers cannot record traveler entry-readiness conclusions",
+      Boolean(viewerEntryCheckWrite.error),
+    );
+
+    const unsupportedVisaConclusion = await owner.rpc(
+      "upsert_traveler_entry_check",
+      {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_traveler_id: alphaTraveler.id,
+        target_destination_country_code: "JP",
+        target_citizenship_country_code: "IN",
+        target_passport_validity_months_required: 6,
+        target_visa_requirement: "required",
+        target_visa_status: "researching",
+      },
+    );
+    record(
+      "visa conclusions require a named human-reviewed evidence source",
+      Boolean(unsupportedVisaConclusion.error),
+    );
+
+    const initialEntryCheck = await owner
+      .rpc("upsert_traveler_entry_check", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_traveler_id: alphaTraveler.id,
+        target_destination_country_code: "JP",
+        target_citizenship_country_code: "IN",
+        target_passport_issuing_country_code: "IN",
+        target_passport_expires_on: "2026-09-01",
+        target_passport_validity_months_required: 6,
+        target_visa_requirement: "required",
+        target_visa_status: "researching",
+        target_action_due_on: "2026-08-01",
+        target_evidence_source_label:
+          "Embassy advisory reviewed by authorization fixture",
+        target_evidence_source_url: "https://official.example/entry",
+      })
+      .single();
+    record(
+      "authorized operators can record minimal reviewed readiness evidence",
+      !initialEntryCheck.error &&
+        initialEntryCheck.data?.reviewed_by === ownerUser.id &&
+        initialEntryCheck.data?.destination_country_code === "JP" &&
+        initialEntryCheck.data?.visa_status === "researching",
+      initialEntryCheck.error?.message ?? null,
+    );
+    if (initialEntryCheck.error || !initialEntryCheck.data)
+      throw (
+        initialEntryCheck.error ??
+        new Error("Entry-readiness fixture was not created.")
+      );
+
+    const [
+      viewerForeignEntryChecks,
+      directEntryCheckUpdate,
+      entryRiskScan,
+    ] = await Promise.all([
+      viewer
+        .from("traveler_entry_checks")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("traveler_entry_checks")
+        .update({ visa_status: "granted" })
+        .eq("id", initialEntryCheck.data.id)
+        .select("id"),
+      owner
+        .rpc("refresh_operational_exceptions", {
+          target_organization_id: organizationA.id,
+        })
+        .single(),
+    ]);
+    record(
+      "entry-readiness rows remain tenant isolated and guarded",
+      !viewerForeignEntryChecks.error &&
+        viewerForeignEntryChecks.data?.length === 0 &&
+        (Boolean(directEntryCheckUpdate.error) ||
+          directEntryCheckUpdate.data?.length === 0),
+      viewerForeignEntryChecks.error?.message ??
+        directEntryCheckUpdate.error?.message ??
+        null,
+    );
+
+    const { data: entryRiskExceptions, error: entryRiskError } = await owner
+      .from("operational_exceptions")
+      .select("exception_type, severity, status")
+      .eq("organization_id", organizationA.id)
+      .eq("trip_id", firstConversion.data.id)
+      .in("exception_type", [
+        "traveler_passport_at_risk",
+        "traveler_visa_at_risk",
+      ])
+      .in("status", ["open", "acknowledged"]);
+    record(
+      "Operations Radar routes passport and visa risks without external action",
+      !entryRiskScan.error &&
+        !entryRiskError &&
+        entryRiskExceptions?.length === 2 &&
+        entryRiskExceptions.every(
+          (exception) => exception.severity === "critical",
+        ),
+      entryRiskScan.error?.message ?? entryRiskError?.message ?? null,
+    );
+
+    const clearedEntryCheck = await owner
+      .rpc("upsert_traveler_entry_check", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_traveler_id: alphaTraveler.id,
+        target_destination_country_code: "JP",
+        target_citizenship_country_code: "IN",
+        target_passport_issuing_country_code: "IN",
+        target_passport_expires_on: "2028-12-31",
+        target_passport_validity_months_required: 6,
+        target_visa_requirement: "required",
+        target_visa_status: "granted",
+        target_visa_valid_until: "2027-12-31",
+        target_evidence_source_label:
+          "Embassy advisory reviewed by authorization fixture",
+        target_evidence_source_url: "https://official.example/entry",
+      })
+      .single();
+    if (clearedEntryCheck.error)
+      throw new Error(
+        `Entry-readiness risk could not be corrected: ${clearedEntryCheck.error.message}`,
+      );
+
+    const itineraryFixtures = Array.from({ length: 9 }, (_, index) => ({
+      organization_id: organizationA.id,
+      trip_id: firstConversion.data.id,
+      day_number: index + 1,
+      position: 1,
+      item_type: "note",
+      title: `Authorization itinerary day ${index + 1}`,
+    }));
+    const { error: itineraryFixtureError } = await owner
+      .from("itinerary_items")
+      .insert(itineraryFixtures);
+    if (itineraryFixtureError)
+      throw new Error(
+        `Itinerary coverage fixture could not be created: ${itineraryFixtureError.message}`,
+      );
+
+    const readinessClearScan = await owner
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      })
+      .single();
+    const { data: clearedReadinessExceptions } = await owner
+      .from("operational_exceptions")
+      .select("exception_type, status, operator_note")
+      .eq("organization_id", organizationA.id)
+      .eq("trip_id", firstConversion.data.id)
+      .in("exception_type", [
+        "traveler_entry_review_missing",
+        "traveler_passport_at_risk",
+        "traveler_visa_at_risk",
+        "itinerary_readiness_at_risk",
+      ]);
+    record(
+      "corrected traveler and itinerary evidence auto-clears readiness risks",
+      !readinessClearScan.error &&
+        clearedReadinessExceptions?.length === 4 &&
+        clearedReadinessExceptions.every(
+          (exception) =>
+            exception.status === "resolved" &&
+            exception.operator_note ===
+              "Condition cleared by Operations Radar.",
+        ),
+      readinessClearScan.error?.message ?? null,
     );
 
     activeVerificationPhase = "durable Operations Radar authorization";

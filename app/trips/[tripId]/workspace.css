@@ -246,6 +246,211 @@
   text-transform: uppercase;
 }
 
+.entry-readiness-panel {
+  background:
+    radial-gradient(circle at 94% 8%, rgb(88 209 255 / 9%), transparent 28%),
+    linear-gradient(145deg, rgb(86 65 196 / 7%), transparent 48%),
+    #091620;
+}
+
+.entry-readiness-summary {
+  display: grid;
+  grid-template-columns: 108px 108px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.entry-readiness-summary > div {
+  display: grid;
+  min-height: 80px;
+  padding: 13px;
+  align-content: center;
+  border: 1px solid rgb(105 220 255 / 12%);
+  border-radius: 12px;
+  background: rgb(5 18 27 / 68%);
+}
+
+.entry-readiness-summary b {
+  color: #effaff;
+  font-size: 1.45rem;
+}
+
+.entry-readiness-summary span {
+  margin-top: 3px;
+  color: #698496;
+  font-size: 0.62rem;
+}
+
+.entry-readiness-summary p {
+  display: grid;
+  margin: 0;
+  padding: 14px 16px;
+  align-content: center;
+  border: 1px solid rgb(255 255 255 / 6%);
+  border-radius: 12px;
+  color: #98adbb;
+  font-size: 0.73rem;
+  line-height: 1.55;
+  background: rgb(255 255 255 / 1.5%);
+}
+
+.entry-readiness-boundary {
+  margin: 0 0 18px;
+}
+
+.entry-readiness-notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgb(91 223 255 / 18%);
+  border-radius: 10px;
+  color: #bceefa;
+  font-size: 0.72rem;
+  background: rgb(54 193 228 / 6%);
+}
+
+.entry-check-list {
+  display: grid;
+  gap: 9px;
+}
+
+.entry-check-list > article {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 13px;
+  background: rgb(5 16 24 / 72%);
+}
+
+.entry-check-route {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: #7391a3;
+  font-size: 0.69rem;
+  font-weight: 800;
+}
+
+.entry-check-route i {
+  color: #5bd9f7;
+  font-style: normal;
+}
+
+.entry-check-route b {
+  color: #d8f8ff;
+}
+
+.entry-check-body h3 {
+  margin: 0;
+  color: #eef8fd;
+  font-size: 0.86rem;
+}
+
+.entry-check-body p {
+  margin: 4px 0 0;
+  color: #7891a2;
+  font-size: 0.68rem;
+}
+
+.entry-check-body small {
+  display: block;
+  margin-top: 7px;
+  color: #536e80;
+  font-size: 0.61rem;
+}
+
+.entry-check-state {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.entry-check-state.clear {
+  color: #7decc6;
+  background: rgb(55 204 153 / 10%);
+}
+
+.entry-check-state.attention {
+  color: #ffc28c;
+  background: rgb(234 144 64 / 10%);
+}
+
+.entry-check-list article > a,
+.entry-check-list article > button {
+  min-height: 31px;
+  padding: 0 9px;
+  border: 1px solid rgb(91 223 255 / 14%);
+  border-radius: 8px;
+  color: #96e9fb;
+  font-size: 0.62rem;
+  text-decoration: none;
+  background: rgb(54 193 228 / 5%);
+}
+
+.entry-check-list article > a {
+  display: grid;
+  grid-column: 2;
+  place-content: center;
+  justify-self: start;
+}
+
+.entry-check-list article > button {
+  grid-column: 3;
+}
+
+.entry-check-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid rgb(105 220 255 / 10%);
+  border-radius: 14px;
+  background: rgb(4 14 22 / 66%);
+}
+
+.entry-check-form-heading,
+.entry-check-form > button {
+  grid-column: 1 / -1;
+}
+
+.entry-check-form-heading {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.entry-check-form-heading div {
+  display: grid;
+  gap: 4px;
+}
+
+.entry-check-form-heading b {
+  color: #eefaff;
+  font-size: 0.85rem;
+}
+
+.entry-check-form-heading span {
+  color: #6e8798;
+  font-size: 0.65rem;
+}
+
+.entry-check-form-heading button {
+  min-height: 32px;
+  color: #aeeffc;
+  font-size: 0.65rem;
+  background: rgb(48 184 219 / 7%);
+}
+
+.entry-check-form input[pattern="[A-Za-z]{2}"] {
+  text-transform: uppercase;
+}
+
 .safety-callout {
   margin: -4px 0 20px;
   padding: 11px 13px;
@@ -626,7 +831,35 @@
 
   .details-form,
   .compact-form,
-  .booking-form {
+  .booking-form,
+  .entry-check-form {
     grid-template-columns: 1fr;
+  }
+
+  .entry-readiness-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .entry-readiness-summary p {
+    grid-column: 1 / -1;
+  }
+
+  .entry-check-list > article {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .entry-check-state {
+    justify-self: start;
+  }
+
+  .entry-check-list article > a,
+  .entry-check-list article > button {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 760px) {
+  .entry-check-list > article {
+    padding-right: 62px;
   }
 }

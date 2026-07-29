@@ -3311,6 +3311,87 @@ export type Database = {
           },
         ]
       }
+      traveler_entry_checks: {
+        Row: {
+          action_due_on: string | null
+          citizenship_country_code: string
+          created_at: string
+          destination_country_code: string
+          evidence_source_label: string | null
+          evidence_source_url: string | null
+          id: string
+          organization_id: string
+          passport_expires_on: string | null
+          passport_issuing_country_code: string | null
+          passport_validity_months_required: number
+          reviewed_at: string
+          reviewed_by: string | null
+          traveler_id: string
+          trip_id: string
+          updated_at: string
+          visa_requirement: string
+          visa_status: string
+          visa_valid_until: string | null
+        }
+        Insert: {
+          action_due_on?: string | null
+          citizenship_country_code: string
+          created_at?: string
+          destination_country_code: string
+          evidence_source_label?: string | null
+          evidence_source_url?: string | null
+          id?: string
+          organization_id: string
+          passport_expires_on?: string | null
+          passport_issuing_country_code?: string | null
+          passport_validity_months_required?: number
+          reviewed_at?: string
+          reviewed_by?: string | null
+          traveler_id: string
+          trip_id: string
+          updated_at?: string
+          visa_requirement?: string
+          visa_status?: string
+          visa_valid_until?: string | null
+        }
+        Update: {
+          action_due_on?: string | null
+          citizenship_country_code?: string
+          created_at?: string
+          destination_country_code?: string
+          evidence_source_label?: string | null
+          evidence_source_url?: string | null
+          id?: string
+          organization_id?: string
+          passport_expires_on?: string | null
+          passport_issuing_country_code?: string | null
+          passport_validity_months_required?: number
+          reviewed_at?: string
+          reviewed_by?: string | null
+          traveler_id?: string
+          trip_id?: string
+          updated_at?: string
+          visa_requirement?: string
+          visa_status?: string
+          visa_valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "traveler_entry_checks_reviewer_same_organization_fkey"
+            columns: ["organization_id", "reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "traveler_entry_checks_traveler_same_trip_fkey"
+            columns: ["organization_id", "trip_id", "traveler_id"]
+            isOneToOne: false
+            referencedRelation: "travelers"
+            referencedColumns: ["organization_id", "trip_id", "id"]
+          },
+        ]
+      }
       travelers: {
         Row: {
           contact_id: string | null
@@ -4530,6 +4611,51 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "operations_radar_policies"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_traveler_entry_check: {
+        Args: {
+          target_action_due_on?: string
+          target_citizenship_country_code: string
+          target_destination_country_code: string
+          target_evidence_source_label?: string
+          target_evidence_source_url?: string
+          target_organization_id: string
+          target_passport_expires_on?: string
+          target_passport_issuing_country_code?: string
+          target_passport_validity_months_required?: number
+          target_traveler_id: string
+          target_trip_id: string
+          target_visa_requirement?: string
+          target_visa_status?: string
+          target_visa_valid_until?: string
+        }
+        Returns: {
+          action_due_on: string | null
+          citizenship_country_code: string
+          created_at: string
+          destination_country_code: string
+          evidence_source_label: string | null
+          evidence_source_url: string | null
+          id: string
+          organization_id: string
+          passport_expires_on: string | null
+          passport_issuing_country_code: string | null
+          passport_validity_months_required: number
+          reviewed_at: string
+          reviewed_by: string | null
+          traveler_id: string
+          trip_id: string
+          updated_at: string
+          visa_requirement: string
+          visa_status: string
+          visa_valid_until: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "traveler_entry_checks"
           isOneToOne: false
           isSetofReturn: true
         }

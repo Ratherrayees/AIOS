@@ -37,6 +37,7 @@ import {
   tripOperationsUpdateSchema,
   tripStatusUpdateSchema,
   tripTravelerInputSchema,
+  travelerEntryCheckInputSchema,
   wonDealConversionSchema,
   itineraryItemInputSchema,
   itineraryCommentInputSchema,
@@ -71,6 +72,62 @@ test("contact email identity is trimmed and normalized", () => {
   });
 
   assert.equal(result.email, "rayees@stateai.in");
+});
+
+test("traveler entry checks normalize minimal country-code evidence", () => {
+  const result = travelerEntryCheckInputSchema.parse({
+    organizationId,
+    tripId: crypto.randomUUID(),
+    travelerId: crypto.randomUUID(),
+    destinationCountryCode: "jp",
+    citizenshipCountryCode: "in",
+    passportIssuingCountryCode: "in",
+    passportExpiresOn: "2028-12-31",
+    passportValidityMonthsRequired: 6,
+    visaRequirement: "required",
+    visaStatus: "application_pending",
+    visaValidUntil: null,
+    actionDueOn: "2026-09-01",
+    evidenceSourceLabel: "Embassy advisory reviewed by operations",
+    evidenceSourceUrl: "https://official.example/entry",
+  });
+
+  assert.equal(result.destinationCountryCode, "JP");
+  assert.equal(result.citizenshipCountryCode, "IN");
+});
+
+test("traveler entry checks require human evidence for visa conclusions", () => {
+  assert.equal(
+    travelerEntryCheckInputSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      travelerId: crypto.randomUUID(),
+      destinationCountryCode: "JP",
+      citizenshipCountryCode: "IN",
+      passportValidityMonthsRequired: 6,
+      visaRequirement: "required",
+      visaStatus: "researching",
+      evidenceSourceLabel: null,
+    }).success,
+    false,
+  );
+});
+
+test("traveler entry checks reject inconsistent visa workflow states", () => {
+  assert.equal(
+    travelerEntryCheckInputSchema.safeParse({
+      organizationId,
+      tripId: crypto.randomUUID(),
+      travelerId: crypto.randomUUID(),
+      destinationCountryCode: "JP",
+      citizenshipCountryCode: "IN",
+      passportValidityMonthsRequired: 6,
+      visaRequirement: "not_required",
+      visaStatus: "granted",
+      evidenceSourceLabel: "Official destination advisory",
+    }).success,
+    false,
+  );
 });
 
 test("contacts can be created with no email identity", () => {
