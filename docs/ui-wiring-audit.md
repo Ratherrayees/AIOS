@@ -13,6 +13,7 @@ The audited build passed with:
 - 141/141 browser journeys across Chromium, Firefox, and WebKit
 - 182/182 behavioral tests
 - 21/21 zero-provider AI safety evaluations
+- 8/8 local Resend signed-webhook contract checks
 - zero TypeScript errors
 - zero ESLint errors or warnings
 - zero browser console errors or warnings across the protected-route sweep

@@ -41,6 +41,14 @@ jobs:
           npx supabase db lint --local --schema public --level warning --fail-on error
           npm run db:types
           git diff --exit-code -- types/database.ts
+          LOCAL_STATUS="$(npx supabase status -o json)"
+          export NEXT_PUBLIC_SUPABASE_URL="$(echo "$LOCAL_STATUS" | jq -r .API_URL)"
+          export SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL"
+          export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$(echo "$LOCAL_STATUS" | jq -r .PUBLISHABLE_KEY)"
+          export SUPABASE_PUBLISHABLE_KEY="$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+          export SUPABASE_SECRET_KEY="$(echo "$LOCAL_STATUS" | jq -r .SECRET_KEY)"
+          npm run build
+          npm run test:webhook
 
       - name: Stop local Supabase
         if: ${{ always() }}

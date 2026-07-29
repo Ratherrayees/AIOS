@@ -27,6 +27,14 @@ After deployment, add an HTTPS webhook in Resend pointing to `https://<your-aios
 
 The endpoint verifies the raw Svix-signed body before accepting it, stores each provider event ID only once, and has no browser-accessible database policy. Do not use open/click events for authentication email workflows.
 
+For a local, provider-free contract check, start the disposable local Supabase stack, load its local URL and server key into the current shell, build the application, then run:
+
+```text
+npm run test:webhook
+```
+
+The verifier starts isolated production servers with a disposable signing secret. It proves missing, invalid, stale, and oversized requests fail closed; a current signed event is accepted; a duplicate is acknowledged without a second row; the stored event remains private and exactly once; and a database failure returns a distinct operational error. It deletes its fixture and does not require or call a real Resend API key.
+
 ## 4. Route Supabase Auth mail through Resend
 
 Prefer the Resend–Supabase integration from the Resend dashboard, which provisions and applies the SMTP configuration. If configuring it manually in Supabase Authentication → Email → SMTP Settings, use:

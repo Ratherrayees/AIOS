@@ -17,6 +17,13 @@ function invalidWebhook() {
   return NextResponse.json({ error: "invalid_webhook" }, { status: 400 });
 }
 
+function webhookPersistenceFailed() {
+  return NextResponse.json(
+    { error: "webhook_persistence_failed" },
+    { status: 500 },
+  );
+}
+
 /**
  * Public by design: Resend authenticates each request with Svix headers. The
  * raw body is verified before it is parsed or written to the database.
@@ -40,34 +47,40 @@ export async function POST(request: NextRequest) {
     return invalidWebhook();
   }
 
+  let event: z.infer<typeof eventSchema>;
+  let payload: Json;
+
   try {
     const rawBody = await request.text();
     if (rawBody.length > 1_000_000) return invalidWebhook();
 
-    const resend = new Resend();
+    // Resend's SDK requires an API key at construction time even though webhook
+    // verification is local and does not call its API. Keep inbound delivery
+    // independent from outbound email configuration.
+    const resend = new Resend("webhook-verification");
     const verified = resend.webhooks.verify({
       payload: rawBody,
       headers: { id: eventId, timestamp, signature },
       webhookSecret: getResendWebhookEnv().RESEND_WEBHOOK_SECRET,
     });
-    const event = eventSchema.parse(verified);
-    const payload = JSON.parse(rawBody) as Json;
-
-    const admin = createSupabaseAdminClient();
-    const { error } = await admin.from("email_webhook_events").insert({
-      provider_event_id: eventId,
-      event_type: event.type,
-      event_created_at: event.created_at,
-      payload,
-    });
-
-    if (error?.code === "23505") {
-      return NextResponse.json({ received: true, duplicate: true });
-    }
-    if (error) throw error;
-
-    return NextResponse.json({ received: true });
+    event = eventSchema.parse(verified);
+    payload = JSON.parse(rawBody) as Json;
   } catch {
     return invalidWebhook();
   }
+
+  const admin = createSupabaseAdminClient();
+  const { error } = await admin.from("email_webhook_events").insert({
+    provider_event_id: eventId,
+    event_type: event.type,
+    event_created_at: event.created_at,
+    payload,
+  });
+
+  if (error?.code === "23505") {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+  if (error) return webhookPersistenceFailed();
+
+  return NextResponse.json({ received: true });
 }
