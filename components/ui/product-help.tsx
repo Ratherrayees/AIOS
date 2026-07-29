@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { ModalBoundary } from "./modal-boundary";
 import { JourneyRail } from "./workspace-guide";
 
 const glossary = [
@@ -33,25 +34,6 @@ const glossary = [
 export function ProductHelp() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    const trigger = triggerRef.current;
-    document.body.style.overflow = "hidden";
-    closeButtonRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-      trigger?.focus();
-    };
-  }, [open]);
 
   if (
     ["/sign-in", "/sign-up", "/forgot-password", "/update-password", "/auth", "/lead/", "/onboarding"].some(
@@ -66,7 +48,6 @@ export function ProductHelp() {
       <button
         className="ui-help-trigger"
         type="button"
-        ref={triggerRef}
         aria-expanded={open}
         aria-controls="product-help"
         onClick={() => setOpen(true)}
@@ -75,12 +56,9 @@ export function ProductHelp() {
         How AIOS works
       </button>
       {open ? (
-        <div
+        <ModalBoundary
           className="ui-help-layer"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setOpen(false);
-          }}
+          onClose={() => setOpen(false)}
         >
           <aside
             className="ui-help-drawer"
@@ -96,7 +74,6 @@ export function ProductHelp() {
               </div>
               <button
                 type="button"
-                ref={closeButtonRef}
                 aria-label="Close product guide"
                 onClick={() => setOpen(false)}
               >
@@ -162,7 +139,7 @@ export function ProductHelp() {
               </Link>
             </footer>
           </aside>
-        </div>
+        </ModalBoundary>
       ) : null}
     </>
   );

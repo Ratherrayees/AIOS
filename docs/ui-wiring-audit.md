@@ -4,13 +4,13 @@ Reviewed: 29 July 2026
 
 ## Outcome
 
-Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 138 cross-browser journeys: 46 each in Chromium, Firefox, and WebKit, comprising 23 public/authentication and security-boundary checks plus 23 authenticated browser-to-database workflows per engine.
+Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 141 cross-browser journeys: 47 each in Chromium, Firefox, and WebKit, comprising 23 public/authentication and security-boundary checks plus 24 authenticated browser-to-database workflows per engine.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
-- 138/138 browser journeys across Chromium, Firefox, and WebKit
+- 141/141 browser journeys across Chromium, Firefox, and WebKit
 - 182/182 behavioral tests
 - 21/21 zero-provider AI safety evaluations
 - zero TypeScript errors
@@ -76,6 +76,7 @@ The audited build passed with:
 21. The first analytics-target retirement update used a function argument with the same name as the target table column, making PostgreSQL reject the assignment as ambiguous. The authorization probe caught the missing retirement/audit result; the function now binds the positional input explicitly, and the clean replay plus 234-assertion probe verify non-destructive retirement and both audit events.
 22. WebKit exposed a pipeline race in which React's transition flag could outlive the explicit mutation lock. The stage selector looked enabled but a rapid adjacent move was silently ignored. Pipeline mutation and drag guards now use the explicit lead lock as their concurrency authority; the full three-engine journey proves drag and accessible selector movement back-to-back.
 23. Firefox exposed Zod's caught `Function` capability probe as a production CSP violation. The CSP was not weakened: Next.js client instrumentation now selects Zod's jitless runtime before hydration, while the route sweep still asserts that production never permits `unsafe-eval`.
+24. The global product guide handled Escape and focus restoration but did not contain Tab focus, while autofocus inside command search caused the shared modal boundary to remember the input instead of its opener. The guide now uses the shared boundary, opener focus is captured before child autofocus, and all three engines prove wraparound, Escape dismissal, body-scroll restoration, and return to the exact trigger.
 
 ## Deferred external acceptance
 
@@ -87,5 +88,5 @@ The following items are not local UI wiring failures; they require external prov
 - approved outbound email/scheduled-delivery worker
 - deployed AIOS worker secret and schedule
 - credential rotation before deployment
-- deeper authenticated keyboard/focus and hands-on assistive-technology acceptance
+- remaining keyboard-only form/table walkthroughs and hands-on assistive-technology acceptance
 - production-like backup/restore and rollback drills

@@ -24,16 +24,19 @@ export function ModalBoundary({
 }: ModalBoundaryProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
   useEffect(() => {
-    const previouslyFocused =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    const previouslyFocused = previouslyFocusedRef.current;
     const previousOverflow = document.body.style.overflow;
     const dialog =
       layerRef.current?.querySelector<HTMLElement>('[role="dialog"]') ?? null;

@@ -384,6 +384,54 @@ test.describe("authenticated owner workspace", () => {
     ).toContainText("Open AIOS");
   });
 
+  test("keeps authenticated modal focus bounded and restores keyboard context", async ({
+    page,
+  }) => {
+    await signIn(page);
+
+    const helpTrigger = page.getByRole("button", { name: "How AIOS works" });
+    await helpTrigger.focus();
+    await helpTrigger.press("Enter");
+    const helpDialog = page.getByRole("dialog", {
+      name: "How the CRM fits together",
+    });
+    await expect(helpDialog).toBeVisible();
+    const closeHelp = page.getByRole("button", {
+      name: "Close product guide",
+    });
+    await expect(closeHelp).toBeFocused();
+
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      helpDialog.getByRole("link", { name: "Start with a lead" }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(closeHelp).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(helpDialog).toHaveCount(0);
+    await expect(helpTrigger).toBeFocused();
+    await expect
+      .poll(() => page.evaluate(() => document.body.style.overflow))
+      .toBe("");
+
+    const searchTrigger = page.getByRole("button", {
+      name: /Search leads, contacts, and tasks/i,
+    });
+    await searchTrigger.focus();
+    await page.keyboard.press("Control+K");
+    const searchDialog = page.getByRole("dialog", {
+      name: "Search your workspace",
+    });
+    await expect(searchDialog).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Search leads, contacts, or tasks…"),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(searchDialog).toHaveCount(0);
+    await expect(searchTrigger).toBeFocused();
+  });
+
   test("captures a public lead through the governed endpoint", async ({
     page,
   }) => {
