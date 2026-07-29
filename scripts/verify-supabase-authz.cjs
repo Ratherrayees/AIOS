@@ -3700,6 +3700,209 @@ async function verifyAuthorization() {
         `audit rows: ${analyticsTargetAudit.data?.length ?? 0}`,
     );
 
+    activeVerificationPhase =
+      "verifying durable management report delivery";
+    const ownerReportSchedule = await owner
+      .from("analytics_report_schedules")
+      .select("*")
+      .eq("organization_id", organizationA.id)
+      .single();
+    record(
+      "new workspaces receive a paused aggregate report schedule",
+      !ownerReportSchedule.error &&
+        ownerReportSchedule.data?.is_enabled === false,
+    );
+
+    const viewerForeignReportSchedule = await viewer
+      .from("analytics_report_schedules")
+      .select("organization_id")
+      .eq("organization_id", organizationA.id);
+    record(
+      "management report schedules remain tenant isolated",
+      !viewerForeignReportSchedule.error &&
+        viewerForeignReportSchedule.data?.length === 0,
+    );
+
+    const directReportScheduleWrite = await owner
+      .from("analytics_report_schedules")
+      .update({ cadence: "monthly" })
+      .eq("organization_id", organizationA.id)
+      .select("organization_id");
+    record(
+      "browser clients cannot rewrite report schedules directly",
+      Boolean(directReportScheduleWrite.error) ||
+        directReportScheduleWrite.data?.length === 0,
+    );
+
+    const nextReportAt = new Date(Date.now() + 86_400_000).toISOString();
+    const viewerReportSchedule = await viewer.rpc(
+      "upsert_analytics_report_schedule",
+      {
+        target_organization_id: organizationB.id,
+        target_is_enabled: true,
+        target_cadence: "weekly",
+        target_period_days: 30,
+        target_forecast_horizon_days: 90,
+        target_next_run_at: nextReportAt,
+      },
+    );
+    record(
+      "viewers cannot configure management report delivery",
+      Boolean(viewerReportSchedule.error),
+    );
+
+    const ownerForeignReportSchedule = await owner.rpc(
+      "upsert_analytics_report_schedule",
+      {
+        target_organization_id: organizationB.id,
+        target_is_enabled: true,
+        target_cadence: "weekly",
+        target_period_days: 30,
+        target_forecast_horizon_days: 90,
+        target_next_run_at: nextReportAt,
+      },
+    );
+    record(
+      "owners cannot configure report delivery in a foreign tenant",
+      Boolean(ownerForeignReportSchedule.error),
+    );
+
+    const savedReportSchedule = await owner.rpc(
+      "upsert_analytics_report_schedule",
+      {
+        target_organization_id: organizationA.id,
+        target_is_enabled: true,
+        target_cadence: "weekly",
+        target_period_days: 30,
+        target_forecast_horizon_days: 90,
+        target_next_run_at: nextReportAt,
+      },
+    );
+    record(
+      "owners configure bounded aggregate report delivery",
+      !savedReportSchedule.error &&
+        savedReportSchedule.data?.[0]?.is_enabled === true &&
+        savedReportSchedule.data?.[0]?.period_days === 30,
+    );
+
+    const browserReportClaim = await owner.rpc(
+      "claim_analytics_report_runs",
+      {
+        target_worker_id: `owner-report-${suffix}`,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      },
+    );
+    record(
+      "authenticated clients cannot claim report leases",
+      Boolean(browserReportClaim.error),
+    );
+
+    const reportWorkerId = `authz-report-${randomUUID()}`;
+    const serverReportClaim = await admin.rpc(
+      "claim_analytics_report_runs",
+      {
+        target_worker_id: reportWorkerId,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      },
+    );
+    const claimedReport = serverReportClaim.data?.[0];
+    record(
+      "server workers claim one tenant-scoped report lease",
+      !serverReportClaim.error &&
+        serverReportClaim.data?.length === 1 &&
+        claimedReport?.organization_id === organizationA.id,
+    );
+    if (serverReportClaim.error || !claimedReport)
+      throw serverReportClaim.error ??
+        new Error("Management report lease was not created.");
+
+    const browserReportSettle = await owner.rpc(
+      "settle_analytics_report_run",
+      {
+        target_run_id: claimedReport.run_id,
+        target_worker_id: reportWorkerId,
+        target_status: "failed",
+        target_error_code: "blocked",
+      },
+    );
+    record(
+      "authenticated clients cannot settle report leases",
+      Boolean(browserReportSettle.error),
+    );
+
+    const serverReportSettle = await admin.rpc(
+      "settle_analytics_report_run",
+      {
+        target_run_id: claimedReport.run_id,
+        target_worker_id: reportWorkerId,
+        target_status: "ready",
+        target_report_filename: "aios-management-report-2026-07-29.csv",
+        target_report_csv: "\uFEFF\"section\",\"metric\"\r\n",
+        target_report_row_count: 1,
+        target_report_sha256: "a".repeat(64),
+      },
+    );
+    record(
+      "server workers settle immutable aggregate report evidence",
+      !serverReportSettle.error &&
+        serverReportSettle.data?.[0]?.status === "ready" &&
+        serverReportSettle.data?.[0]?.report_row_count === 1,
+      serverReportSettle.error?.message ??
+        JSON.stringify(serverReportSettle.data),
+    );
+
+    const ownerReportDelivery = await owner
+      .from("analytics_report_deliveries")
+      .select("id, status, report_csv")
+      .eq("id", claimedReport.run_id)
+      .single();
+    record(
+      "workspace members read their aggregate report delivery",
+      !ownerReportDelivery.error &&
+        ownerReportDelivery.data?.status === "ready" &&
+        ownerReportDelivery.data?.report_csv?.includes("section"),
+    );
+
+    const viewerForeignReportDelivery = await viewer
+      .from("analytics_report_deliveries")
+      .select("id")
+      .eq("id", claimedReport.run_id);
+    record(
+      "management report deliveries remain tenant isolated",
+      !viewerForeignReportDelivery.error &&
+        viewerForeignReportDelivery.data?.length === 0,
+    );
+
+    const directReportDeliveryWrite = await owner
+      .from("analytics_report_deliveries")
+      .insert({
+        organization_id: organizationA.id,
+        trigger_type: "operator",
+        status: "running",
+        scheduled_for: new Date().toISOString(),
+        worker_id: `forged-report-${suffix}`,
+        schedule_snapshot: {},
+      });
+    record(
+      "browser clients cannot forge report deliveries",
+      Boolean(directReportDeliveryWrite.error),
+    );
+
+    const reportScheduleAudit = await owner
+      .from("audit_events")
+      .select("id")
+      .eq("organization_id", organizationA.id)
+      .eq("entity_type", "analytics_report_schedule");
+    record(
+      "report schedule changes preserve audit evidence",
+      !reportScheduleAudit.error &&
+        (reportScheduleAudit.data?.length ?? 0) === 1,
+    );
+
     const forgedApproval = await owner.from("approval_requests").insert({
       organization_id: organizationA.id,
       requester_id: ownerUser.id,

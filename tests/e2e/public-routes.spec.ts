@@ -195,3 +195,13 @@ test("Operations Radar worker is unavailable without its server credential", asy
   expect([401, 503]).toContain(response.status());
   expect(response.headers()["cache-control"]).toContain("no-store");
 });
+
+test("management report worker is unavailable without its server credential", async ({
+  request,
+}) => {
+  const response = await request.post(
+    "/api/internal/aios/analytics-reports",
+  );
+  expect([401, 503]).toContain(response.status());
+  expect(response.headers()["cache-control"]).toContain("no-store");
+});

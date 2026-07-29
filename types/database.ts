@@ -531,6 +531,125 @@ export type Database = {
           },
         ]
       }
+      analytics_report_deliveries: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          organization_id: string
+          report_csv: string | null
+          report_filename: string | null
+          report_row_count: number | null
+          report_sha256: string | null
+          schedule_snapshot: Json
+          scheduled_for: string
+          started_at: string
+          status: string
+          trigger_type: string
+          worker_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          organization_id: string
+          report_csv?: string | null
+          report_filename?: string | null
+          report_row_count?: number | null
+          report_sha256?: string | null
+          schedule_snapshot: Json
+          scheduled_for: string
+          started_at?: string
+          status?: string
+          trigger_type: string
+          worker_id: string
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          organization_id?: string
+          report_csv?: string | null
+          report_filename?: string | null
+          report_row_count?: number | null
+          report_sha256?: string | null
+          schedule_snapshot?: Json
+          scheduled_for?: string
+          started_at?: string
+          status?: string
+          trigger_type?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analytics_report_deliveries_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analytics_report_schedules: {
+        Row: {
+          cadence: string
+          created_at: string
+          forecast_horizon_days: number
+          is_enabled: boolean
+          last_delivery_at: string | null
+          last_delivery_status: string | null
+          next_run_at: string
+          organization_id: string
+          period_days: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          cadence?: string
+          created_at?: string
+          forecast_horizon_days?: number
+          is_enabled?: boolean
+          last_delivery_at?: string | null
+          last_delivery_status?: string | null
+          next_run_at?: string
+          organization_id: string
+          period_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          cadence?: string
+          created_at?: string
+          forecast_horizon_days?: number
+          is_enabled?: boolean
+          last_delivery_at?: string | null
+          last_delivery_status?: string | null
+          next_run_at?: string
+          organization_id?: string
+          period_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analytics_report_schedules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_report_schedules_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analytics_targets: {
         Row: {
           created_at: string
@@ -4236,6 +4355,21 @@ export type Database = {
           job_payload: Json
         }[]
       }
+      claim_analytics_report_runs: {
+        Args: {
+          target_force?: boolean
+          target_limit?: number
+          target_organization_id?: string
+          target_worker_id: string
+        }
+        Returns: {
+          organization_id: string
+          report_forecast_horizon_days: number
+          report_period_days: number
+          run_id: string
+          trigger_type: string
+        }[]
+      }
       claim_operations_radar_runs: {
         Args: {
           target_force?: boolean
@@ -4928,6 +5062,41 @@ export type Database = {
           job_status: Database["public"]["Enums"]["ai_job_status"]
         }[]
       }
+      settle_analytics_report_run: {
+        Args: {
+          target_error_code?: string
+          target_report_csv?: string
+          target_report_filename?: string
+          target_report_row_count?: number
+          target_report_sha256?: string
+          target_run_id: string
+          target_status: string
+          target_worker_id: string
+        }
+        Returns: {
+          created_at: string
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          organization_id: string
+          report_csv: string | null
+          report_filename: string | null
+          report_row_count: number | null
+          report_sha256: string | null
+          schedule_snapshot: Json
+          scheduled_for: string
+          started_at: string
+          status: string
+          trigger_type: string
+          worker_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "analytics_report_deliveries"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       settle_operations_radar_run: {
         Args: {
           target_active_count?: number
@@ -5142,6 +5311,35 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "knowledge_sections"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_analytics_report_schedule: {
+        Args: {
+          target_cadence: string
+          target_forecast_horizon_days: number
+          target_is_enabled: boolean
+          target_next_run_at: string
+          target_organization_id: string
+          target_period_days: number
+        }
+        Returns: {
+          cadence: string
+          created_at: string
+          forecast_horizon_days: number
+          is_enabled: boolean
+          last_delivery_at: string | null
+          last_delivery_status: string | null
+          next_run_at: string
+          organization_id: string
+          period_days: number
+          updated_at: string
+          updated_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "analytics_report_schedules"
           isOneToOne: false
           isSetofReturn: true
         }

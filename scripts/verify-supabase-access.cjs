@@ -63,6 +63,8 @@ const protectedTables = [
   "knowledge_sources",
   "knowledge_sections",
   "knowledge_conflicts",
+  "analytics_report_schedules",
+  "analytics_report_deliveries",
 ];
 
 function loadLocalEnv() {
@@ -470,6 +472,33 @@ async function verify() {
       target_is_active: true,
     },
   );
+  const { error: anonymousReportScheduleError } = await anonymous.rpc(
+    "upsert_analytics_report_schedule",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_is_enabled: true,
+      target_cadence: "weekly",
+      target_period_days: 30,
+      target_forecast_horizon_days: 90,
+      target_next_run_at: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  );
+  const { error: anonymousReportClaimError } = await anonymous.rpc(
+    "claim_analytics_report_runs",
+    {
+      target_worker_id: "anonymous-report-worker",
+      target_limit: 1,
+    },
+  );
+  const { error: anonymousReportSettleError } = await anonymous.rpc(
+    "settle_analytics_report_run",
+    {
+      target_run_id: "11111111-1111-4111-8111-111111111111",
+      target_worker_id: "anonymous-report-worker",
+      target_status: "failed",
+      target_error_code: "blocked",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -658,6 +687,21 @@ async function verify() {
       function: "upsert_analytics_target",
       anonymousExecutionBlocked: Boolean(anonymousAnalyticsTargetError),
       anonymousErrorCode: anonymousAnalyticsTargetError?.code ?? null,
+    },
+    {
+      function: "upsert_analytics_report_schedule",
+      anonymousExecutionBlocked: Boolean(anonymousReportScheduleError),
+      anonymousErrorCode: anonymousReportScheduleError?.code ?? null,
+    },
+    {
+      function: "claim_analytics_report_runs",
+      anonymousExecutionBlocked: Boolean(anonymousReportClaimError),
+      anonymousErrorCode: anonymousReportClaimError?.code ?? null,
+    },
+    {
+      function: "settle_analytics_report_run",
+      anonymousExecutionBlocked: Boolean(anonymousReportSettleError),
+      anonymousErrorCode: anonymousReportSettleError?.code ?? null,
     },
   ];
 

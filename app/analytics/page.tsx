@@ -13,6 +13,7 @@ import { saveAnalyticsTarget } from "../actions/analytics";
 import { createSavedView, deleteSavedView } from "../actions/crm";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { AnalyticsReportSchedule } from "../../components/ui/analytics-report-schedule";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import {
   buildManagementIntelligence,
@@ -1229,6 +1230,12 @@ export default function AnalyticsPage() {
                     </div>
                   )}
                 </section>
+              )}
+              {organizationId && (
+                <AnalyticsReportSchedule
+                  organizationId={organizationId}
+                  role={role}
+                />
               )}
             </>
           )}

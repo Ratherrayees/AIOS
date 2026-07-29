@@ -2949,10 +2949,89 @@ test.describe("authenticated owner workspace", () => {
       /do not|does not|not its cause|does not prove|not bank reconciliation/i,
     );
 
+    const reportSchedule = page.locator(".report-schedule");
+    await expect(
+      reportSchedule.getByRole("heading", {
+        name: "Deliver an immutable management brief on schedule",
+      }),
+    ).toBeVisible();
+    await expect(reportSchedule).toContainText("SCHEDULE PAUSED");
+    await reportSchedule
+      .getByLabel("Enable scheduled in-app delivery")
+      .check();
+    await reportSchedule.getByLabel("Cadence").selectOption("monthly");
+    await reportSchedule
+      .getByLabel("Comparison period")
+      .selectOption("90");
+    await reportSchedule
+      .getByLabel("Forecast horizon")
+      .selectOption("30");
+    const nextReportAt = new Date(Date.now() + 86_400_000)
+      .toISOString()
+      .slice(0, 16);
+    await reportSchedule.getByLabel("Next delivery").fill(nextReportAt);
+    await reportSchedule
+      .getByRole("button", { name: "Save delivery schedule" })
+      .click();
+    await expect(reportSchedule.getByRole("status")).toContainText(
+      "Schedule saved",
+    );
+    const { data: savedReportSchedule, error: savedReportScheduleError } =
+      await admin!
+        .from("analytics_report_schedules")
+        .select(
+          "is_enabled, cadence, period_days, forecast_horizon_days, updated_by",
+        )
+        .eq("organization_id", organizationIds[0])
+        .single();
+    expect(savedReportScheduleError).toBeNull();
+    expect(savedReportSchedule).toMatchObject({
+      is_enabled: true,
+      cadence: "monthly",
+      period_days: 90,
+      forecast_horizon_days: 30,
+      updated_by: userId,
+    });
+
+    await reportSchedule
+      .getByRole("button", { name: "Generate now" })
+      .click();
+    await expect(reportSchedule.getByRole("status")).toContainText(
+      "Aggregate delivery complete: 1 ready, 0 failed",
+    );
+    const { data: reportDelivery, error: reportDeliveryError } = await admin!
+      .from("analytics_report_deliveries")
+      .select(
+        "id, trigger_type, status, report_filename, report_csv, report_row_count, report_sha256",
+      )
+      .eq("organization_id", organizationIds[0])
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .single();
+    expect(reportDeliveryError).toBeNull();
+    expect(reportDelivery).toMatchObject({
+      trigger_type: "operator",
+      status: "ready",
+    });
+    expect(reportDelivery?.report_row_count).toBeGreaterThan(0);
+    expect(reportDelivery?.report_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(reportDelivery?.report_csv).toContain(
+      '"AIOS anomaly desk","Explanation engine"',
+    );
+    const scheduledDownload = page.waitForEvent("download");
+    await reportSchedule
+      .getByRole("button", { name: "Download snapshot" })
+      .first()
+      .click();
+    const scheduledReport = await scheduledDownload;
+    expect(scheduledReport.suggestedFilename()).toBe(
+      reportDelivery?.report_filename,
+    );
+
     const periodViewName = `E2E July management ${forecastSuffix}`;
     await page.getByLabel("Name this Analytics view").fill(periodViewName);
     await page.getByRole("button", { name: "Save view" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".analytics-notice")).toContainText(
       "private Analytics view",
     );
     const { data: periodSavedView, error: periodSavedViewError } = await admin!
@@ -2968,7 +3047,7 @@ test.describe("authenticated owner workspace", () => {
       customPeriodEnd: "2026-07-31",
     });
     await page.getByRole("button", { name: "Remove" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".analytics-notice")).toContainText(
       "Private Analytics view removed",
     );
 
@@ -3013,10 +3092,10 @@ test.describe("authenticated owner workspace", () => {
     await expect(collectingCohort).toContainText("Collecting");
     await expect(page.getByText("Target not configured")).toBeVisible();
 
-    await page.getByLabel("Forecast horizon").selectOption("30");
+    await page.locator(".forecast-horizon select").selectOption("30");
     await expect(inrForecast).toContainText("₹3,25,000");
     await expect(inrForecast).toContainText("₹81,250");
-    await page.getByLabel("Forecast horizon").selectOption("90");
+    await page.locator(".forecast-horizon select").selectOption("90");
     await expect(inrForecast).toContainText("₹5,75,000");
 
     const targetName = `E2E Q3 INR target ${forecastSuffix}`;
@@ -3028,7 +3107,7 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByRole("button", { name: "Add approved target" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".analytics-notice")).toContainText(
       `Approved ${targetName} target added`,
     );
 
@@ -3091,12 +3170,12 @@ test.describe("authenticated owner workspace", () => {
     expect(reportCsv).not.toContain(targetName);
     expect(reportCsv).not.toContain(contactId!);
     expect(reportCsv).not.toContain(email);
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".analytics-notice")).toContainText(
       "Raw records, personal data, free-text labels, and cross-currency totals were excluded",
     );
 
     await targetRow.getByRole("button", { name: "Retire" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(page.locator(".analytics-notice")).toContainText(
       `${targetName} was retired`,
     );
     await expect(targetRow).toHaveCount(0);
