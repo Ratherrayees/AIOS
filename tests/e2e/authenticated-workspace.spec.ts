@@ -1,8 +1,9 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import { travelerPortalSnapshotSchema } from "../../lib/crm/traveler-portal";
 import type { Database } from "../../types/app-database";
 
 const shouldRun = process.env.RUN_AUTHENTICATED_E2E === "true";
@@ -24,6 +25,7 @@ let contactId = "";
 let leadCaptureFormToken = "";
 let approvalId = "";
 let operationalTripId = "";
+let operationalVoucherId = "";
 let teammateUserId = "";
 let teammateMembershipId = "";
 const teammateName = "Authenticated E2E Teammate";
@@ -1532,6 +1534,15 @@ test.describe("authenticated owner workspace", () => {
       .click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("trip-voucher.pdf");
+    const { data: voucher, error: voucherError } = await admin!
+      .from("documents")
+      .select("id, document_kind")
+      .eq("trip_id", operationalTripId)
+      .eq("file_name", "trip-voucher.pdf")
+      .single();
+    expect(voucherError).toBeNull();
+    expect(voucher?.document_kind).toBe("voucher");
+    operationalVoucherId = voucher!.id;
 
     await page.getByLabel("Trip status note").fill("Lead traveller checked in");
     await page.getByRole("button", { name: "Move to in travel" }).click();
@@ -1787,6 +1798,158 @@ test.describe("authenticated owner workspace", () => {
         .locator(".radar-card")
         .filter({ hasText: "Supplier payment needs attention" }),
     ).toHaveCount(0);
+  });
+
+  test("publishes and revokes an approved traveler portal without exposing internal data", async ({
+    page,
+  }) => {
+    const receivableTitle = `E2E traveler journey balance ${Date.now()}`;
+
+    await signIn(page);
+    await page.goto("/finance");
+    await page.getByLabel("Payment direction").selectOption("receivable");
+    await page.getByLabel("Obligation title").fill(receivableTitle);
+    await page.getByLabel("Amount", { exact: true }).fill("480000");
+    await page.getByLabel("Currency", { exact: true }).fill("INR");
+    await page.getByLabel("Due date").fill("2026-09-15");
+    await page.getByLabel("Related trip").selectOption(operationalTripId);
+    await page.getByRole("button", { name: "Create obligation" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "No charge, payout, or invoice was sent",
+    );
+
+    await page.goto(`/trips/${operationalTripId}/portal`);
+    await expect(
+      page.getByRole("heading", {
+        name: "Share the journey, not the back office.",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("NEVER VISIBLE")).toBeVisible();
+    await page
+      .getByLabel(/trip-voucher\.pdf/i)
+      .check();
+    await page.getByLabel("Include customer payment status").check();
+    await page.getByLabel("Link lifetime").selectOption("7");
+    await page
+      .getByRole("button", { name: "Request human approval" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Human review requested",
+    );
+
+    await page
+      .getByRole("button", { name: "Approve reviewed scope" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Human approval recorded",
+    );
+    await page
+      .getByRole("button", { name: "Publish approved portal" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Traveler portal published",
+    );
+
+    const portalAnchor = page.getByRole("link", {
+      name: "Open traveler portal",
+    });
+    const portalPath = await portalAnchor.getAttribute("href");
+    expect(portalPath).toMatch(/^\/portal\/[A-Za-z0-9_-]{43}$/);
+    const rawToken = portalPath!.split("/").at(-1)!;
+    const rawTokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const { data: publicSnapshot, error: publicSnapshotError } =
+      await admin!.rpc("get_traveler_portal_snapshot", {
+        target_token_hash: rawTokenHash,
+      });
+    expect(publicSnapshotError).toBeNull();
+    const parsedPublicSnapshot =
+      travelerPortalSnapshotSchema.safeParse(publicSnapshot);
+    if (!parsedPublicSnapshot.success) {
+      throw new Error(
+        `Published traveler snapshot is invalid: ${JSON.stringify(parsedPublicSnapshot.error.issues)}`,
+      );
+    }
+
+    const travelerPage = await page.context().newPage();
+    const portalResponse = await travelerPage.goto(portalPath!);
+    expect(portalResponse?.status()).toBe(200);
+    await expect(
+      travelerPage.getByRole("heading", {
+        name: "Kyoto discovery journey",
+      }),
+    ).toBeVisible();
+    await expect(travelerPage.getByText("KYOTO-E2E-42")).toBeVisible();
+    await expect(
+      travelerPage.getByText(receivableTitle, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      travelerPage.getByText("trip-voucher.pdf", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      travelerPage.getByText(
+        "Lead traveller prefers a quiet room away from lifts.",
+      ),
+    ).toHaveCount(0);
+    await expect(travelerPage.getByText("Internal cost")).toHaveCount(0);
+
+    const portalDownload = travelerPage.waitForEvent("download");
+    await travelerPage
+      .getByRole("link", { name: "Secure download" })
+      .click();
+    expect((await portalDownload).suggestedFilename()).toBe(
+      "trip-voucher.pdf",
+    );
+
+    const { data: portalLink, error: portalLinkError } = await admin!
+      .from("trip_portal_links")
+      .select(
+        "id, status, token_hash, snapshot, approval_request_id, expires_at",
+      )
+      .eq("trip_id", operationalTripId)
+      .single();
+    expect(portalLinkError).toBeNull();
+    expect(portalLink?.token_hash).toBe(rawTokenHash);
+    expect(portalLink?.token_hash).not.toBe(rawToken);
+    const portalSnapshot = portalLink?.snapshot as Record<string, unknown>;
+    expect(portalSnapshot).not.toHaveProperty("operations_notes");
+    expect(portalSnapshot).not.toHaveProperty("supplier_terms");
+    const { count: mappedDocumentCount } = await admin!
+      .from("trip_portal_documents")
+      .select("document_id", { count: "exact", head: true })
+      .eq("portal_link_id", portalLink!.id)
+      .eq("document_id", operationalVoucherId);
+    expect(mappedDocumentCount).toBe(1);
+    const { data: portalApproval } = await admin!
+      .from("approval_requests")
+      .select("status")
+      .eq("id", portalLink!.approval_request_id)
+      .single();
+    expect(portalApproval?.status).toBe("approved");
+
+    await page
+      .getByLabel("Revocation reason")
+      .fill("Traveler access window is complete.");
+    await page
+      .getByRole("button", { name: "Revoke immediately" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Traveler link revoked immediately",
+    );
+
+    const revokedResponse = await travelerPage.goto(portalPath!);
+    expect(revokedResponse?.status()).toBe(404);
+    const { data: revokedPortal } = await admin!
+      .from("trip_portal_links")
+      .select("status, revoked_by, revoked_at, revocation_note")
+      .eq("id", portalLink!.id)
+      .single();
+    expect(revokedPortal).toMatchObject({
+      status: "revoked",
+      revoked_by: userId,
+      revocation_note: "Traveler access window is complete.",
+    });
+    expect(revokedPortal?.revoked_at).toBeTruthy();
+    await travelerPage.close();
   });
 
   test("wires lead-capture creation, preview routing, pause, and resume", async ({
@@ -2055,6 +2218,7 @@ test.describe("authenticated owner workspace", () => {
       "/itineraries",
       "/trips",
       `/trips/${operationalTripId}`,
+      `/trips/${operationalTripId}/portal`,
       "/finance",
       "/aios",
       "/analytics",

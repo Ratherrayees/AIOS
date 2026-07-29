@@ -116,6 +116,27 @@ test("anonymous trip operations remain protected", async ({ page }) => {
   await expect(page).toHaveURL(/\/sign-in$/);
 });
 
+test("traveler links are public routes but fail closed for unknown tokens", async ({
+  request,
+}) => {
+  const response = await request.get(`/portal/${"a".repeat(43)}`, {
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(404);
+  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+});
+
+test("traveler document routes fail closed without an approved mapping", async ({
+  request,
+}) => {
+  const response = await request.get(
+    `/api/portal/${"a".repeat(43)}/documents/11111111-1111-4111-8111-111111111111`,
+  );
+  expect(response.status()).toBe(404);
+  expect(response.headers()["cache-control"]).toContain("no-store");
+});
+
 test("anonymous team access remains protected", async ({ page }) => {
   await page.goto("/settings/team");
   await expect(page).toHaveURL(/\/sign-in$/);

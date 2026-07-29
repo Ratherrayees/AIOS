@@ -1,0 +1,632 @@
+:root {
+  --portal-ink: #13252b;
+  --portal-muted: #677b80;
+  --portal-line: #dce6e5;
+  --portal-mint: #dff7ef;
+  --portal-teal: #087d76;
+  --portal-paper: #f7faf8;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.traveler-portal-page {
+  min-height: 100vh;
+  color: var(--portal-ink);
+  background:
+    linear-gradient(90deg, rgb(8 125 118 / 3%) 1px, transparent 1px),
+    linear-gradient(rgb(8 125 118 / 3%) 1px, transparent 1px),
+    var(--portal-paper);
+  background-size: 32px 32px;
+}
+
+.traveler-portal-nav {
+  position: sticky;
+  z-index: 10;
+  top: 0;
+  display: grid;
+  min-height: 72px;
+  padding: 0 max(24px, calc((100vw - 1180px) / 2));
+  grid-template-columns: 1fr auto 1fr;
+  gap: 28px;
+  align-items: center;
+  border-bottom: 1px solid rgb(19 37 43 / 9%);
+  backdrop-filter: blur(18px);
+  background: rgb(247 250 248 / 88%);
+}
+
+.traveler-portal-nav > a {
+  display: flex;
+  width: fit-content;
+  gap: 7px;
+  color: var(--portal-ink);
+  text-decoration: none;
+}
+
+.traveler-portal-nav > a span {
+  color: var(--portal-teal);
+  font-weight: 900;
+}
+
+.traveler-portal-nav > div {
+  display: flex;
+  gap: 26px;
+}
+
+.traveler-portal-nav > div a {
+  color: #53686e;
+  font-size: 0.76rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.traveler-portal-nav > small {
+  justify-self: end;
+  color: #779095;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.traveler-portal-hero,
+.traveler-portal-trust,
+.traveler-portal-party,
+.traveler-portal-itinerary,
+.traveler-portal-services,
+.traveler-portal-payments,
+.traveler-portal-documents,
+.traveler-portal-footer {
+  width: min(1180px, calc(100% - 48px));
+  margin-inline: auto;
+}
+
+.traveler-portal-hero {
+  display: grid;
+  min-height: 520px;
+  padding: 90px 0 64px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  gap: 70px;
+  align-items: center;
+}
+
+.traveler-portal-hero p,
+.traveler-portal-party header p,
+.traveler-portal-itinerary header p,
+.traveler-portal-services header p,
+.traveler-portal-payments header p,
+.traveler-portal-documents header p {
+  margin: 0 0 13px;
+  color: var(--portal-teal);
+  font-size: 0.69rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.traveler-portal-hero h1 {
+  max-width: 820px;
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(3.3rem, 8vw, 7.3rem);
+  font-weight: 500;
+  line-height: 0.89;
+  letter-spacing: -0.065em;
+}
+
+.traveler-portal-hero > div > span {
+  display: block;
+  max-width: 600px;
+  margin-top: 28px;
+  color: #5d7378;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+
+.traveler-portal-hero aside {
+  display: grid;
+  padding: 28px;
+  border: 1px solid rgb(8 125 118 / 16%);
+  border-radius: 160px;
+  grid-template-columns: 1fr;
+  gap: 22px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 0, #fff, transparent 55%),
+    var(--portal-mint);
+}
+
+.traveler-portal-hero aside div {
+  display: grid;
+  gap: 5px;
+}
+
+.traveler-portal-hero aside small {
+  color: #66807e;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.traveler-portal-hero aside b {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  font-weight: 500;
+}
+
+.traveler-portal-hero aside i {
+  width: 1px;
+  height: 54px;
+  margin: auto;
+  background: linear-gradient(transparent, var(--portal-teal), transparent);
+}
+
+.traveler-portal-trust {
+  display: grid;
+  margin-bottom: 96px;
+  grid-template-columns: repeat(3, auto) 1fr;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--portal-line);
+  border-radius: 14px;
+  background: var(--portal-line);
+}
+
+.traveler-portal-trust > div,
+.traveler-portal-trust > p {
+  margin: 0;
+  padding: 17px 20px;
+  background: #fff;
+}
+
+.traveler-portal-trust > div {
+  display: grid;
+  min-width: 135px;
+  gap: 3px;
+}
+
+.traveler-portal-trust span,
+.traveler-portal-trust p {
+  color: #70878b;
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+}
+
+.traveler-portal-trust b {
+  font-size: 1.25rem;
+}
+
+.traveler-portal-trust p {
+  display: grid;
+  align-content: center;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.traveler-portal-party,
+.traveler-portal-itinerary,
+.traveler-portal-services,
+.traveler-portal-payments,
+.traveler-portal-documents {
+  padding: 88px 0;
+  border-top: 1px solid var(--portal-line);
+}
+
+.traveler-portal-party header,
+.traveler-portal-itinerary header,
+.traveler-portal-services header,
+.traveler-portal-payments header,
+.traveler-portal-documents header {
+  max-width: 720px;
+  margin-bottom: 42px;
+}
+
+.traveler-portal-party h2,
+.traveler-portal-itinerary h2,
+.traveler-portal-services h2,
+.traveler-portal-payments h2,
+.traveler-portal-documents h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 3.8rem);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.traveler-portal-itinerary header > span {
+  display: block;
+  margin-top: 18px;
+  color: var(--portal-muted);
+  line-height: 1.6;
+}
+
+.traveler-portal-party > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.traveler-portal-party article {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--portal-line);
+  border-radius: 13px;
+  background: #fff;
+}
+
+.traveler-portal-party article > span {
+  display: grid;
+  width: 44px;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--portal-teal);
+  font-weight: 850;
+  background: var(--portal-mint);
+}
+
+.traveler-portal-party article div {
+  display: grid;
+  gap: 3px;
+}
+
+.traveler-portal-party article small {
+  color: var(--portal-muted);
+  text-transform: capitalize;
+}
+
+.traveler-day-list {
+  display: grid;
+}
+
+.traveler-day-list > article {
+  display: grid;
+  padding: 28px 0;
+  border-top: 1px solid var(--portal-line);
+  grid-template-columns: 120px 1fr;
+  gap: 32px;
+}
+
+.traveler-day-number {
+  display: grid;
+  align-content: start;
+}
+
+.traveler-day-number small {
+  color: var(--portal-teal);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.traveler-day-number b {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 3.2rem;
+  font-weight: 500;
+}
+
+.traveler-day-list > article > div:last-child {
+  display: grid;
+  gap: 10px;
+}
+
+.traveler-day-list section {
+  display: grid;
+  padding: 17px;
+  border: 1px solid var(--portal-line);
+  border-radius: 12px;
+  grid-template-columns: 120px 1fr auto;
+  gap: 18px;
+  align-items: center;
+  background: #fff;
+}
+
+.traveler-day-list section > span,
+.traveler-portal-services article > span,
+.traveler-portal-documents article > span {
+  color: var(--portal-teal);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.traveler-day-list h3,
+.traveler-portal-services h3 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.traveler-day-list section small {
+  color: var(--portal-muted);
+  font-size: 0.7rem;
+}
+
+.traveler-portal-services > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 13px;
+}
+
+.traveler-portal-services article {
+  min-height: 190px;
+  padding: 22px;
+  border: 1px solid var(--portal-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, #fff, transparent),
+    var(--portal-mint);
+}
+
+.traveler-portal-services h3 {
+  margin-top: 36px;
+  font-size: 1.05rem;
+}
+
+.traveler-portal-services p {
+  color: var(--portal-muted);
+  font-size: 0.78rem;
+}
+
+.traveler-portal-services article > small {
+  display: block;
+  margin-top: 22px;
+  color: #74888c;
+}
+
+.traveler-payment-totals {
+  display: grid;
+  gap: 12px;
+}
+
+.traveler-payment-totals article {
+  display: grid;
+  padding: 24px;
+  border-radius: 15px;
+  grid-template-columns: auto repeat(3, 1fr);
+  gap: 24px;
+  color: #e7fffb;
+  background: #123f3c;
+}
+
+.traveler-payment-totals article > span {
+  align-self: center;
+  padding: 8px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 7px;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.traveler-payment-totals article > div {
+  display: grid;
+  gap: 4px;
+}
+
+.traveler-payment-totals small {
+  color: #9bc3bc;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+}
+
+.traveler-payment-list {
+  display: grid;
+  margin-top: 12px;
+}
+
+.traveler-payment-list article {
+  display: grid;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--portal-line);
+  grid-template-columns: 1fr auto auto;
+  gap: 18px;
+  align-items: center;
+}
+
+.traveler-payment-list article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.traveler-payment-list small {
+  color: var(--portal-muted);
+}
+
+.traveler-payment-list span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #8b6512;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: #fff0c6;
+}
+
+.traveler-payment-list span[data-status="paid"] {
+  color: #087658;
+  background: #d8f8ec;
+}
+
+.traveler-payment-boundary {
+  display: block;
+  margin-top: 18px;
+  color: var(--portal-muted);
+}
+
+.traveler-portal-documents > div {
+  display: grid;
+  gap: 9px;
+}
+
+.traveler-portal-documents article {
+  display: grid;
+  padding: 16px 18px;
+  border: 1px solid var(--portal-line);
+  border-radius: 12px;
+  grid-template-columns: 90px 1fr auto;
+  gap: 18px;
+  align-items: center;
+  background: #fff;
+}
+
+.traveler-portal-documents article div {
+  display: grid;
+  gap: 3px;
+}
+
+.traveler-portal-documents article small {
+  color: var(--portal-muted);
+}
+
+.traveler-portal-documents article a {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-decoration: none;
+  background: var(--portal-teal);
+}
+
+.traveler-portal-empty {
+  margin: 0;
+  padding: 22px;
+  border: 1px dashed #b9ccca;
+  border-radius: 12px;
+  color: var(--portal-muted);
+  background: rgb(255 255 255 / 55%);
+}
+
+.traveler-portal-footer {
+  display: grid;
+  padding: 52px 0 70px;
+  border-top: 1px solid var(--portal-line);
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: end;
+}
+
+.traveler-portal-footer div {
+  display: grid;
+  gap: 8px;
+}
+
+.traveler-portal-footer span {
+  color: var(--portal-teal);
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.15em;
+}
+
+.traveler-portal-footer b {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.7rem;
+  font-weight: 500;
+}
+
+.traveler-portal-footer p {
+  margin: 0;
+  color: var(--portal-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 820px) {
+  .traveler-portal-nav {
+    grid-template-columns: 1fr auto;
+  }
+
+  .traveler-portal-nav > div {
+    display: none;
+  }
+
+  .traveler-portal-hero {
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .traveler-portal-hero aside {
+    border-radius: 22px;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+  }
+
+  .traveler-portal-hero aside i {
+    width: 54px;
+    height: 1px;
+  }
+
+  .traveler-portal-trust {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .traveler-portal-trust > p {
+    grid-column: 1 / -1;
+  }
+
+  .traveler-payment-totals article {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .traveler-portal-hero,
+  .traveler-portal-trust,
+  .traveler-portal-party,
+  .traveler-portal-itinerary,
+  .traveler-portal-services,
+  .traveler-portal-payments,
+  .traveler-portal-documents,
+  .traveler-portal-footer {
+    width: min(100% - 24px, 1180px);
+  }
+
+  .traveler-portal-nav {
+    min-height: 62px;
+    padding-inline: 14px;
+  }
+
+  .traveler-portal-nav > small {
+    font-size: 0.55rem;
+  }
+
+  .traveler-portal-hero {
+    gap: 34px;
+    padding: 62px 0;
+  }
+
+  .traveler-portal-trust {
+    grid-template-columns: 1fr;
+    margin-bottom: 54px;
+  }
+
+  .traveler-portal-trust > p {
+    grid-column: auto;
+  }
+
+  .traveler-portal-party,
+  .traveler-portal-itinerary,
+  .traveler-portal-services,
+  .traveler-portal-payments,
+  .traveler-portal-documents {
+    padding: 58px 0;
+  }
+
+  .traveler-day-list > article,
+  .traveler-day-list section,
+  .traveler-payment-totals article,
+  .traveler-payment-list article,
+  .traveler-portal-documents article,
+  .traveler-portal-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .traveler-day-list section {
+    gap: 7px;
+  }
+
+  .traveler-portal-documents article a {
+    text-align: center;
+  }
+}

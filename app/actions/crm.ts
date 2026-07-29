@@ -1,5 +1,7 @@
 "use server";
 
+import { createHash, randomBytes } from "node:crypto";
+
 import { recordAuditEvent } from "../../lib/audit";
 import {
   requireActiveMembership,
@@ -44,6 +46,9 @@ import {
   tripDraftInputSchema,
   tripDocumentDownloadSchema,
   tripDocumentUploadSchema,
+  travelerPortalApprovalSchema,
+  travelerPortalPublishSchema,
+  travelerPortalRevokeSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
   tripOperationsUpdateSchema,
@@ -103,6 +108,9 @@ import {
   type TripDraftInput,
   type TripDocumentDownloadInput,
   type TripDocumentUploadInput,
+  type TravelerPortalApprovalInput,
+  type TravelerPortalPublishInput,
+  type TravelerPortalRevokeInput,
   type OperationalExceptionStatusInput,
   type OperationsRadarRefreshInput,
   type TripOperationsUpdateInput,
@@ -164,6 +172,12 @@ const DOCUMENT_WRITE_ROLES = [
   "trip_designer",
   "operations",
   "agent",
+] as const;
+const PORTAL_PUBLISH_ROLES = [
+  "owner",
+  "admin",
+  "trip_designer",
+  "operations",
 ] as const;
 const TRIP_PLANNING_ROLES = [
   "owner",
@@ -2088,7 +2102,22 @@ export async function uploadTripDocument(
     await admin.storage.from("travel-documents").remove([storagePath]);
     throw new Error("The trip document record could not be created.");
   }
-  return document;
+  const { data: classifiedDocument, error: classificationError } =
+    await supabase
+      .rpc("classify_trip_document", {
+        target_organization_id: data.organizationId,
+        target_trip_id: data.tripId,
+        target_document_id: document.id,
+        target_document_kind: data.documentKind,
+      })
+      .single();
+  if (classificationError || !classifiedDocument) {
+    const admin = createSupabaseAdminClient();
+    await admin.from("documents").delete().eq("id", document.id);
+    await admin.storage.from("travel-documents").remove([storagePath]);
+    throw new Error("The trip document could not be classified safely.");
+  }
+  return classifiedDocument;
 }
 
 /** Issues a short-lived, RLS-authorized download URL for a private trip file. */
@@ -2115,6 +2144,167 @@ export async function createTripDocumentDownload(
   if (signedError || !signed?.signedUrl)
     throw new Error("The secure download link could not be created.");
   return { url: signed.signedUrl, expiresInSeconds: 60 };
+}
+
+/**
+ * Requests a non-bypassable human decision for one frozen traveler-portal
+ * scope. No link or customer-visible state is created at this step.
+ */
+export async function requestTravelerPortalApproval(
+  input: TravelerPortalApprovalInput,
+) {
+  const data = travelerPortalApprovalSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DOCUMENT_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+
+  const { data: trip, error: tripError } = await supabase
+    .from("trips")
+    .select("id")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.tripId)
+    .maybeSingle();
+  if (tripError || !trip)
+    throw new Error("This trip is not available in the workspace.");
+
+  if (data.documentIds.length > 0) {
+    const { data: documents, error: documentsError } = await supabase
+      .from("documents")
+      .select("id, sensitivity, document_kind")
+      .eq("organization_id", data.organizationId)
+      .eq("trip_id", data.tripId)
+      .in("id", data.documentIds);
+    const shareableKinds = new Set([
+      "voucher",
+      "ticket",
+      "insurance",
+      "visa",
+      "other",
+    ]);
+    if (
+      documentsError ||
+      documents?.length !== data.documentIds.length ||
+      documents.some(
+        (document) =>
+          document.sensitivity !== "normal" ||
+          !shareableKinds.has(document.document_kind),
+      )
+    ) {
+      throw new Error(
+        "Only selected, normal-sensitivity traveler documents can be shared.",
+      );
+    }
+  }
+
+  const { data: existingReview } = await supabase
+    .from("approval_requests")
+    .select("id, status")
+    .eq("organization_id", data.organizationId)
+    .eq("action", "document.share")
+    .eq("entity_type", "trip")
+    .eq("entity_id", data.tripId)
+    .in("status", ["pending", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingReview) {
+    const { data: existingPortal } = await supabase
+      .from("trip_portal_links")
+      .select("id")
+      .eq("organization_id", data.organizationId)
+      .eq("approval_request_id", existingReview.id)
+      .maybeSingle();
+    if (!existingPortal) {
+      throw new Error(
+        existingReview.status === "pending"
+          ? "This trip already has a traveler-share request awaiting review."
+          : "Publish the already-approved traveler portal before requesting another.",
+      );
+    }
+  }
+
+  const portalExpiresAt = new Date(
+    Date.now() + data.durationDays * 86_400_000,
+  ).toISOString();
+  const decision = await gateAiosAction({
+    organizationId: data.organizationId,
+    action: "document.share",
+    entityType: "trip",
+    entityId: data.tripId,
+    payload: {
+      schema_version: 1,
+      document_ids: data.documentIds,
+      include_payment_status: data.includePaymentStatus,
+      portal_expires_at: portalExpiresAt,
+    },
+    rationale:
+      "Publish an expiring traveler portal with only the explicitly reviewed snapshot and files.",
+  });
+  if (decision.decision !== "approval_required") {
+    throw new Error(
+      decision.reason ||
+        "Traveler sharing is unavailable until a human approval can be routed.",
+    );
+  }
+  return decision;
+}
+
+/**
+ * Publishes or safely rotates a portal token only after the database verifies
+ * the exact trip-scoped approval. The raw token is returned once and is never
+ * persisted.
+ */
+export async function publishTravelerPortal(
+  input: TravelerPortalPublishInput,
+) {
+  const data = travelerPortalPublishSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, PORTAL_PUBLISH_ROLES);
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const supabase = await createSupabaseServerClient();
+  const { data: portal, error } = await supabase
+    .rpc("publish_traveler_portal", {
+      target_organization_id: data.organizationId,
+      target_trip_id: data.tripId,
+      target_approval_id: data.approvalId,
+      target_token_hash: tokenHash,
+    })
+    .single();
+  if (error || !portal)
+    throw new Error(
+      error?.message ||
+        "The approved traveler portal could not be published.",
+    );
+  return {
+    id: portal.id,
+    status: portal.status,
+    expiresAt: portal.expires_at,
+    path: `/portal/${rawToken}`,
+  };
+}
+
+/** Immediately invalidates an active traveler link with human evidence. */
+export async function revokeTravelerPortal(
+  input: TravelerPortalRevokeInput,
+) {
+  const data = travelerPortalRevokeSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, PORTAL_PUBLISH_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: portal, error } = await supabase
+    .rpc("revoke_traveler_portal", {
+      target_organization_id: data.organizationId,
+      target_portal_link_id: data.portalLinkId,
+      target_note: data.note,
+    })
+    .single();
+  if (error || !portal)
+    throw new Error(
+      error?.message || "The traveler portal could not be revoked.",
+    );
+  return {
+    id: portal.id,
+    status: portal.status,
+    revokedAt: portal.revoked_at,
+  };
 }
 
 /**

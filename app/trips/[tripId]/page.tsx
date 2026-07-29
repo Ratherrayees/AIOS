@@ -96,6 +96,13 @@ type Document = {
   file_name: string;
   mime_type: string;
   byte_size: number;
+  document_kind:
+    | "voucher"
+    | "ticket"
+    | "insurance"
+    | "visa"
+    | "identity"
+    | "other";
   expires_at: string | null;
   created_at: string;
 };
@@ -282,7 +289,7 @@ export default function TripWorkspacePage() {
         supabase
           .from("documents")
           .select(
-            "id, file_name, mime_type, byte_size, expires_at, created_at",
+            "id, file_name, mime_type, byte_size, document_kind, expires_at, created_at",
           )
           .eq("organization_id", membership.organization_id)
           .eq("trip_id", tripId)
@@ -601,6 +608,13 @@ export default function TripWorkspacePage() {
           {
             organizationId,
             tripId,
+            documentKind: String(form.get("documentKind")) as
+              | "voucher"
+              | "ticket"
+              | "insurance"
+              | "visa"
+              | "identity"
+              | "other",
             expiresAt: String(form.get("expiresAt") || "") || null,
           },
           form,
@@ -670,6 +684,7 @@ export default function TripWorkspacePage() {
       <FeatureHeader
         links={[
           { href: "/trips", label: "Trip Operations" },
+          { href: `/trips/${trip.id}/portal`, label: "Traveler sharing" },
           { href: "/finance", label: "Suppliers & Finance" },
           { href: "/itineraries", label: "Itinerary Studio" },
           { href: "/tasks", label: "Tasks" },
@@ -723,7 +738,7 @@ export default function TripWorkspacePage() {
             }
           </b>
         </div>
-        <Link href="/itineraries">Open itinerary studio →</Link>
+        <Link href={`/trips/${trip.id}/portal`}>Manage traveler sharing →</Link>
       </section>
 
       <div className="trip-ops-layout">
@@ -1051,6 +1066,17 @@ export default function TripWorkspacePage() {
                   aria-label="Private trip document"
                 />
                 <label>
+                  Document type
+                  <select name="documentKind" defaultValue="voucher">
+                    <option value="voucher">Voucher</option>
+                    <option value="ticket">Ticket</option>
+                    <option value="insurance">Insurance</option>
+                    <option value="visa">Visa</option>
+                    <option value="identity">Identity · private only</option>
+                    <option value="other">Other traveler file</option>
+                  </select>
+                </label>
+                <label>
                   Expiry
                   <input name="expiresAt" type="date" />
                 </label>
@@ -1067,6 +1093,7 @@ export default function TripWorkspacePage() {
                     <div>
                       <b>{document.file_name}</b>
                       <small>
+                        {document.document_kind.replace("_", " ")} ·{" "}
                         {bytesLabel(document.byte_size)}
                         {document.expires_at
                           ? ` · ${expired ? "Expired" : `expires ${document.expires_at}`}`

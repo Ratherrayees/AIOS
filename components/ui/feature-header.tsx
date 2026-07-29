@@ -137,6 +137,25 @@ const guides: GuideDefinition[] = [
     action: { href: "/quotes", label: "Open quotes" },
   },
   {
+    match: (pathname) =>
+      /^\/trips\/[^/]+\/portal$/.test(pathname),
+    eyebrow: "OPERATIONS · TRAVELER SHARING",
+    title: "Share a deliberate snapshot, never the back office.",
+    purpose:
+      "Traveler portals expose only reviewed journey details, customer payment status and explicitly selected files.",
+    nextAction:
+      "Choose the exact scope, record a human approval, publish the expiring link and revoke it when access is no longer needed.",
+    aiosRole:
+      "AIOS may prepare the scope; it cannot approve, publish, rotate or revoke traveler access on its own.",
+    activeStage: "operate",
+    capabilities: [
+      { label: "Human approved", tone: "approval" },
+      { label: "Expiring snapshot", tone: "guided" },
+      { label: "Private internals", tone: "internal" },
+    ],
+    action: { href: "/aios", label: "Review approval queue" },
+  },
+  {
     match: (pathname) => pathname.startsWith("/trips"),
     eyebrow: "OPERATIONS · TRIP DELIVERY",
     title: "Operate a won journey from confirmation to completion.",

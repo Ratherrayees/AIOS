@@ -30,6 +30,9 @@ import {
   tripBookingInputSchema,
   tripDocumentDownloadSchema,
   tripDocumentUploadSchema,
+  travelerPortalApprovalSchema,
+  travelerPortalPublishSchema,
+  travelerPortalRevokeSchema,
   tripDraftInputSchema,
   tripOperationsUpdateSchema,
   tripStatusUpdateSchema,
@@ -791,6 +794,7 @@ test("trip document metadata requires bounded tenant identities", () => {
     tripDocumentUploadSchema.safeParse({
       organizationId,
       tripId,
+      documentKind: "voucher",
       expiresAt: "2027-01-01",
     }).success,
     true,
@@ -800,6 +804,47 @@ test("trip document metadata requires bounded tenant identities", () => {
       organizationId,
       tripId,
       documentId: "not-a-document",
+    }).success,
+    false,
+  );
+});
+
+test("traveler portals require bounded, unique, human-reviewed scope", () => {
+  const tripId = crypto.randomUUID();
+  const documentId = crypto.randomUUID();
+  assert.equal(
+    travelerPortalApprovalSchema.safeParse({
+      organizationId,
+      tripId,
+      documentIds: [documentId],
+      includePaymentStatus: true,
+      durationDays: 7,
+    }).success,
+    true,
+  );
+  assert.equal(
+    travelerPortalApprovalSchema.safeParse({
+      organizationId,
+      tripId,
+      documentIds: [documentId, documentId],
+      includePaymentStatus: true,
+      durationDays: 31,
+    }).success,
+    false,
+  );
+  assert.equal(
+    travelerPortalPublishSchema.safeParse({
+      organizationId,
+      tripId,
+      approvalId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    travelerPortalRevokeSchema.safeParse({
+      organizationId,
+      portalLinkId: crypto.randomUUID(),
+      note: " ",
     }).success,
     false,
   );

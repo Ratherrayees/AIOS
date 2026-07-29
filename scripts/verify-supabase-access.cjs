@@ -47,6 +47,8 @@ const protectedTables = [
   "payments",
   "payment_allocations",
   "documents",
+  "trip_portal_links",
+  "trip_portal_documents",
   "itinerary_templates",
   "itinerary_template_items",
   "itinerary_comments",
@@ -75,7 +77,7 @@ async function readTableCount(client, table, attempts = 3) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     result = await client
       .from(table)
-      .select("id", { count: "exact", head: true });
+      .select("*", { count: "exact", head: true });
     if (!result.error) return { ...result, attempts: attempt };
     if (attempt < attempts) {
       await new Promise((resolve) => setTimeout(resolve, attempt * 100));
@@ -264,6 +266,43 @@ async function verify() {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
     },
   );
+  const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
+    "classify_trip_document",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_document_id: "33333333-3333-4333-8333-333333333333",
+      target_document_kind: "voucher",
+    },
+  );
+  const { error: anonymousPortalPublishError } = await anonymous.rpc(
+    "publish_traveler_portal",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_approval_id: "33333333-3333-4333-8333-333333333333",
+      target_token_hash: "0".repeat(64),
+    },
+  );
+  const { error: anonymousPortalRevokeError } = await anonymous.rpc(
+    "revoke_traveler_portal",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_portal_link_id: "22222222-2222-4222-8222-222222222222",
+      target_note: "Blocked anonymous request",
+    },
+  );
+  const { error: anonymousPortalSnapshotError } = await anonymous.rpc(
+    "get_traveler_portal_snapshot",
+    { target_token_hash: "0".repeat(64) },
+  );
+  const { error: anonymousPortalDocumentError } = await anonymous.rpc(
+    "get_traveler_portal_document",
+    {
+      target_token_hash: "0".repeat(64),
+      target_document_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -346,6 +385,34 @@ async function verify() {
       function: "refresh_payment_obligation_statuses",
       anonymousExecutionBlocked: Boolean(anonymousPaymentRefreshError),
       anonymousErrorCode: anonymousPaymentRefreshError?.code ?? null,
+    },
+    {
+      function: "classify_trip_document",
+      anonymousExecutionBlocked: Boolean(
+        anonymousDocumentClassificationError,
+      ),
+      anonymousErrorCode:
+        anonymousDocumentClassificationError?.code ?? null,
+    },
+    {
+      function: "publish_traveler_portal",
+      anonymousExecutionBlocked: Boolean(anonymousPortalPublishError),
+      anonymousErrorCode: anonymousPortalPublishError?.code ?? null,
+    },
+    {
+      function: "revoke_traveler_portal",
+      anonymousExecutionBlocked: Boolean(anonymousPortalRevokeError),
+      anonymousErrorCode: anonymousPortalRevokeError?.code ?? null,
+    },
+    {
+      function: "get_traveler_portal_snapshot",
+      anonymousExecutionBlocked: Boolean(anonymousPortalSnapshotError),
+      anonymousErrorCode: anonymousPortalSnapshotError?.code ?? null,
+    },
+    {
+      function: "get_traveler_portal_document",
+      anonymousExecutionBlocked: Boolean(anonymousPortalDocumentError),
+      anonymousErrorCode: anonymousPortalDocumentError?.code ?? null,
     },
   ];
 

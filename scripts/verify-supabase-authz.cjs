@@ -1063,6 +1063,245 @@ async function verifyAuthorization() {
       governedVoid.error?.message ?? null,
     );
 
+    activeVerificationPhase = "traveler portal authorization";
+    const portalReceivable = await owner
+      .rpc("create_payment_obligation", {
+        target_organization_id: organizationA.id,
+        target_direction: "receivable",
+        target_title: "Traveler journey balance",
+        target_amount: 5000,
+        target_currency: "INR",
+        target_trip_id: firstConversion.data.id,
+      })
+      .single();
+    if (portalReceivable.error || !portalReceivable.data)
+      throw portalReceivable.error ??
+        new Error("Traveler portal receivable fixture was not created.");
+
+    const portalExpiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const approvalExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    const { data: portalApproval, error: portalApprovalError } = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "document.share",
+        entity_type: "trip",
+        entity_id: firstConversion.data.id,
+        payload: {
+          schema_version: 1,
+          document_ids: [],
+          include_payment_status: true,
+          portal_expires_at: portalExpiresAt,
+        },
+        rationale: "Authorization traveler portal fixture.",
+        expires_at: approvalExpiresAt,
+      })
+      .select("id")
+      .single();
+    if (portalApprovalError || !portalApproval)
+      throw portalApprovalError ??
+        new Error("Traveler portal approval fixture was not created.");
+
+    const directPortalInsert = await owner.from("trip_portal_links").insert({
+      organization_id: organizationA.id,
+      trip_id: firstConversion.data.id,
+      approval_request_id: portalApproval.id,
+      token_hash: randomBytes(32).toString("hex"),
+      snapshot: {},
+      expires_at: portalExpiresAt,
+    });
+    record(
+      "browser clients cannot publish traveler links directly",
+      Boolean(directPortalInsert.error),
+    );
+
+    const pendingPortalPublish = await owner.rpc(
+      "publish_traveler_portal",
+      {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_approval_id: portalApproval.id,
+        target_token_hash: randomBytes(32).toString("hex"),
+      },
+    );
+    record(
+      "traveler portal publishing requires a resolved human approval",
+      Boolean(pendingPortalPublish.error),
+    );
+
+    const resolvedPortalApproval = await owner
+      .rpc("resolve_approval_request", {
+        target_organization_id: organizationA.id,
+        target_approval_id: portalApproval.id,
+        target_decision: "approved",
+      })
+      .single();
+    record(
+      "authorized human can approve the exact traveler portal scope",
+      !resolvedPortalApproval.error &&
+        resolvedPortalApproval.data?.resolved_status === "approved",
+      resolvedPortalApproval.error?.message ?? null,
+    );
+
+    const blockedViewerPortalPublish = await viewer.rpc(
+      "publish_traveler_portal",
+      {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_approval_id: portalApproval.id,
+        target_token_hash: randomBytes(32).toString("hex"),
+      },
+    );
+    record(
+      "foreign viewers cannot publish another workspace traveler portal",
+      Boolean(blockedViewerPortalPublish.error),
+    );
+
+    const firstPortalTokenHash = randomBytes(32).toString("hex");
+    const publishedPortal = await owner
+      .rpc("publish_traveler_portal", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_approval_id: portalApproval.id,
+        target_token_hash: firstPortalTokenHash,
+      })
+      .single();
+    record(
+      "authorized operator publishes one expiring approved snapshot",
+      !publishedPortal.error &&
+        publishedPortal.data?.status === "active" &&
+        publishedPortal.data?.created_by === ownerUser.id &&
+        publishedPortal.data?.approved_by === ownerUser.id &&
+        publishedPortal.data?.token_hash === firstPortalTokenHash,
+      publishedPortal.error?.message ?? null,
+    );
+    if (publishedPortal.error || !publishedPortal.data)
+      throw publishedPortal.error ??
+        new Error("Traveler portal fixture was not published.");
+
+    const [viewerPortalRead, publicSnapshot] = await Promise.all([
+      viewer
+        .from("trip_portal_links")
+        .select("id")
+        .eq("id", publishedPortal.data.id),
+      admin.rpc("get_traveler_portal_snapshot", {
+        target_token_hash: firstPortalTokenHash,
+      }),
+    ]);
+    const snapshot =
+      publicSnapshot.data &&
+      typeof publicSnapshot.data === "object" &&
+      !Array.isArray(publicSnapshot.data)
+        ? publicSnapshot.data
+        : null;
+    record(
+      "foreign tenants cannot inspect traveler portal metadata",
+      !viewerPortalRead.error && viewerPortalRead.data?.length === 0,
+    );
+    record(
+      "service-only snapshot excludes internal context and supplier payables",
+      !publicSnapshot.error &&
+        snapshot?.trip?.name === firstConversion.data.name &&
+        snapshot?.operations_notes === undefined &&
+        snapshot?.supplier_terms === undefined &&
+        Array.isArray(snapshot?.receivables) &&
+        snapshot.receivables.length === 1 &&
+        snapshot.receivables[0].title === "Traveler journey balance" &&
+        snapshot.receivables[0].direction === undefined &&
+        Array.isArray(snapshot?.confirmed_services) &&
+        snapshot.confirmed_services.some(
+          (service) =>
+            service.confirmation_reference === "AUTHZ-HOTEL-42",
+        ),
+      publicSnapshot.error?.message ?? null,
+    );
+
+    const directPortalMutation = await owner
+      .from("trip_portal_links")
+      .update({ status: "revoked" })
+      .eq("id", publishedPortal.data.id)
+      .select("id");
+    record(
+      "browser clients cannot bypass traveler portal lifecycle",
+      Boolean(directPortalMutation.error) ||
+        directPortalMutation.data?.length === 0,
+    );
+
+    const replacementPortalTokenHash = randomBytes(32).toString("hex");
+    const rotatedPortal = await owner
+      .rpc("publish_traveler_portal", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_approval_id: portalApproval.id,
+        target_token_hash: replacementPortalTokenHash,
+      })
+      .single();
+    const [oldSnapshot, replacementSnapshot] = await Promise.all([
+      admin.rpc("get_traveler_portal_snapshot", {
+        target_token_hash: firstPortalTokenHash,
+      }),
+      admin.rpc("get_traveler_portal_snapshot", {
+        target_token_hash: replacementPortalTokenHash,
+      }),
+    ]);
+    record(
+      "replacement link rotation invalidates the earlier raw token",
+      !rotatedPortal.error &&
+        rotatedPortal.data?.id === publishedPortal.data.id &&
+        oldSnapshot.data === null &&
+        Boolean(replacementSnapshot.data),
+      rotatedPortal.error?.message ?? oldSnapshot.error?.message ?? null,
+    );
+
+    const viewerPortalRevoke = await viewer.rpc(
+      "revoke_traveler_portal",
+      {
+        target_organization_id: organizationA.id,
+        target_portal_link_id: publishedPortal.data.id,
+        target_note: "Blocked foreign revocation.",
+      },
+    );
+    record(
+      "foreign viewers cannot revoke another workspace traveler portal",
+      Boolean(viewerPortalRevoke.error),
+    );
+
+    const missingRevocationEvidence = await owner.rpc(
+      "revoke_traveler_portal",
+      {
+        target_organization_id: organizationA.id,
+        target_portal_link_id: publishedPortal.data.id,
+        target_note: " ",
+      },
+    );
+    record(
+      "traveler portal revocation requires human evidence",
+      Boolean(missingRevocationEvidence.error),
+    );
+
+    const revokedPortal = await owner
+      .rpc("revoke_traveler_portal", {
+        target_organization_id: organizationA.id,
+        target_portal_link_id: publishedPortal.data.id,
+        target_note: "Authorization access window closed.",
+      })
+      .single();
+    const revokedSnapshot = await admin.rpc(
+      "get_traveler_portal_snapshot",
+      { target_token_hash: replacementPortalTokenHash },
+    );
+    record(
+      "authorized operator revokes traveler access immediately",
+      !revokedPortal.error &&
+        revokedPortal.data?.status === "revoked" &&
+        revokedPortal.data?.revoked_by === ownerUser.id &&
+        Boolean(revokedPortal.data?.revoked_at) &&
+        revokedSnapshot.data === null,
+      revokedPortal.error?.message ?? revokedSnapshot.error?.message ?? null,
+    );
+
     const [ownerTripHistory, viewerForeignTrip, viewerTripHistory] =
       await Promise.all([
         owner

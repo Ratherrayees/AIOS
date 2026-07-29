@@ -593,6 +593,14 @@ export const tripBookingStatusUpdateSchema = z.object({
 export const tripDocumentUploadSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
+  documentKind: z.enum([
+    "voucher",
+    "ticket",
+    "insurance",
+    "visa",
+    "identity",
+    "other",
+  ]),
   expiresAt: z.iso.date().nullable().optional(),
 });
 
@@ -600,6 +608,34 @@ export const tripDocumentDownloadSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
   documentId: z.uuid(),
+});
+
+export const travelerPortalApprovalSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tripId: z.uuid(),
+    documentIds: z.array(z.uuid()).max(20),
+    includePaymentStatus: z.boolean(),
+    durationDays: z.number().int().min(1).max(30),
+  })
+  .refine(
+    (value) => new Set(value.documentIds).size === value.documentIds.length,
+    {
+      message: "Choose each traveler document only once.",
+      path: ["documentIds"],
+    },
+  );
+
+export const travelerPortalPublishSchema = z.object({
+  organizationId: z.uuid(),
+  tripId: z.uuid(),
+  approvalId: z.uuid(),
+});
+
+export const travelerPortalRevokeSchema = z.object({
+  organizationId: z.uuid(),
+  portalLinkId: z.uuid(),
+  note: z.string().trim().min(5).max(500),
 });
 
 export const operationsRadarRefreshSchema = z.object({
@@ -844,6 +880,15 @@ export type TripDocumentUploadInput = z.infer<
 >;
 export type TripDocumentDownloadInput = z.infer<
   typeof tripDocumentDownloadSchema
+>;
+export type TravelerPortalApprovalInput = z.infer<
+  typeof travelerPortalApprovalSchema
+>;
+export type TravelerPortalPublishInput = z.infer<
+  typeof travelerPortalPublishSchema
+>;
+export type TravelerPortalRevokeInput = z.infer<
+  typeof travelerPortalRevokeSchema
 >;
 export type OperationsRadarRefreshInput = z.infer<
   typeof operationsRadarRefreshSchema

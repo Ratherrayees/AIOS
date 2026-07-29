@@ -1293,6 +1293,7 @@ export type Database = {
           byte_size: number
           contact_id: string | null
           created_at: string
+          document_kind: string
           expires_at: string | null
           file_name: string
           id: string
@@ -1307,6 +1308,7 @@ export type Database = {
           byte_size: number
           contact_id?: string | null
           created_at?: string
+          document_kind?: string
           expires_at?: string | null
           file_name: string
           id?: string
@@ -1321,6 +1323,7 @@ export type Database = {
           byte_size?: number
           contact_id?: string | null
           created_at?: string
+          document_kind?: string
           expires_at?: string | null
           file_name?: string
           id?: string
@@ -3234,6 +3237,146 @@ export type Database = {
           },
         ]
       }
+      trip_portal_documents: {
+        Row: {
+          created_at: string
+          document_id: string
+          organization_id: string
+          portal_link_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          organization_id: string
+          portal_link_id: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          organization_id?: string
+          portal_link_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_portal_documents_document_same_organization_fkey"
+            columns: ["organization_id", "document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "trip_portal_documents_link_same_organization_fkey"
+            columns: ["organization_id", "portal_link_id"]
+            isOneToOne: false
+            referencedRelation: "trip_portal_links"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "trip_portal_documents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trip_portal_links: {
+        Row: {
+          approval_request_id: string
+          approved_by: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          organization_id: string
+          revocation_note: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          snapshot: Json
+          status: string
+          token_hash: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          approval_request_id: string
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at: string
+          id?: string
+          organization_id: string
+          revocation_note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          snapshot: Json
+          status?: string
+          token_hash: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          approval_request_id?: string
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          organization_id?: string
+          revocation_note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          snapshot?: Json
+          status?: string
+          token_hash?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_portal_links_approval_same_organization_fkey"
+            columns: ["organization_id", "approval_request_id"]
+            isOneToOne: false
+            referencedRelation: "approval_requests"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "trip_portal_links_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_portal_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_portal_links_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_portal_links_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_portal_links_trip_same_organization_fkey"
+            columns: ["organization_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       trip_status_history: {
         Row: {
           change_source: string
@@ -3534,6 +3677,35 @@ export type Database = {
           job_payload: Json
         }[]
       }
+      classify_trip_document: {
+        Args: {
+          target_document_id: string
+          target_document_kind: string
+          target_organization_id: string
+          target_trip_id: string
+        }
+        Returns: {
+          byte_size: number
+          contact_id: string | null
+          created_at: string
+          document_kind: string
+          expires_at: string | null
+          file_name: string
+          id: string
+          mime_type: string
+          organization_id: string
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          storage_path: string
+          trip_id: string | null
+          uploaded_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "documents"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       convert_won_deal_to_trip: {
         Args: { target_deal_id: string; target_organization_id: string }
         Returns: {
@@ -3688,6 +3860,18 @@ export type Database = {
           job_status: Database["public"]["Enums"]["ai_job_status"]
         }[]
       }
+      get_traveler_portal_document: {
+        Args: { target_document_id: string; target_token_hash: string }
+        Returns: {
+          file_name: string
+          mime_type: string
+          storage_path: string
+        }[]
+      }
+      get_traveler_portal_snapshot: {
+        Args: { target_token_hash: string }
+        Returns: Json
+      }
       has_organization_role: {
         Args: {
           permitted_roles: Database["public"]["Enums"]["app_role"][]
@@ -3710,6 +3894,37 @@ export type Database = {
           archived_contact_id: string
           surviving_contact_id: string
         }[]
+      }
+      publish_traveler_portal: {
+        Args: {
+          target_approval_id: string
+          target_organization_id: string
+          target_token_hash: string
+          target_trip_id: string
+        }
+        Returns: {
+          approval_request_id: string
+          approved_by: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          organization_id: string
+          revocation_note: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          snapshot: Json
+          status: string
+          token_hash: string
+          trip_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trip_portal_links"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       record_payment_allocation: {
         Args: {
@@ -3766,6 +3981,7 @@ export type Database = {
           byte_size: number
           contact_id: string | null
           created_at: string
+          document_kind: string
           expires_at: string | null
           file_name: string
           id: string
@@ -3798,6 +4014,7 @@ export type Database = {
           byte_size: number
           contact_id: string | null
           created_at: string
+          document_kind: string
           expires_at: string | null
           file_name: string
           id: string
@@ -3855,6 +4072,36 @@ export type Database = {
           approval_payload: Json
           resolved_status: Database["public"]["Enums"]["approval_status"]
         }[]
+      }
+      revoke_traveler_portal: {
+        Args: {
+          target_note: string
+          target_organization_id: string
+          target_portal_link_id: string
+        }
+        Returns: {
+          approval_request_id: string
+          approved_by: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          organization_id: string
+          revocation_note: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          snapshot: Json
+          status: string
+          token_hash: string
+          trip_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trip_portal_links"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       set_deal_qualification_check: {
         Args: {
