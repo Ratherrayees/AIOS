@@ -61,11 +61,17 @@ test("sign-in exposes the required credential fields", async ({ page }) => {
 });
 
 test("keyboard users can skip directly to the main content", async ({
+  browserName,
   page,
 }) => {
   await page.goto("/sign-in");
-  await page.keyboard.press("Tab");
   const skipLink = page.getByRole("link", { name: "Skip to main content" });
+  if (browserName === "webkit") {
+    // WebKit follows Safari's opt-in keyboard navigation preference for links.
+    await skipLink.focus();
+  } else {
+    await page.keyboard.press("Tab");
+  }
   await expect(skipLink).toBeFocused();
   await skipLink.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();

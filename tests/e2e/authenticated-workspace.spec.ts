@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Cookie, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { travelerPortalSnapshotSchema } from "../../lib/crm/traveler-portal";
@@ -28,13 +28,19 @@ let operationalTripId = "";
 let operationalVoucherId = "";
 let teammateUserId = "";
 let teammateMembershipId = "";
+let sessionCookies: Cookie[] = [];
 const teammateName = "Authenticated E2E Teammate";
 
 async function signIn(page: Page) {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email address").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: /sign in/i }).click();
+  if (sessionCookies.length > 0) {
+    await page.context().addCookies(sessionCookies);
+    await page.goto("/");
+  } else {
+    await page.goto("/sign-in");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+  }
   await expect(page).toHaveURL("/");
   await expect(
     page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
@@ -82,6 +88,7 @@ test.describe("authenticated owner workspace", () => {
   test.beforeAll(async () => {
     if (!supabaseUrl || !supabaseKey) return;
 
+    sessionCookies = [];
     const suffix = `${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -266,6 +273,7 @@ test.describe("authenticated owner workspace", () => {
         name: /Authenticated E2E Owner Owner · Sign out/i,
       }),
     ).toBeVisible();
+    sessionCookies = await page.context().cookies();
     await expect(
       page.getByRole("heading", { name: "Make AIOS fit your agency" }),
     ).toBeVisible();
@@ -424,11 +432,7 @@ test.describe("authenticated owner workspace", () => {
   test("records response, advances a governed deal, and exposes analytics", async ({
     page,
   }) => {
-    await page.goto("/sign-in");
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL("/");
+    await signIn(page);
 
     await page.goto(`/leads/${dealId}`);
     await page.getByRole("button", { name: "Mark first response" }).click();
@@ -470,11 +474,7 @@ test.describe("authenticated owner workspace", () => {
   test("resolves a human approval and secures a traveller document", async ({
     page,
   }) => {
-    await page.goto("/sign-in");
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL("/");
+    await signIn(page);
 
     await page.goto("/aios");
     const approvalCard = page
@@ -543,11 +543,7 @@ test.describe("authenticated owner workspace", () => {
     const qualificationName = `E2E premium qualification ${Date.now()}`;
     const sequenceName = `E2E qualified momentum ${Date.now()}`;
 
-    await page.goto("/sign-in");
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL("/");
+    await signIn(page);
 
     await page.goto("/settings/sales-workflows");
     await page.getByLabel("Qualification template name").fill(
@@ -660,11 +656,7 @@ test.describe("authenticated owner workspace", () => {
   test("moves a pipeline card by governed drag and accessible stage selection", async ({
     page,
   }) => {
-    await page.goto("/sign-in");
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL("/");
+    await signIn(page);
 
     await page
       .locator("button.nav-link")
@@ -3329,6 +3321,7 @@ test.describe("authenticated owner workspace", () => {
       }
     });
     await signIn(page);
+    await page.waitForLoadState("networkidle");
     for (const route of [
       "/",
       "/contacts",
@@ -3349,7 +3342,7 @@ test.describe("authenticated owner workspace", () => {
       "/settings/security",
       `/leads/${dealId}`,
     ]) {
-      await page.goto(route);
+      await page.goto(route, { waitUntil: "networkidle" });
       await expect(page.locator("#main-content")).toBeVisible();
     }
     expect(browserProblems).toEqual([]);

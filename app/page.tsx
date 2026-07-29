@@ -887,7 +887,7 @@ export default function Home() {
   }
 
   function moveLeadToStage(lead: Lead, stage: PipelineStage) {
-    if (!organizationId || isMoving || movingLeadId) return;
+    if (!organizationId || movingLeadId) return;
     if (!isAllowedPipelineTransition(lead.databaseStage, stage)) {
       setToast(
         `${PIPELINE_STAGE_LABELS[stage]} is not a legal adjacent move from ${lead.stage}.`,
@@ -937,7 +937,7 @@ export default function Home() {
     lead: Lead,
     event: ReactDragEvent<HTMLElement>,
   ) {
-    if (isMoving || movingLeadId) {
+    if (movingLeadId) {
       event.preventDefault();
       return;
     }
