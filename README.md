@@ -21,6 +21,8 @@ npm run typecheck
 npm run build
 npm audit --audit-level=high
 npm run test:e2e        # public-route browser suite
+npm run test:webhook    # signed local contract; requires build + local Supabase
+npm run test:load       # bounded local production smoke; requires build + local Supabase
 npm run verify:supabase # requires a configured local .env.local
 npm run verify:authz    # creates and removes isolated test fixtures
 npm run db:types        # requires the local Supabase stack
@@ -37,6 +39,7 @@ Security and operations references:
 - `docs/credential-rotation.md`
 - `docs/database-recovery.md`
 - `docs/database-seeding.md`
+- `docs/load-testing.md`
 
 ## Architecture
 

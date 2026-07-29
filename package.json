@@ -11,6 +11,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "test:ai-evals": "tsx scripts/run-ai-evaluations.ts",
     "test:e2e": "playwright test",
+    "test:load": "node scripts/run-load-smoke.cjs",
     "test:webhook": "node scripts/verify-resend-webhook.cjs",
     "db:types": "node scripts/generate-database-types.cjs",
     "verify:authz": "node scripts/verify-supabase-authz.cjs",

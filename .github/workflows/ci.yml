@@ -49,6 +49,7 @@ jobs:
           export SUPABASE_SECRET_KEY="$(echo "$LOCAL_STATUS" | jq -r .SECRET_KEY)"
           npm run build
           npm run test:webhook
+          npm run test:load
 
       - name: Stop local Supabase
         if: ${{ always() }}
