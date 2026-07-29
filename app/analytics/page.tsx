@@ -10,6 +10,7 @@ import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import {
   buildManagementIntelligence,
   buildPortfolioIntelligence,
+  buildGrowthIntelligence,
   type ManagementBooking,
   type ManagementException,
   type ManagementKnowledgeConflict,
@@ -28,8 +29,10 @@ import type { Json } from "../../types/database";
 import "./analytics.css";
 
 type AnalyticsRange = "30d" | "90d" | "365d" | "all";
+type ForecastHorizon = 30 | 90 | 365;
 type Deal = {
   id: string;
+  contact_id: string | null;
   owner_id: string | null;
   source: string | null;
   source_campaign: string | null;
@@ -113,6 +116,8 @@ export default function AnalyticsPage() {
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [selectedSavedViewId, setSelectedSavedViewId] = useState("");
   const [range, setRange] = useState<AnalyticsRange>("90d");
+  const [forecastHorizon, setForecastHorizon] =
+    useState<ForecastHorizon>(90);
   const [source, setSource] = useState("all");
   const [ownerId, setOwnerId] = useState("all");
   const [notice, setNotice] = useState("");
@@ -153,7 +158,7 @@ export default function AnalyticsPage() {
         supabase
           .from("deals")
           .select(
-            "id, owner_id, source, source_campaign, destination, next_step, expected_close_at, stage, value_amount, currency, probability, created_at, qualified_at, first_response_due_at, first_responded_at, won_at, lost_at",
+            "id, contact_id, owner_id, source, source_campaign, destination, next_step, expected_close_at, stage, value_amount, currency, probability, created_at, qualified_at, first_response_due_at, first_responded_at, won_at, lost_at",
           )
           .eq("organization_id", active.organization_id)
           .is("archived_at", null)
@@ -330,6 +335,14 @@ export default function AnalyticsPage() {
   const filteredHistory = useMemo(
     () => history.filter((item) => filteredIds.has(item.deal_id)),
     [filteredIds, history],
+  );
+  const growth = useMemo(
+    () =>
+      buildGrowthIntelligence(deals, {
+        now: filterTimestamp ? new Date(filterTimestamp) : new Date(),
+        horizonDays: forecastHorizon,
+      }),
+    [deals, filterTimestamp, forecastHorizon],
   );
 
   const won = filteredDeals.filter((deal) => deal.stage === "won");
@@ -837,6 +850,147 @@ export default function AnalyticsPage() {
               </div>
             </section>
           )}
+
+          <section
+            className="growth-intelligence"
+            aria-labelledby="growth-heading"
+          >
+            <header className="management-heading">
+              <div>
+                <p>FORWARD VIEW</p>
+                <h2 id="growth-heading">Forecast and customer return</h2>
+              </div>
+              <label className="forecast-horizon">
+                Forecast horizon
+                <select
+                  value={forecastHorizon}
+                  onChange={(event) =>
+                    setForecastHorizon(
+                      Number(event.target.value) as ForecastHorizon,
+                    )
+                  }
+                >
+                  <option value={30}>Next 30 days</option>
+                  <option value={90}>Next 90 days</option>
+                  <option value={365}>Next 365 days</option>
+                </select>
+              </label>
+            </header>
+            <div className="growth-grid">
+              <article className="analytics-panel forecast-panel">
+                <header>
+                  <div>
+                    <p>OWNER · SALES LEADERSHIP</p>
+                    <h2>Probability-weighted forecast</h2>
+                  </div>
+                  <span>
+                    Expected close from today through{" "}
+                    {new Date(
+                      `${growth.forecast.horizonDate}T00:00:00.000Z`,
+                    ).toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    })}
+                  </span>
+                </header>
+                {growth.forecast.currencies.length ? (
+                  <div className="analytics-table-wrap">
+                    <table>
+                      <caption>
+                        Open pipeline and weighted forecast by currency
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th>Currency</th>
+                          <th>Opportunities</th>
+                          <th>Open value</th>
+                          <th>Weighted forecast</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {growth.forecast.currencies.map((row) => (
+                          <tr key={row.currency}>
+                            <td>
+                              <b>{row.currency}</b>
+                            </td>
+                            <td>{row.opportunities}</td>
+                            <td>
+                              {currency(row.pipelineValue, row.currency)}
+                            </td>
+                            <td>
+                              {currency(row.weightedForecast, row.currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="analytics-empty compact">
+                    No complete open opportunities close inside this horizon.
+                  </div>
+                )}
+                <footer className="forecast-footer">
+                  <span>
+                    Missing value / close date{" "}
+                    <b>{growth.forecast.missingForecastInputs}</b>
+                  </span>
+                  <span>
+                    Overdue close dates{" "}
+                    <b>{growth.forecast.overdueCloseDates}</b>
+                  </span>
+                  <Link href="/?view=leads">Inspect forecast records →</Link>
+                </footer>
+                <div className="coverage-boundary">
+                  <span>PIPELINE COVERAGE</span>
+                  <b>Target not configured</b>
+                  <p>
+                    AIOS will not infer a sales target. Coverage starts only
+                    after leadership approves a currency and period target.
+                  </p>
+                </div>
+              </article>
+
+              <article className="analytics-panel retention-panel">
+                <header>
+                  <div>
+                    <p>OWNER · SALES & CUSTOMER SUCCESS</p>
+                    <h2>Repeat-customer evidence</h2>
+                  </div>
+                </header>
+                <div className="retention-primary">
+                  <b>
+                    {growth.retention.repeatCustomerRate === null
+                      ? "—"
+                      : `${Math.round(growth.retention.repeatCustomerRate)}%`}
+                  </b>
+                  <span>won customers who returned</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Customers with a win</dt>
+                    <dd>{growth.retention.wonCustomers}</dd>
+                  </div>
+                  <div>
+                    <dt>Customers with 2+ wins</dt>
+                    <dd>{growth.retention.repeatCustomers}</dd>
+                  </div>
+                  <div>
+                    <dt>Wins after the first</dt>
+                    <dd>{growth.retention.repeatWins}</dd>
+                  </div>
+                </dl>
+                <p className="retention-definition">
+                  A returning customer has at least two Won opportunities linked
+                  to the same contact. Open proposals and unlinked wins do not
+                  count.
+                </p>
+                <Link href="/contacts">Open customer records →</Link>
+              </article>
+            </div>
+          </section>
 
           <section className="sales-section-heading">
             <div>

@@ -2610,6 +2610,36 @@ test.describe("authenticated owner workspace", () => {
   test("explains live management intelligence and links every metric to its source workspace", async ({
     page,
   }) => {
+    const forecastSuffix = Date.now();
+    const { error: growthFixtureError } = await admin!.from("deals").insert([
+      {
+        organization_id: organizationIds[0],
+        contact_id: contactId,
+        owner_id: userId,
+        title: `E2E forecast opportunity ${forecastSuffix}`,
+        destination: "Kashmir, India",
+        stage: "proposal",
+        value_amount: 250000,
+        currency: "INR",
+        probability: 40,
+        next_step: "Review the commercial proposal",
+        expected_close_at: "2026-09-15",
+      },
+      {
+        organization_id: organizationIds[0],
+        contact_id: contactId,
+        owner_id: userId,
+        title: `E2E returning customer win ${forecastSuffix}`,
+        destination: "Goa, India",
+        stage: "won",
+        value_amount: 180000,
+        currency: "INR",
+        probability: 100,
+        won_at: "2026-07-28T12:00:00.000Z",
+      },
+    ]);
+    expect(growthFixtureError).toBeNull();
+
     await signIn(page);
     await page.goto("/analytics");
 
@@ -2635,6 +2665,12 @@ test.describe("authenticated owner workspace", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Data quality watch" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Probability-weighted forecast" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Repeat-customer evidence" }),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -2678,6 +2714,21 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("link", { name: "Review Inbox →" }),
     ).toHaveAttribute("href", "/inbox");
+
+    const forecastTable = page.getByRole("table", {
+      name: "Open pipeline and weighted forecast by currency",
+    });
+    const inrForecast = forecastTable.getByRole("row", { name: /INR/ });
+    await expect(inrForecast).toContainText("₹5,75,000");
+    await expect(inrForecast).toContainText("₹1,81,250");
+    await expect(page.locator(".retention-panel")).toContainText("100%");
+    await expect(page.getByText("Target not configured")).toBeVisible();
+
+    await page.getByLabel("Forecast horizon").selectOption("30");
+    await expect(inrForecast).toContainText("₹3,25,000");
+    await expect(inrForecast).toContainText("₹81,250");
+    await page.getByLabel("Forecast horizon").selectOption("90");
+    await expect(inrForecast).toContainText("₹5,75,000");
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({

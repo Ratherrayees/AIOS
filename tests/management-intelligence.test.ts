@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildManagementIntelligence,
   buildPortfolioIntelligence,
+  buildGrowthIntelligence,
 } from "../lib/analytics/management-intelligence";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
@@ -377,4 +378,149 @@ test("portfolio margin normalizes invalid money without combining currencies", (
       costedQuotes: 1,
     },
   ]);
+});
+
+test("growth forecast is probability-weighted, horizon-bound, and currency-safe", () => {
+  const result = buildGrowthIntelligence(
+    [
+      {
+        stage: "proposal",
+        contact_id: "c1",
+        value_amount: 1000,
+        currency: "INR",
+        probability: 60,
+        expected_close_at: "2026-08-15",
+        won_at: null,
+      },
+      {
+        stage: "decision",
+        contact_id: "c2",
+        value_amount: 500,
+        currency: "USD",
+        probability: 150,
+        expected_close_at: "2026-09-01",
+        won_at: null,
+      },
+      {
+        stage: "qualified",
+        contact_id: "c3",
+        value_amount: 800,
+        currency: "INR",
+        probability: 50,
+        expected_close_at: "2027-01-01",
+        won_at: null,
+      },
+      {
+        stage: "new",
+        contact_id: "c4",
+        value_amount: null,
+        currency: "INR",
+        probability: 10,
+        expected_close_at: null,
+        won_at: null,
+      },
+      {
+        stage: "proposal",
+        contact_id: "c5",
+        value_amount: 200,
+        currency: "INR",
+        probability: 20,
+        expected_close_at: "2026-07-20",
+        won_at: null,
+      },
+    ],
+    { now, horizonDays: 90 },
+  );
+
+  assert.deepEqual(result.forecast, {
+    horizonDays: 90,
+    horizonDate: "2026-10-27",
+    currencies: [
+      {
+        currency: "INR",
+        pipelineValue: 1000,
+        weightedForecast: 600,
+        opportunities: 1,
+      },
+      {
+        currency: "USD",
+        pipelineValue: 500,
+        weightedForecast: 500,
+        opportunities: 1,
+      },
+    ],
+    forecastReadyOpportunities: 2,
+    missingForecastInputs: 1,
+    overdueCloseDates: 1,
+    targetCoverage: null,
+  });
+});
+
+test("repeat-customer evidence counts won customers, not duplicate open deals", () => {
+  const result = buildGrowthIntelligence(
+    [
+      {
+        stage: "won",
+        contact_id: "repeat",
+        value_amount: 100,
+        currency: "INR",
+        probability: 100,
+        expected_close_at: null,
+        won_at: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        stage: "won",
+        contact_id: "repeat",
+        value_amount: 200,
+        currency: "INR",
+        probability: 100,
+        expected_close_at: null,
+        won_at: "2026-02-01T00:00:00.000Z",
+      },
+      {
+        stage: "won",
+        contact_id: "single",
+        value_amount: 300,
+        currency: "USD",
+        probability: 100,
+        expected_close_at: null,
+        won_at: "2026-03-01T00:00:00.000Z",
+      },
+      {
+        stage: "proposal",
+        contact_id: "single",
+        value_amount: 400,
+        currency: "USD",
+        probability: 50,
+        expected_close_at: "2026-08-01",
+        won_at: null,
+      },
+      {
+        stage: "won",
+        contact_id: null,
+        value_amount: 500,
+        currency: "INR",
+        probability: 100,
+        expected_close_at: null,
+        won_at: "2026-04-01T00:00:00.000Z",
+      },
+    ],
+    { now, horizonDays: 30 },
+  );
+
+  assert.deepEqual(result.retention, {
+    wonCustomers: 2,
+    repeatCustomers: 1,
+    repeatWins: 1,
+    repeatCustomerRate: 50,
+  });
+});
+
+test("forecast horizon fails invalid input to the safe 90-day default", () => {
+  const result = buildGrowthIntelligence([], {
+    now,
+    horizonDays: Number.NaN,
+  });
+  assert.equal(result.forecast.horizonDays, 90);
+  assert.equal(result.forecast.horizonDate, "2026-10-27");
 });

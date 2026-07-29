@@ -115,6 +115,23 @@ export type CurrencyProfitability = {
   costedQuotes: number;
 };
 
+export type GrowthDeal = {
+  stage: string;
+  contact_id: string | null;
+  value_amount: number | null;
+  currency: string;
+  probability: number;
+  expected_close_at: string | null;
+  won_at: string | null;
+};
+
+export type CurrencyForecast = {
+  currency: string;
+  pipelineValue: number;
+  weightedForecast: number;
+  opportunities: number;
+};
+
 const activeTripStatuses = new Set<ManagementTrip["status"]>([
   "draft",
   "confirmed",
@@ -402,6 +419,104 @@ export function buildPortfolioIntelligence({
           supplier.status === "active" &&
           supplier.quality_rating === null,
       ).length,
+    },
+  };
+}
+
+export function buildGrowthIntelligence(
+  deals: GrowthDeal[],
+  {
+    now = new Date(),
+    horizonDays = 90,
+  }: { now?: Date; horizonDays?: number } = {},
+) {
+  const boundedHorizon = Number.isFinite(horizonDays)
+    ? Math.min(365, Math.max(1, Math.round(horizonDays)))
+    : 90;
+  const today = utcDateKey(now);
+  const horizonDate = utcDateKey(
+    new Date(now.getTime() + boundedHorizon * 86_400_000),
+  );
+  const openDeals = deals.filter((deal) => openDealStages.has(deal.stage));
+  const forecastByCurrency = new Map<string, CurrencyForecast>();
+  let missingForecastInputs = 0;
+  let overdueCloseDates = 0;
+
+  for (const deal of openDeals) {
+    if (deal.expected_close_at && deal.expected_close_at < today) {
+      overdueCloseDates += 1;
+    }
+    if (
+      !deal.expected_close_at ||
+      deal.value_amount === null ||
+      deal.value_amount <= 0
+    ) {
+      missingForecastInputs += 1;
+      continue;
+    }
+    if (
+      deal.expected_close_at < today ||
+      deal.expected_close_at > horizonDate
+    ) {
+      continue;
+    }
+    const currency = deal.currency.trim().toUpperCase();
+    if (!currency) continue;
+    const value = safeMoney(deal.value_amount);
+    const probability = Number.isFinite(deal.probability)
+      ? Math.min(100, Math.max(0, deal.probability))
+      : 0;
+    const current = forecastByCurrency.get(currency) ?? {
+      currency,
+      pipelineValue: 0,
+      weightedForecast: 0,
+      opportunities: 0,
+    };
+    current.pipelineValue += value;
+    current.weightedForecast += value * (probability / 100);
+    current.opportunities += 1;
+    forecastByCurrency.set(currency, current);
+  }
+
+  const winsByContact = new Map<string, number>();
+  for (const deal of deals) {
+    if (deal.stage !== "won" || !deal.contact_id) continue;
+    winsByContact.set(
+      deal.contact_id,
+      (winsByContact.get(deal.contact_id) ?? 0) + 1,
+    );
+  }
+  const wonCustomers = winsByContact.size;
+  const repeatCustomers = [...winsByContact.values()].filter(
+    (wins) => wins >= 2,
+  ).length;
+  const repeatWins = [...winsByContact.values()].reduce(
+    (sum, wins) => sum + Math.max(0, wins - 1),
+    0,
+  );
+
+  return {
+    forecast: {
+      horizonDays: boundedHorizon,
+      horizonDate,
+      currencies: [...forecastByCurrency.values()].sort((left, right) =>
+        left.currency.localeCompare(right.currency),
+      ),
+      forecastReadyOpportunities: [...forecastByCurrency.values()].reduce(
+        (sum, row) => sum + row.opportunities,
+        0,
+      ),
+      missingForecastInputs,
+      overdueCloseDates,
+      targetCoverage: null as number | null,
+    },
+    retention: {
+      wonCustomers,
+      repeatCustomers,
+      repeatWins,
+      repeatCustomerRate: wonCustomers
+        ? (repeatCustomers / wonCustomers) * 100
+        : null,
     },
   };
 }
