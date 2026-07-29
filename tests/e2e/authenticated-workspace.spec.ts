@@ -2240,6 +2240,7 @@ test.describe("authenticated owner workspace", () => {
     page,
   }) => {
     const sourceTitle = `Kyoto rail policy ${Date.now()}`;
+    const competingSourceTitle = `Kyoto supplier bulletin ${Date.now()}`;
     await signIn(page);
     await page.goto("/knowledge");
     await expect(
@@ -2252,7 +2253,7 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Source type").selectOption("destination_guide");
     await page.getByLabel("Authority").selectOption("official");
     await page.getByLabel("Sensitivity").selectOption("normal");
-    await page.getByLabel("Version").fill("2026.1");
+    await page.getByLabel("Version", { exact: true }).fill("2026.1");
     await page
       .getByLabel("HTTPS source link")
       .fill("https://example.com/kyoto-rail-policy");
@@ -2343,7 +2344,7 @@ test.describe("authenticated owner workspace", () => {
     await passageEditor
       .getByLabel("Evidence content")
       .fill(
-        "The 2026.2 Kyoto rail policy requires operator confirmation before any traveller-facing commitment.",
+        "The Kyoto rail policy requires operator confirmation 48 hours before any traveller-facing commitment.",
       );
     await passageEditor
       .getByLabel("Citation label")
@@ -2370,6 +2371,65 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByText("Kyoto rail policy §5")).toBeVisible();
     await expect(
       page.getByText(`${sourceTitle} · v2026.2 · official`),
+    ).toBeVisible();
+
+    await page.getByLabel("Source title").fill(competingSourceTitle);
+    await page.getByLabel("Source type").selectOption("destination_guide");
+    await page.getByLabel("Authority").selectOption("supplier");
+    await page.getByLabel("Sensitivity").selectOption("normal");
+    await page.getByLabel("Version", { exact: true }).fill("2026.1");
+    await page
+      .getByLabel("HTTPS source link")
+      .fill("https://example.com/kyoto-supplier-bulletin");
+    await page
+      .getByLabel("Curator summary")
+      .fill("Competing supplier timing for human review.");
+    await page
+      .getByRole("button", { name: "Create governed draft" })
+      .click();
+    await page
+      .getByLabel("Section heading")
+      .fill("Revised cancellation windows");
+    await page
+      .getByLabel("Evidence content")
+      .fill(
+        "The supplier bulletin requires operator confirmation 72 hours before any traveller-facing commitment.",
+      );
+    await page
+      .getByLabel("Citation label")
+      .fill("Kyoto supplier bulletin §2");
+    await page.getByRole("button", { name: "Add cited passage" }).click();
+    await page
+      .getByRole("button", { name: "Send to human review" })
+      .click();
+    await page
+      .getByRole("button", { name: "Approve for AIOS retrieval" })
+      .click();
+    await page
+      .getByRole("button", { name: "Scan current evidence" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "1 item need human attention",
+    );
+    const conflictQueue = page.locator(".knowledge-conflict-queue");
+    await expect(
+      conflictQueue.getByText("Review required", { exact: true }),
+    ).toBeVisible();
+    await expect(conflictQueue.getByText("48", { exact: true })).toBeVisible();
+    await expect(conflictQueue.getByText("72", { exact: true })).toBeVisible();
+    await conflictQueue
+      .getByLabel("Evidence note")
+      .fill(
+        "Official policy says 48 hours while the supplier bulletin says 72 hours.",
+      );
+    await conflictQueue
+      .getByRole("button", { name: "Record human review" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Conflict review recorded",
+    );
+    await expect(
+      conflictQueue.getByText("Human confirmed", { exact: true }),
     ).toBeVisible();
 
     await page
@@ -2421,6 +2481,22 @@ test.describe("authenticated owner workspace", () => {
       .eq("source_id", replacementSource!.id);
     expect(sectionError).toBeNull();
     expect(sections).toEqual([{ citation_label: "Kyoto rail policy §5" }]);
+    const { data: conflict, error: conflictError } = await admin!
+      .from("knowledge_conflicts")
+      .select("status, reviewed_by, resolution_note, signal")
+      .eq("organization_id", organizationIds[0])
+      .eq("status", "confirmed")
+      .single();
+    expect(conflictError).toBeNull();
+    expect(conflict).toMatchObject({
+      status: "confirmed",
+      reviewed_by: userId,
+      resolution_note:
+        "Official policy says 48 hours while the supplier bulletin says 72 hours.",
+    });
+    expect(conflict?.signal).toMatchObject({
+      reason: "factual_token_mismatch",
+    });
 
     const { data: answerRun, error: answerRunError } = await admin!
       .from("ai_runs")

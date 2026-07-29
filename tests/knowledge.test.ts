@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   isKnowledgeReviewStale,
+  knowledgeConflictReviewInputSchema,
+  knowledgeConflictSignalSchema,
   knowledgeRenewalInputSchema,
   knowledgeSearchInputSchema,
   knowledgeSearchResultSchema,
@@ -119,4 +121,35 @@ test("retrieval contracts preserve citations and explicit freshness", () => {
     isKnowledgeReviewStale(result.review_due_on, "2026-07-29"),
     true,
   );
+});
+
+test("knowledge conflict signals preserve both factual token sets", () => {
+  const signal = knowledgeConflictSignalSchema.parse({
+    reason: "factual_token_mismatch",
+    source_kind: "supplier_terms",
+    normalized_heading: "cancellation window",
+    left_tokens: ["48"],
+    right_tokens: ["72"],
+  });
+  assert.deepEqual(signal.left_tokens, ["48"]);
+  assert.deepEqual(signal.right_tokens, ["72"]);
+});
+
+test("knowledge conflict review requires a useful human evidence note", () => {
+  const rejected = knowledgeConflictReviewInputSchema.safeParse({
+    organizationId,
+    conflictId: "44444444-4444-4444-8444-444444444444",
+    status: "confirmed",
+    resolutionNote: "yes",
+  });
+  assert.equal(rejected.success, false);
+
+  const accepted = knowledgeConflictReviewInputSchema.parse({
+    organizationId,
+    conflictId: "44444444-4444-4444-8444-444444444444",
+    status: "dismissed",
+    resolutionNote:
+      "The amounts use different currencies and are both valid in context.",
+  });
+  assert.equal(accepted.status, "dismissed");
 });

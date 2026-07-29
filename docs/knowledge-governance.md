@@ -26,6 +26,23 @@ It is not a web crawler, a legal or immigration decision engine, or an external 
 
 Approved, in-review, and retired versions are immutable through the application. Passages can be revised or removed only while their source is a draft. Correct approved material through the controlled replacement workflow, not by silently rewriting what AIOS previously cited.
 
+## Conflict watch
+
+Curators can run a deterministic comparison across current approved passages.
+The detector creates a review item only when two different sources:
+
+- have the same source kind and normalized passage heading;
+- are both inside their human review window; and
+- contain different date, number, percentage, or currency-amount tokens.
+
+The detector does not claim that the sources truly disagree and never chooses a
+winner. The queue shows both complete passages, source versions, citations, and
+the exact factual tokens that triggered review. A curator either dismisses the
+signal with an evidence note or confirms that a source renewal is required.
+Confirmed conflicts stay visible until one competing source leaves current
+approved retrieval; a later scan then resolves the conflict automatically while
+preserving its review and audit history.
+
 ## Retrieval contract
 
 `search_approved_knowledge` always applies the signed-in user's tenant membership and sensitivity permissions. Each result contains:
@@ -78,6 +95,9 @@ question in its payload.
 - In the Answer Desk, inspect each claim and its cited passages before acting.
   “Needs human review” is an escalation, not permission to execute an external
   effect.
+- Run Conflict Watch after approving materially changed facts. A confirmed item
+  is corrected through source renewal, never by directly editing the conflict
+  record or approved passage.
 
 ## Release status
 
@@ -85,9 +105,11 @@ The current foundation supports manual curation, lifecycle review, immutable
 source renewal, draft passage revision/removal, permission-aware lexical
 retrieval, freshness queues, claim-level cited AI answers, deterministic
 unsupported/stale refusal, high-impact human escalation, durable model
-execution, and audit evidence. The grounding rules are covered by behavioral
+execution, conservative factual-token conflict detection, human conflict
+review, and audit evidence. The grounding rules are covered by behavioral
 and zero-provider adversarial evaluations; a fictional, non-CRM GLM-4.7-Flash
 smoke test also confirmed the provider adapter accepts the structured contract.
 Private file parsing, automated chunking, pgvector semantic retrieval where
-lexical search is insufficient, source-conflict resolution, bulk freshness
-policy, staging deployment, and product-owner acceptance remain Phase 17 work.
+lexical search is insufficient, richer semantic conflict detection, bulk
+freshness policy, staging deployment, and product-owner acceptance remain Phase
+17 work.

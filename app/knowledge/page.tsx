@@ -13,7 +13,9 @@ import {
   addKnowledgeSection,
   deleteKnowledgeSection,
   renewKnowledgeSource,
+  reviewKnowledgeConflict,
   saveKnowledgeSource,
+  scanKnowledgeConflicts,
   searchApprovedKnowledge,
   transitionKnowledgeSource,
   updateKnowledgeSection,
@@ -24,7 +26,10 @@ import {
 } from "../actions/knowledge-answer";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
-import type { KnowledgeSearchResult } from "../../lib/knowledge/schemas";
+import {
+  knowledgeConflictSignalSchema,
+  type KnowledgeSearchResult,
+} from "../../lib/knowledge/schemas";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Database } from "../../types/database";
@@ -34,6 +39,8 @@ type KnowledgeSource =
   Database["public"]["Tables"]["knowledge_sources"]["Row"];
 type KnowledgeSection =
   Database["public"]["Tables"]["knowledge_sections"]["Row"];
+type KnowledgeConflict =
+  Database["public"]["Tables"]["knowledge_conflicts"]["Row"];
 
 const curatorRoles = new Set([
   "owner",
@@ -95,6 +102,7 @@ export default function KnowledgePage() {
   const [role, setRole] = useState<string | null>(null);
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [sections, setSections] = useState<KnowledgeSection[]>([]);
+  const [conflicts, setConflicts] = useState<KnowledgeConflict[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState("");
   const [results, setResults] = useState<KnowledgeSearchResult[]>([]);
   const [answerResponse, setAnswerResponse] =
@@ -132,6 +140,10 @@ export default function KnowledgePage() {
         source.review_due_on < todayDate()),
   );
   const staleCount = staleSources.length;
+  const activeConflicts = conflicts.filter(
+    (conflict) =>
+      conflict.status === "open" || conflict.status === "confirmed",
+  );
   const selectedPredecessor = selectedSource?.supersedes_source_id
     ? sources.find(
         (source) => source.id === selectedSource.supersedes_source_id,
@@ -147,7 +159,7 @@ export default function KnowledgePage() {
 
   async function loadKnowledge(targetOrganizationId: string) {
     const supabase = createSupabaseBrowserClient();
-    const [sourceResult, sectionResult] = await Promise.all([
+    const [sourceResult, sectionResult, conflictResult] = await Promise.all([
       supabase
         .from("knowledge_sources")
         .select("*")
@@ -158,12 +170,18 @@ export default function KnowledgePage() {
         .select("*")
         .eq("organization_id", targetOrganizationId)
         .order("position"),
+      supabase
+        .from("knowledge_conflicts")
+        .select("*")
+        .eq("organization_id", targetOrganizationId)
+        .order("detected_at", { ascending: false }),
     ]);
-    if (sourceResult.error || sectionResult.error)
-      throw sourceResult.error ?? sectionResult.error;
+    if (sourceResult.error || sectionResult.error || conflictResult.error)
+      throw sourceResult.error ?? sectionResult.error ?? conflictResult.error;
     const nextSources = sourceResult.data ?? [];
     setSources(nextSources);
     setSections(sectionResult.data ?? []);
+    setConflicts(conflictResult.data ?? []);
     setSelectedSourceId((current) =>
       nextSources.some((source) => source.id === current)
         ? current
@@ -440,6 +458,68 @@ export default function KnowledgePage() {
     });
   }
 
+  function scanConflicts() {
+    if (!organizationId) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const nextConflicts = await scanKnowledgeConflicts({
+          organizationId,
+        });
+        setConflicts(nextConflicts);
+        const activeCount = nextConflicts.filter(
+          (conflict) =>
+            conflict.status === "open" || conflict.status === "confirmed",
+        ).length;
+        setNotice(
+          activeCount === 0
+            ? "Conflict scan complete. No current factual mismatches were found."
+            : `Conflict scan complete. ${activeCount} item${activeCount === 1 ? "" : "s"} need human attention.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "Knowledge conflicts could not be scanned.",
+        );
+      }
+    });
+  }
+
+  function submitConflictReview(
+    event: FormEvent<HTMLFormElement>,
+    conflictId: string,
+  ) {
+    event.preventDefault();
+    if (!organizationId) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        await reviewKnowledgeConflict({
+          organizationId,
+          conflictId,
+          status: String(formData.get("status")) as
+            | "confirmed"
+            | "dismissed",
+          resolutionNote: String(formData.get("resolutionNote") || ""),
+        });
+        form.reset();
+        await loadKnowledge(organizationId);
+        setNotice(
+          "Conflict review recorded. Confirmed conflicts remain visible until the source evidence is renewed.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The conflict review could not be recorded.",
+        );
+      }
+    });
+  }
+
   return (
     <main className="knowledge-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
@@ -508,6 +588,11 @@ export default function KnowledgePage() {
               <small>freshness attention</small>
             </article>
             <article>
+              <span>CONFLICTS</span>
+              <b>{activeConflicts.length}</b>
+              <small>competing evidence</small>
+            </article>
+            <article>
               <span>SECTIONS</span>
               <b>{sections.length}</b>
               <small>citation-ready passages</small>
@@ -567,6 +652,181 @@ export default function KnowledgePage() {
                   );
                 })}
               </div>
+            </section>
+          ) : null}
+
+          {canCurate ? (
+            <section
+              className="knowledge-conflict-queue"
+              aria-labelledby="conflict-queue-title"
+            >
+              <header>
+                <div>
+                  <p>CONFLICT WATCH</p>
+                  <h2 id="conflict-queue-title">
+                    Compare competing facts before AIOS uses them
+                  </h2>
+                  <span>
+                    The detector flags mismatched dates, numbers, or currency
+                    amounts in current approved passages with the same heading.
+                    A human still decides whether the sources truly conflict.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={scanConflicts}
+                  disabled={pending || approvedCount < 2}
+                >
+                  {pending ? "Scanningâ€¦" : "Scan current evidence"}
+                </button>
+              </header>
+              {activeConflicts.length > 0 ? (
+                <div className="knowledge-conflict-list">
+                  {activeConflicts.map((conflict) => {
+                    const leftSection = sections.find(
+                      (section) => section.id === conflict.left_section_id,
+                    );
+                    const rightSection = sections.find(
+                      (section) => section.id === conflict.right_section_id,
+                    );
+                    const leftSource = leftSection
+                      ? sources.find(
+                          (source) => source.id === leftSection.source_id,
+                        )
+                      : null;
+                    const rightSource = rightSection
+                      ? sources.find(
+                          (source) => source.id === rightSection.source_id,
+                        )
+                      : null;
+                    const signal = knowledgeConflictSignalSchema.safeParse(
+                      conflict.signal,
+                    );
+                    if (
+                      !leftSection ||
+                      !rightSection ||
+                      !leftSource ||
+                      !rightSource ||
+                      !signal.success
+                    )
+                      return null;
+                    return (
+                      <article key={conflict.id}>
+                        <header>
+                          <div>
+                            <span
+                              className={`conflict-state ${conflict.status}`}
+                            >
+                              {conflict.status === "confirmed"
+                                ? "Human confirmed"
+                                : "Review required"}
+                            </span>
+                            <h3>{leftSection.heading}</h3>
+                          </div>
+                          <small>
+                            Detected{" "}
+                            {new Intl.DateTimeFormat("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            }).format(new Date(conflict.detected_at))}
+                          </small>
+                        </header>
+                        <div className="conflict-comparison">
+                          {[
+                            {
+                              side: "SOURCE A",
+                              section: leftSection,
+                              source: leftSource,
+                              tokens: signal.data.left_tokens,
+                            },
+                            {
+                              side: "SOURCE B",
+                              section: rightSection,
+                              source: rightSource,
+                              tokens: signal.data.right_tokens,
+                            },
+                          ].map((item) => (
+                            <section key={item.section.id}>
+                              <span>{item.side}</span>
+                              <b>
+                                {item.source.title} Â· v
+                                {item.source.version_label}
+                              </b>
+                              <p>{item.section.content}</p>
+                              <div>
+                                {item.tokens.map((token) => (
+                                  <i key={token}>{token}</i>
+                                ))}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSourceId(item.source.id)
+                                }
+                              >
+                                Inspect source
+                              </button>
+                            </section>
+                          ))}
+                        </div>
+                        {conflict.status === "open" ? (
+                          <form
+                            onSubmit={(event) =>
+                              submitConflictReview(event, conflict.id)
+                            }
+                          >
+                            <label>
+                              Human decision
+                              <select name="status" defaultValue="confirmed">
+                                <option value="confirmed">
+                                  Confirm â€” source renewal required
+                                </option>
+                                <option value="dismissed">
+                                  Dismiss â€” not a real conflict
+                                </option>
+                              </select>
+                            </label>
+                            <label>
+                              Evidence note
+                              <textarea
+                                name="resolutionNote"
+                                minLength={6}
+                                maxLength={500}
+                                placeholder="Explain why these facts conflict or why both are valid in context."
+                                required
+                              />
+                            </label>
+                            <button type="submit" disabled={pending}>
+                              Record human review
+                            </button>
+                          </form>
+                        ) : (
+                          <p className="conflict-resolution">
+                            <b>Human evidence:</b> {conflict.resolution_note}
+                            <span>
+                              Correct an approved source through its replacement
+                              workflow, then scan again. AIOS will resolve this
+                              item only when the competing evidence is no longer
+                              current.
+                            </span>
+                          </p>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  compact
+                  title="No active conflict review"
+                  description={
+                    approvedCount < 2
+                      ? "Approve at least two current sources before running the comparison."
+                      : "Run the deterministic scan whenever approved source facts change."
+                  }
+                />
+              )}
             </section>
           ) : null}
 

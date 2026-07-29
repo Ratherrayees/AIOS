@@ -108,6 +108,21 @@ export const knowledgeTransitionInputSchema = z.object({
   status: knowledgeSourceStatusSchema,
 });
 
+export const knowledgeConflictSignalSchema = z.object({
+  reason: z.literal("factual_token_mismatch"),
+  source_kind: knowledgeSourceKindSchema,
+  normalized_heading: z.string().trim().min(1).max(180),
+  left_tokens: z.array(z.string().trim().min(1).max(40)).min(1).max(40),
+  right_tokens: z.array(z.string().trim().min(1).max(40)).min(1).max(40),
+});
+
+export const knowledgeConflictReviewInputSchema = z.object({
+  organizationId: z.uuid(),
+  conflictId: z.uuid(),
+  status: z.enum(["confirmed", "dismissed"]),
+  resolutionNote: z.string().trim().min(6).max(500),
+});
+
 export const knowledgeSearchInputSchema = z.object({
   organizationId: z.uuid(),
   query: z.string().trim().min(2).max(240),
@@ -138,6 +153,12 @@ export type KnowledgeSectionRevisionInput = z.infer<
 >;
 export type KnowledgeRenewalInput = z.infer<
   typeof knowledgeRenewalInputSchema
+>;
+export type KnowledgeConflictSignal = z.infer<
+  typeof knowledgeConflictSignalSchema
+>;
+export type KnowledgeConflictReviewInput = z.infer<
+  typeof knowledgeConflictReviewInputSchema
 >;
 export type KnowledgeSearchResult = z.infer<
   typeof knowledgeSearchResultSchema

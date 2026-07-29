@@ -61,6 +61,7 @@ const protectedTables = [
   "message_drafts",
   "knowledge_sources",
   "knowledge_sections",
+  "knowledge_conflicts",
 ];
 
 function loadLocalEnv() {
@@ -421,6 +422,19 @@ async function verify() {
       target_limit: 8,
     },
   );
+  const { error: anonymousKnowledgeConflictScanError } = await anonymous.rpc(
+    "scan_knowledge_conflicts",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
+  const { error: anonymousKnowledgeConflictReviewError } =
+    await anonymous.rpc("review_knowledge_conflict", {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_conflict_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "dismissed",
+      target_resolution_note: "Blocked anonymous conflict review.",
+    });
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -586,6 +600,19 @@ async function verify() {
       function: "search_approved_knowledge",
       anonymousExecutionBlocked: Boolean(anonymousKnowledgeSearchError),
       anonymousErrorCode: anonymousKnowledgeSearchError?.code ?? null,
+    },
+    {
+      function: "scan_knowledge_conflicts",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeConflictScanError),
+      anonymousErrorCode: anonymousKnowledgeConflictScanError?.code ?? null,
+    },
+    {
+      function: "review_knowledge_conflict",
+      anonymousExecutionBlocked: Boolean(
+        anonymousKnowledgeConflictReviewError,
+      ),
+      anonymousErrorCode:
+        anonymousKnowledgeConflictReviewError?.code ?? null,
     },
   ];
 

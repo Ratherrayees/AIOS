@@ -1714,6 +1714,80 @@ export type Database = {
           },
         ]
       }
+      knowledge_conflicts: {
+        Row: {
+          detected_at: string
+          detection_reason: string
+          id: string
+          left_section_id: string
+          organization_id: string
+          resolution_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          right_section_id: string
+          signal: Json
+          status: Database["public"]["Enums"]["knowledge_conflict_status"]
+          updated_at: string
+        }
+        Insert: {
+          detected_at?: string
+          detection_reason?: string
+          id?: string
+          left_section_id: string
+          organization_id: string
+          resolution_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          right_section_id: string
+          signal: Json
+          status?: Database["public"]["Enums"]["knowledge_conflict_status"]
+          updated_at?: string
+        }
+        Update: {
+          detected_at?: string
+          detection_reason?: string
+          id?: string
+          left_section_id?: string
+          organization_id?: string
+          resolution_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          right_section_id?: string
+          signal?: Json
+          status?: Database["public"]["Enums"]["knowledge_conflict_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_conflicts_left_section_same_organization_fkey"
+            columns: ["organization_id", "left_section_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_sections"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "knowledge_conflicts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_conflicts_reviewer_same_organization_fkey"
+            columns: ["organization_id", "reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "knowledge_conflicts_right_section_same_organization_fkey"
+            columns: ["organization_id", "right_section_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_sections"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       knowledge_sections: {
         Row: {
           citation_label: string
@@ -4536,6 +4610,34 @@ export type Database = {
           resolved_status: Database["public"]["Enums"]["approval_status"]
         }[]
       }
+      review_knowledge_conflict: {
+        Args: {
+          target_conflict_id: string
+          target_organization_id: string
+          target_resolution_note: string
+          target_status: Database["public"]["Enums"]["knowledge_conflict_status"]
+        }
+        Returns: {
+          detected_at: string
+          detection_reason: string
+          id: string
+          left_section_id: string
+          organization_id: string
+          resolution_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          right_section_id: string
+          signal: Json
+          status: Database["public"]["Enums"]["knowledge_conflict_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_conflicts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       revoke_traveler_portal: {
         Args: {
           target_note: string
@@ -4562,6 +4664,29 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "trip_portal_links"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      scan_knowledge_conflicts: {
+        Args: { target_organization_id: string }
+        Returns: {
+          detected_at: string
+          detection_reason: string
+          id: string
+          left_section_id: string
+          organization_id: string
+          resolution_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          right_section_id: string
+          signal: Json
+          status: Database["public"]["Enums"]["knowledge_conflict_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_conflicts"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -5103,6 +5228,7 @@ export type Database = {
       deal_stage: "new" | "qualified" | "proposal" | "decision" | "won" | "lost"
       document_sensitivity: "normal" | "restricted"
       knowledge_authority: "official" | "supplier" | "internal" | "third_party"
+      knowledge_conflict_status: "open" | "confirmed" | "dismissed" | "resolved"
       knowledge_source_kind:
         | "destination_guide"
         | "visa_advisory"
@@ -5318,6 +5444,7 @@ export const Constants = {
       deal_stage: ["new", "qualified", "proposal", "decision", "won", "lost"],
       document_sensitivity: ["normal", "restricted"],
       knowledge_authority: ["official", "supplier", "internal", "third_party"],
+      knowledge_conflict_status: ["open", "confirmed", "dismissed", "resolved"],
       knowledge_source_kind: [
         "destination_guide",
         "visa_advisory",

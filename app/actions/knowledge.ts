@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  knowledgeConflictReviewInputSchema,
   knowledgeRenewalInputSchema,
   knowledgeSearchInputSchema,
   knowledgeSearchResultSchema,
@@ -10,6 +11,7 @@ import {
   knowledgeSourceInputSchema,
   knowledgeTransitionInputSchema,
   type KnowledgeRenewalInput,
+  type KnowledgeConflictReviewInput,
   type KnowledgeSectionInput,
   type KnowledgeSectionRevisionInput,
   type KnowledgeSourceInput,
@@ -151,6 +153,42 @@ export async function transitionKnowledgeSource(input: {
   if (error || !source)
     throw error ?? new Error("The knowledge review state could not be changed.");
   return source;
+}
+
+export async function scanKnowledgeConflicts(input: {
+  organizationId: string;
+}) {
+  await requireOrganizationRole(
+    input.organizationId,
+    KNOWLEDGE_CURATOR_ROLES,
+  );
+  const supabase = await createSupabaseServerClient();
+  const { data: conflicts, error } = await supabase.rpc(
+    "scan_knowledge_conflicts",
+    { target_organization_id: input.organizationId },
+  );
+  if (error)
+    throw error ?? new Error("Knowledge conflicts could not be scanned.");
+  return conflicts ?? [];
+}
+
+export async function reviewKnowledgeConflict(
+  input: KnowledgeConflictReviewInput,
+) {
+  const data = knowledgeConflictReviewInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, KNOWLEDGE_CURATOR_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: conflict, error } = await supabase
+    .rpc("review_knowledge_conflict", {
+      target_organization_id: data.organizationId,
+      target_conflict_id: data.conflictId,
+      target_status: data.status,
+      target_resolution_note: data.resolutionNote,
+    })
+    .single();
+  if (error || !conflict)
+    throw error ?? new Error("The knowledge conflict could not be reviewed.");
+  return conflict;
 }
 
 export async function searchApprovedKnowledge(input: {

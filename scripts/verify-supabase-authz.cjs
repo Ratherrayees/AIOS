@@ -2217,7 +2217,7 @@ async function verifyAuthorization() {
         target_section_id: clonedKnowledgeSections.data[0].id,
         target_heading: "Revised cancellation windows",
         target_content:
-          "The 2026.2 Kyoto rail policy requires operator confirmation before any traveller-facing commitment.",
+          "The Kyoto rail policy requires operator confirmation 48 hours before any traveller-facing commitment.",
         target_citation_label: "Kyoto rail policy §5",
         target_position: 0,
       })
@@ -2363,6 +2363,197 @@ async function verifyAuthorization() {
           (event) => event.event_type === "knowledge.source.transitioned",
         ),
       knowledgeAudit.error?.message ?? renewalAudit.error?.message ?? null,
+    );
+
+    activeVerificationPhase = "knowledge conflict authorization";
+    const competingKnowledgeSource = await owner
+      .rpc("upsert_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_title: `Kyoto rail supplier bulletin ${suffix}`,
+        target_source_kind: "destination_guide",
+        target_authority: "supplier",
+        target_sensitivity: "normal",
+        target_version_label: "2026.1",
+        target_source_url: "https://example.com/kyoto-rail-supplier-bulletin",
+        target_summary: "Competing cancellation timing for human review.",
+        target_review_due_on: knowledgeReviewDueOn,
+      })
+      .single();
+    if (competingKnowledgeSource.error || !competingKnowledgeSource.data)
+      throw competingKnowledgeSource.error ??
+        new Error("Competing knowledge fixture was not created.");
+    const competingKnowledgeSection = await owner
+      .rpc("add_knowledge_section", {
+        target_organization_id: organizationA.id,
+        target_source_id: competingKnowledgeSource.data.id,
+        target_heading: "Revised cancellation windows",
+        target_content:
+          "The supplier bulletin requires operator confirmation 72 hours before any traveller-facing commitment.",
+        target_citation_label: "Kyoto supplier bulletin Â§2",
+        target_position: 0,
+      })
+      .single();
+    if (competingKnowledgeSection.error || !competingKnowledgeSection.data)
+      throw competingKnowledgeSection.error ??
+        new Error("Competing knowledge passage was not created.");
+    const competingReview = await owner.rpc("transition_knowledge_source", {
+      target_organization_id: organizationA.id,
+      target_source_id: competingKnowledgeSource.data.id,
+      target_status: "in_review",
+    });
+    if (competingReview.error) throw competingReview.error;
+    const competingApproval = await owner.rpc("transition_knowledge_source", {
+      target_organization_id: organizationA.id,
+      target_source_id: competingKnowledgeSource.data.id,
+      target_status: "approved",
+    });
+    if (competingApproval.error) throw competingApproval.error;
+
+    const directConflictInsert = await owner.from("knowledge_conflicts").insert({
+      organization_id: organizationA.id,
+      left_section_id: clonedKnowledgeSections.data[0].id,
+      right_section_id: competingKnowledgeSection.data.id,
+      signal: {
+        reason: "factual_token_mismatch",
+        source_kind: "destination_guide",
+        normalized_heading: "revised cancellation windows",
+        left_tokens: ["48"],
+        right_tokens: ["72"],
+      },
+    });
+    record(
+      "browser clients cannot create knowledge conflicts directly",
+      Boolean(directConflictInsert.error),
+    );
+
+    const [
+      viewerConflictScan,
+      ownerForeignConflictScan,
+      detectedConflicts,
+    ] = await Promise.all([
+      viewer.rpc("scan_knowledge_conflicts", {
+        target_organization_id: organizationA.id,
+      }),
+      owner.rpc("scan_knowledge_conflicts", {
+        target_organization_id: organizationB.id,
+      }),
+      owner.rpc("scan_knowledge_conflicts", {
+        target_organization_id: organizationA.id,
+      }),
+    ]);
+    const detectedConflict = detectedConflicts.data?.find(
+      (conflict) =>
+        conflict.status === "open" &&
+        [conflict.left_section_id, conflict.right_section_id].includes(
+          clonedKnowledgeSections.data[0].id,
+        ) &&
+        [conflict.left_section_id, conflict.right_section_id].includes(
+          competingKnowledgeSection.data.id,
+        ),
+    );
+    record(
+      "ordinary members cannot scan knowledge conflicts",
+      Boolean(viewerConflictScan.error),
+    );
+    record(
+      "curators cannot scan a foreign tenant for conflicts",
+      Boolean(ownerForeignConflictScan.error),
+    );
+    record(
+      "deterministic conflict scan preserves both competing citations",
+      !detectedConflicts.error &&
+        Boolean(detectedConflict) &&
+        detectedConflict.signal?.left_tokens?.length === 1 &&
+        detectedConflict.signal?.right_tokens?.length === 1,
+      detectedConflicts.error?.message ?? null,
+    );
+    if (!detectedConflict)
+      throw new Error("Knowledge conflict was not detected.");
+
+    const [viewerConflictRead, directConflictUpdate, viewerConflictReview] =
+      await Promise.all([
+        viewer
+          .from("knowledge_conflicts")
+          .select("id")
+          .eq("organization_id", organizationA.id),
+        owner
+          .from("knowledge_conflicts")
+          .update({ status: "dismissed" })
+          .eq("id", detectedConflict.id),
+        viewer.rpc("review_knowledge_conflict", {
+          target_organization_id: organizationA.id,
+          target_conflict_id: detectedConflict.id,
+          target_status: "dismissed",
+          target_resolution_note: "Blocked ordinary-member review.",
+        }),
+      ]);
+    record(
+      "ordinary members cannot read curator conflict evidence",
+      !viewerConflictRead.error && viewerConflictRead.data?.length === 0,
+      viewerConflictRead.error?.message ?? null,
+    );
+    record(
+      "browser clients cannot bypass conflict review with a direct update",
+      Boolean(directConflictUpdate.error) ||
+        directConflictUpdate.data?.length === 0,
+    );
+    record(
+      "ordinary members cannot decide a knowledge conflict",
+      Boolean(viewerConflictReview.error),
+    );
+
+    const confirmedConflict = await owner
+      .rpc("review_knowledge_conflict", {
+        target_organization_id: organizationA.id,
+        target_conflict_id: detectedConflict.id,
+        target_status: "confirmed",
+        target_resolution_note:
+          "Official policy says 48 hours while the supplier bulletin says 72 hours.",
+      })
+      .single();
+    record(
+      "human conflict confirmation records reviewer evidence",
+      !confirmedConflict.error &&
+        confirmedConflict.data?.status === "confirmed" &&
+        confirmedConflict.data?.reviewed_by === ownerUser.id &&
+        Boolean(confirmedConflict.data?.reviewed_at),
+      confirmedConflict.error?.message ?? null,
+    );
+
+    const retiredCompetingSource = await owner.rpc(
+      "transition_knowledge_source",
+      {
+        target_organization_id: organizationA.id,
+        target_source_id: competingKnowledgeSource.data.id,
+        target_status: "retired",
+      },
+    );
+    if (retiredCompetingSource.error) throw retiredCompetingSource.error;
+    const rescannedConflicts = await owner.rpc("scan_knowledge_conflicts", {
+      target_organization_id: organizationA.id,
+    });
+    const resolvedConflict = rescannedConflicts.data?.find(
+      (conflict) => conflict.id === detectedConflict.id,
+    );
+    record(
+      "conflicts resolve only after competing evidence leaves current retrieval",
+      !rescannedConflicts.error &&
+        resolvedConflict?.status === "resolved" &&
+        resolvedConflict.resolution_note?.includes("no longer current"),
+      rescannedConflicts.error?.message ?? null,
+    );
+
+    const conflictAudit = await owner
+      .from("audit_events")
+      .select("event_type")
+      .eq("entity_id", detectedConflict.id);
+    record(
+      "knowledge conflict decisions preserve an audit trail",
+      !conflictAudit.error &&
+        conflictAudit.data?.some(
+          (event) => event.event_type === "knowledge.conflict.reviewed",
+        ),
+      conflictAudit.error?.message ?? null,
     );
 
     const { error: temporaryViewerMembershipDeleteError } = await admin
