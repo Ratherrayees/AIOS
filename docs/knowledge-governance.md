@@ -26,6 +26,23 @@ It is not a web crawler, a legal or immigration decision engine, or an external 
 
 Approved, in-review, and retired versions are immutable through the application. Passages can be revised or removed only while their source is a draft. Correct approved material through the controlled replacement workflow, not by silently rewriting what AIOS previously cited.
 
+## Private text and Markdown import
+
+Curators may import a `.txt`, `.md`, or `.markdown` file up to 256 KiB. The
+browser reads the selected local file only for the authenticated server action;
+the server revalidates its name, MIME type, UTF-8 byte size, metadata, and
+review window. It removes unsafe control characters and deterministically
+converts Markdown headings and paragraphs into at most 80 passages of at most
+1,800 characters each.
+
+The guarded database function creates the source Draft and every passage in one
+transaction. The source records the original file name, UTF-8 byte size, and
+SHA-256 hash, while each passage receives a source/file/passage citation label.
+An active workspace cannot import the same file hash twice. The raw file is not
+retained, sent to an AI provider, or exposed to ordinary users; only its bounded
+Draft passages remain, and they enter AIOS retrieval only after the ordinary
+human review and approval lifecycle.
+
 ## Conflict watch
 
 Curators can run a deterministic comparison across current approved passages.
@@ -98,18 +115,22 @@ question in its payload.
 - Run Conflict Watch after approving materially changed facts. A confirmed item
   is corrected through source renewal, never by directly editing the conflict
   record or approved passage.
+- Inspect every server-created passage after a text/Markdown import. File
+  chunking creates reviewable structure; it does not certify the source or its
+  claims.
 
 ## Release status
 
 The current foundation supports manual curation, lifecycle review, immutable
-source renewal, draft passage revision/removal, permission-aware lexical
-retrieval, freshness queues, claim-level cited AI answers, deterministic
+source renewal, draft passage revision/removal, bounded private text/Markdown
+ingestion with deterministic server chunking and file provenance,
+permission-aware lexical retrieval, freshness queues, claim-level cited AI answers, deterministic
 unsupported/stale refusal, high-impact human escalation, durable model
 execution, conservative factual-token conflict detection, human conflict
 review, and audit evidence. The grounding rules are covered by behavioral
 and zero-provider adversarial evaluations; a fictional, non-CRM GLM-4.7-Flash
 smoke test also confirmed the provider adapter accepts the structured contract.
-Private file parsing, automated chunking, pgvector semantic retrieval where
-lexical search is insufficient, richer semantic conflict detection, bulk
-freshness policy, staging deployment, and product-owner acceptance remain Phase
-17 work.
+PDF/DOCX parsing, encrypted raw-file retention where required, richer structured
+destination/supplier imports, pgvector semantic retrieval where lexical search
+is insufficient, richer semantic conflict detection, bulk freshness policy,
+staging deployment, and product-owner acceptance remain Phase 17 work.

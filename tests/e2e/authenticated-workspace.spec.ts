@@ -2241,6 +2241,7 @@ test.describe("authenticated owner workspace", () => {
   }) => {
     const sourceTitle = `Kyoto rail policy ${Date.now()}`;
     const competingSourceTitle = `Kyoto supplier bulletin ${Date.now()}`;
+    const importedSourceTitle = `Airport playbook ${Date.now()}`;
     await signIn(page);
     await page.goto("/knowledge");
     await expect(
@@ -2248,19 +2249,26 @@ test.describe("authenticated owner workspace", () => {
         name: "Give AIOS trusted material, with a source for every answer.",
       }),
     ).toBeVisible();
+    const manualSourceForm = page.locator(".knowledge-create > form");
 
-    await page.getByLabel("Source title").fill(sourceTitle);
-    await page.getByLabel("Source type").selectOption("destination_guide");
-    await page.getByLabel("Authority").selectOption("official");
-    await page.getByLabel("Sensitivity").selectOption("normal");
-    await page.getByLabel("Version", { exact: true }).fill("2026.1");
-    await page
+    await manualSourceForm.getByLabel("Source title").fill(sourceTitle);
+    await manualSourceForm
+      .getByLabel("Source type")
+      .selectOption("destination_guide");
+    await manualSourceForm
+      .getByLabel("Authority")
+      .selectOption("official");
+    await manualSourceForm
+      .getByLabel("Sensitivity")
+      .selectOption("normal");
+    await manualSourceForm.getByLabel("Version").fill("2026.1");
+    await manualSourceForm
       .getByLabel("HTTPS source link")
       .fill("https://example.com/kyoto-rail-policy");
-    await page
+    await manualSourceForm
       .getByLabel("Curator summary")
       .fill("Human-reviewed rail guidance for itinerary planning.");
-    await page
+    await manualSourceForm
       .getByRole("button", { name: "Create governed draft" })
       .click();
     await expect(page.getByRole("status")).toContainText(
@@ -2373,18 +2381,26 @@ test.describe("authenticated owner workspace", () => {
       page.getByText(`${sourceTitle} · v2026.2 · official`),
     ).toBeVisible();
 
-    await page.getByLabel("Source title").fill(competingSourceTitle);
-    await page.getByLabel("Source type").selectOption("destination_guide");
-    await page.getByLabel("Authority").selectOption("supplier");
-    await page.getByLabel("Sensitivity").selectOption("normal");
-    await page.getByLabel("Version", { exact: true }).fill("2026.1");
-    await page
+    await manualSourceForm
+      .getByLabel("Source title")
+      .fill(competingSourceTitle);
+    await manualSourceForm
+      .getByLabel("Source type")
+      .selectOption("destination_guide");
+    await manualSourceForm
+      .getByLabel("Authority")
+      .selectOption("supplier");
+    await manualSourceForm
+      .getByLabel("Sensitivity")
+      .selectOption("normal");
+    await manualSourceForm.getByLabel("Version").fill("2026.1");
+    await manualSourceForm
       .getByLabel("HTTPS source link")
       .fill("https://example.com/kyoto-supplier-bulletin");
-    await page
+    await manualSourceForm
       .getByLabel("Curator summary")
       .fill("Competing supplier timing for human review.");
-    await page
+    await manualSourceForm
       .getByRole("button", { name: "Create governed draft" })
       .click();
     await page
@@ -2430,6 +2446,39 @@ test.describe("authenticated owner workspace", () => {
     );
     await expect(
       conflictQueue.getByText("Human confirmed", { exact: true }),
+    ).toBeVisible();
+
+    await page.getByLabel("Text or Markdown file").setInputFiles({
+      name: "airport-ops.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from(
+        [
+          "# Arrival support",
+          "Meet the traveller at the signed airport desk.",
+          "",
+          "## Escalation",
+          "Call the duty operator when a confirmed service is missing.",
+        ].join("\n"),
+      ),
+    });
+    await page
+      .getByLabel("Imported source title")
+      .fill(importedSourceTitle);
+    await page
+      .getByLabel("Import review note")
+      .fill("Private operating procedure requiring human review.");
+    await page
+      .getByRole("button", { name: "Import as governed Draft" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Imported 2 reviewable passages into a Draft",
+    );
+    await expect(page.getByText("PRIVATE FILE PROVENANCE")).toBeVisible();
+    await expect(page.getByText("airport-ops.md", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "Server-chunked into a Draft. The file itself was not sent to a model or exposed to approved retrieval.",
+      ),
     ).toBeVisible();
 
     await page
@@ -2497,6 +2546,41 @@ test.describe("authenticated owner workspace", () => {
     expect(conflict?.signal).toMatchObject({
       reason: "factual_token_mismatch",
     });
+    const { data: importedSource, error: importedSourceError } = await admin!
+      .from("knowledge_sources")
+      .select(
+        "id, status, ingestion_method, ingested_file_name, ingested_file_sha256, ingested_byte_size",
+      )
+      .eq("organization_id", organizationIds[0])
+      .eq("title", importedSourceTitle)
+      .single();
+    expect(importedSourceError).toBeNull();
+    expect(importedSource).toMatchObject({
+      status: "draft",
+      ingestion_method: "text_file",
+      ingested_file_name: "airport-ops.md",
+    });
+    expect(importedSource?.ingested_file_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(importedSource?.ingested_byte_size).toBeGreaterThan(0);
+    const { data: importedSections, error: importedSectionsError } =
+      await admin!
+        .from("knowledge_sections")
+        .select("heading, citation_label, position")
+        .eq("source_id", importedSource!.id)
+        .order("position");
+    expect(importedSectionsError).toBeNull();
+    expect(importedSections).toEqual([
+      {
+        heading: "Arrival support",
+        citation_label: `${importedSourceTitle} · airport-ops.md · passage 1`,
+        position: 0,
+      },
+      {
+        heading: "Escalation",
+        citation_label: `${importedSourceTitle} · airport-ops.md · passage 2`,
+        position: 1,
+      },
+    ]);
 
     const { data: answerRun, error: answerRunError } = await admin!
       .from("ai_runs")

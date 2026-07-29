@@ -12,6 +12,7 @@ import {
 import {
   addKnowledgeSection,
   deleteKnowledgeSection,
+  importKnowledgeTextSource,
   renewKnowledgeSource,
   reviewKnowledgeConflict,
   saveKnowledgeSource,
@@ -515,6 +516,62 @@ export default function KnowledgePage() {
           error instanceof Error
             ? error.message
             : "The conflict review could not be recorded.",
+        );
+      }
+    });
+  }
+
+  function submitTextImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      setNotice("Choose a non-empty text or Markdown file.");
+      return;
+    }
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const text = await file.text();
+        const imported = await importKnowledgeTextSource({
+          organizationId,
+          title: String(formData.get("title") || ""),
+          sourceKind: String(
+            formData.get("sourceKind") || "other",
+          ) as KnowledgeSource["source_kind"],
+          authority: String(
+            formData.get("authority") || "internal",
+          ) as KnowledgeSource["authority"],
+          sensitivity: String(
+            formData.get("sensitivity") || "normal",
+          ) as KnowledgeSource["sensitivity"],
+          versionLabel: String(formData.get("versionLabel") || "1"),
+          sourceUrl: optionalText(formData, "sourceUrl"),
+          summary: optionalText(formData, "summary"),
+          validFrom: optionalText(formData, "validFrom"),
+          reviewDueOn: optionalText(formData, "reviewDueOn"),
+          fileName: file.name,
+          mimeType:
+            (file.type as
+              | "text/plain"
+              | "text/markdown"
+              | "text/x-markdown"
+              | "application/octet-stream") || "application/octet-stream",
+          text,
+        });
+        form.reset();
+        await loadKnowledge(organizationId);
+        setSelectedSourceId(imported.source.id);
+        setNotice(
+          `Imported ${imported.sectionCount} reviewable passage${imported.sectionCount === 1 ? "" : "s"} into a Draft. AIOS cannot retrieve them until human approval.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The text knowledge source could not be imported.",
         );
       }
     });
@@ -1091,6 +1148,23 @@ export default function KnowledgePage() {
                         <dd>{displayDate(selectedSource.review_due_on)}</dd>
                       </div>
                     </dl>
+                    {selectedSource.ingestion_method === "text_file" ? (
+                      <div className="knowledge-provenance">
+                        <span>PRIVATE FILE PROVENANCE</span>
+                        <b>{selectedSource.ingested_file_name}</b>
+                        <small>
+                          {selectedSource.ingested_byte_size?.toLocaleString(
+                            "en-IN",
+                          )}{" "}
+                          bytes · SHA-256{" "}
+                          {selectedSource.ingested_file_sha256?.slice(0, 12)}…
+                        </small>
+                        <p>
+                          Server-chunked into a Draft. The file itself was not
+                          sent to a model or exposed to approved retrieval.
+                        </p>
+                      </div>
+                    ) : null}
                   </header>
 
                   <div className="section-stack">
@@ -1423,6 +1497,104 @@ export default function KnowledgePage() {
                   {pending ? "Saving draft…" : "Create governed draft"}
                 </button>
               </form>
+              <div className="knowledge-import">
+                <header>
+                  <p>PRIVATE TEXT IMPORT</p>
+                  <h3>Turn a text or Markdown file into reviewable passages</h3>
+                  <span>
+                    AIOS does not read or approve the file. The server validates
+                    its size, records a SHA-256 provenance hash, creates bounded
+                    citation-ready chunks, and keeps everything in Draft.
+                  </span>
+                </header>
+                <form onSubmit={submitTextImport}>
+                  <label className="wide">
+                    Text or Markdown file
+                    <input
+                      name="file"
+                      type="file"
+                      accept=".txt,.md,.markdown,text/plain,text/markdown"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Imported source title
+                    <input name="title" minLength={2} maxLength={180} required />
+                  </label>
+                  <label>
+                    Imported source type
+                    <select name="sourceKind" defaultValue="sop">
+                      <option value="destination_guide">
+                        Destination guide
+                      </option>
+                      <option value="visa_advisory">Visa advisory</option>
+                      <option value="supplier_terms">Supplier terms</option>
+                      <option value="sop">Operating procedure</option>
+                      <option value="policy">Policy</option>
+                      <option value="product_sheet">Product sheet</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label>
+                    Imported authority
+                    <select name="authority" defaultValue="internal">
+                      <option value="official">Official</option>
+                      <option value="supplier">Supplier</option>
+                      <option value="internal">Internal</option>
+                      <option value="third_party">Third party</option>
+                    </select>
+                  </label>
+                  <label>
+                    Imported sensitivity
+                    <select name="sensitivity" defaultValue="restricted">
+                      <option value="normal">Normal workspace access</option>
+                      <option value="restricted">Curators only</option>
+                    </select>
+                  </label>
+                  <label>
+                    Imported version
+                    <input
+                      name="versionLabel"
+                      defaultValue="1"
+                      maxLength={80}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Imported valid from
+                    <input name="validFrom" type="date" />
+                  </label>
+                  <label>
+                    Imported review due
+                    <input
+                      name="reviewDueOn"
+                      type="date"
+                      defaultValue={defaultReviewDate()}
+                      required
+                    />
+                  </label>
+                  <label className="wide">
+                    Imported HTTPS source link
+                    <input
+                      name="sourceUrl"
+                      type="url"
+                      placeholder="https://authority.example/source"
+                      maxLength={1000}
+                    />
+                  </label>
+                  <label className="wide">
+                    Import review note
+                    <textarea
+                      name="summary"
+                      maxLength={2000}
+                      placeholder="Who supplied this file and what must the reviewer verify?"
+                    />
+                  </label>
+                  <button type="submit" disabled={pending}>
+                    {pending ? "Importing Draft…" : "Import as governed Draft"}
+                  </button>
+                </form>
+              </div>
             </section>
           ) : null}
         </>

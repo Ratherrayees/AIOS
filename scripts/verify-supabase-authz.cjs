@@ -2556,6 +2556,162 @@ async function verifyAuthorization() {
       conflictAudit.error?.message ?? null,
     );
 
+    activeVerificationPhase = "knowledge text import authorization";
+    const importedFileHash = "a".repeat(64);
+    const importedSections = [
+      {
+        heading: "Arrival support",
+        content:
+          "Meet the traveller at the signed airport desk and verify the service reference.",
+        citation_label: "Airport playbook · airport-ops.md · passage 1",
+        position: 0,
+      },
+      {
+        heading: "Escalation",
+        content:
+          "Escalate a missing confirmed service to the duty operator.",
+        citation_label: "Airport playbook · airport-ops.md · passage 2",
+        position: 1,
+      },
+    ];
+    const [viewerTextImport, ownerForeignTextImport] = await Promise.all([
+      viewer.rpc("import_knowledge_text_source", {
+        target_organization_id: organizationA.id,
+        target_title: `Blocked viewer import ${suffix}`,
+        target_source_kind: "sop",
+        target_authority: "internal",
+        target_sensitivity: "restricted",
+        target_version_label: "1",
+        target_file_name: "blocked-viewer.md",
+        target_file_sha256: "b".repeat(64),
+        target_byte_size: 100,
+        target_sections: importedSections,
+      }),
+      owner.rpc("import_knowledge_text_source", {
+        target_organization_id: organizationB.id,
+        target_title: `Blocked foreign import ${suffix}`,
+        target_source_kind: "sop",
+        target_authority: "internal",
+        target_sensitivity: "restricted",
+        target_version_label: "1",
+        target_file_name: "blocked-foreign.md",
+        target_file_sha256: "c".repeat(64),
+        target_byte_size: 100,
+        target_sections: importedSections,
+      }),
+    ]);
+    record(
+      "ordinary members cannot import private knowledge files",
+      Boolean(viewerTextImport.error),
+    );
+    record(
+      "curators cannot import knowledge into a foreign tenant",
+      Boolean(ownerForeignTextImport.error),
+    );
+
+    const importedKnowledgeSource = await owner
+      .rpc("import_knowledge_text_source", {
+        target_organization_id: organizationA.id,
+        target_title: `Airport operating playbook ${suffix}`,
+        target_source_kind: "sop",
+        target_authority: "internal",
+        target_sensitivity: "restricted",
+        target_version_label: "1",
+        target_file_name: "airport-ops.md",
+        target_file_sha256: importedFileHash,
+        target_byte_size: 180,
+        target_sections: importedSections,
+        target_summary: "Private server-chunked operating procedure.",
+        target_review_due_on: knowledgeReviewDueOn,
+      })
+      .single();
+    record(
+      "authorized text import creates one provenance-backed draft",
+      !importedKnowledgeSource.error &&
+        importedKnowledgeSource.data?.status === "draft" &&
+        importedKnowledgeSource.data?.ingestion_method === "text_file" &&
+        importedKnowledgeSource.data?.ingested_file_name ===
+          "airport-ops.md" &&
+        importedKnowledgeSource.data?.ingested_file_sha256 ===
+          importedFileHash,
+      importedKnowledgeSource.error?.message ?? null,
+    );
+    if (importedKnowledgeSource.error || !importedKnowledgeSource.data)
+      throw importedKnowledgeSource.error ??
+        new Error("Text-imported knowledge fixture was not created.");
+
+    const [importedPassages, viewerImportedRead, viewerImportedSearch] =
+      await Promise.all([
+        owner
+          .from("knowledge_sections")
+          .select("heading, citation_label, position")
+          .eq("source_id", importedKnowledgeSource.data.id)
+          .order("position"),
+        viewer
+          .from("knowledge_sources")
+          .select("id")
+          .eq("id", importedKnowledgeSource.data.id),
+        viewer.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "signed airport desk duty operator",
+          target_limit: 8,
+        }),
+      ]);
+    record(
+      "text import atomically creates ordered citation-ready passages",
+      !importedPassages.error &&
+        importedPassages.data?.length === 2 &&
+        importedPassages.data[0].heading === "Arrival support" &&
+        importedPassages.data[1].position === 1,
+      importedPassages.error?.message ?? null,
+    );
+    record(
+      "imported drafts stay outside ordinary reads and AIOS retrieval",
+      !viewerImportedRead.error &&
+        viewerImportedRead.data?.length === 0 &&
+        !viewerImportedSearch.error &&
+        viewerImportedSearch.data?.length === 0,
+      viewerImportedRead.error?.message ??
+        viewerImportedSearch.error?.message ??
+        null,
+    );
+
+    const duplicateFileImport = await owner.rpc(
+      "import_knowledge_text_source",
+      {
+        target_organization_id: organizationA.id,
+        target_title: `Duplicate airport playbook ${suffix}`,
+        target_source_kind: "sop",
+        target_authority: "internal",
+        target_sensitivity: "restricted",
+        target_version_label: "1",
+        target_file_name: "airport-ops-copy.md",
+        target_file_sha256: importedFileHash,
+        target_byte_size: 180,
+        target_sections: importedSections,
+      },
+    );
+    record(
+      "active knowledge cannot import the same private file twice",
+      Boolean(duplicateFileImport.error),
+    );
+
+    const importedKnowledgeAudit = await owner
+      .from("audit_events")
+      .select("event_type, metadata")
+      .eq("entity_id", importedKnowledgeSource.data.id);
+    record(
+      "text import preserves file and chunk provenance in the audit trail",
+      !importedKnowledgeAudit.error &&
+        importedKnowledgeAudit.data?.some(
+          (event) =>
+            event.event_type === "knowledge.source.text_imported" &&
+            event.metadata?.section_count === 2 &&
+            event.metadata?.file_sha256 === importedFileHash,
+        ),
+      importedKnowledgeAudit.error?.message ?? null,
+    );
+
     const { error: temporaryViewerMembershipDeleteError } = await admin
       .from("memberships")
       .delete()

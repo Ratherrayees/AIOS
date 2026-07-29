@@ -942,6 +942,41 @@
   border-right: 0;
 }
 
+.knowledge-provenance {
+  display: grid;
+  margin-top: 12px;
+  padding: 14px;
+  gap: 5px;
+  border: 1px solid rgb(100 235 206 / 13%);
+  border-radius: 11px;
+  background: rgb(20 119 103 / 7%);
+}
+
+.knowledge-provenance span {
+  color: #65dfc7;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.knowledge-provenance b {
+  color: #e9f7f4;
+  font-size: 0.76rem;
+}
+
+.knowledge-provenance small {
+  color: #71909a;
+  font-size: 0.65rem;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-provenance p {
+  margin: 3px 0 0;
+  color: #879fa9;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
 .knowledge-inspector dt {
   color: #607b88;
   font-size: 0.6rem;
@@ -1140,6 +1175,54 @@
 
 .knowledge-create form > button {
   justify-self: start;
+}
+
+.knowledge-import {
+  margin-top: 34px;
+  padding-top: 30px;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.knowledge-import > header {
+  max-width: 760px;
+}
+
+.knowledge-import > header p {
+  margin: 0 0 10px;
+  color: #a59cff;
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.18em;
+}
+
+.knowledge-import h3 {
+  margin: 0;
+  color: #f4f5ff;
+  font-size: clamp(1.15rem, 2.4vw, 1.65rem);
+  letter-spacing: -0.03em;
+}
+
+.knowledge-import > header span {
+  display: block;
+  margin-top: 10px;
+  color: #8ca3af;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.knowledge-import input[type="file"] {
+  color: #9ab1bc;
+  font-size: 0.72rem;
+}
+
+.knowledge-import input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: #dffbf5;
+  background: rgb(54 122 111 / 32%);
+  cursor: pointer;
 }
 
 @media (max-width: 1220px) {

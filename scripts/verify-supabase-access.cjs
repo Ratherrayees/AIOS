@@ -435,6 +435,28 @@ async function verify() {
       target_status: "dismissed",
       target_resolution_note: "Blocked anonymous conflict review.",
     });
+  const { error: anonymousKnowledgeTextImportError } = await anonymous.rpc(
+    "import_knowledge_text_source",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_title: "Blocked anonymous import",
+      target_source_kind: "sop",
+      target_authority: "internal",
+      target_sensitivity: "restricted",
+      target_version_label: "1",
+      target_file_name: "blocked.md",
+      target_file_sha256: "0".repeat(64),
+      target_byte_size: 16,
+      target_sections: [
+        {
+          heading: "Blocked import",
+          content: "Anonymous content.",
+          citation_label: "Blocked import passage 1",
+          position: 0,
+        },
+      ],
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -613,6 +635,11 @@ async function verify() {
       ),
       anonymousErrorCode:
         anonymousKnowledgeConflictReviewError?.code ?? null,
+    },
+    {
+      function: "import_knowledge_text_source",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeTextImportError),
+      anonymousErrorCode: anonymousKnowledgeTextImportError?.code ?? null,
     },
   ];
 

@@ -1851,6 +1851,10 @@ export type Database = {
           created_at: string
           created_by: string
           id: string
+          ingested_byte_size: number | null
+          ingested_file_name: string | null
+          ingested_file_sha256: string | null
+          ingestion_method: string
           organization_id: string
           retired_at: string | null
           review_due_on: string | null
@@ -1872,6 +1876,10 @@ export type Database = {
           created_at?: string
           created_by: string
           id?: string
+          ingested_byte_size?: number | null
+          ingested_file_name?: string | null
+          ingested_file_sha256?: string | null
+          ingestion_method?: string
           organization_id: string
           retired_at?: string | null
           review_due_on?: string | null
@@ -1893,6 +1901,10 @@ export type Database = {
           created_at?: string
           created_by?: string
           id?: string
+          ingested_byte_size?: number | null
+          ingested_file_name?: string | null
+          ingested_file_sha256?: string | null
+          ingestion_method?: string
           organization_id?: string
           retired_at?: string | null
           review_due_on?: string | null
@@ -4380,6 +4392,55 @@ export type Database = {
         }
         Returns: boolean
       }
+      import_knowledge_text_source: {
+        Args: {
+          target_authority: Database["public"]["Enums"]["knowledge_authority"]
+          target_byte_size: number
+          target_file_name: string
+          target_file_sha256: string
+          target_organization_id: string
+          target_review_due_on?: string
+          target_sections: Json
+          target_sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          target_source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          target_source_url?: string
+          target_summary?: string
+          target_title: string
+          target_valid_from?: string
+          target_version_label: string
+        }
+        Returns: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at: string
+          created_by: string
+          id: string
+          ingested_byte_size: number | null
+          ingested_file_name: string | null
+          ingested_file_sha256: string | null
+          ingestion_method: string
+          organization_id: string
+          retired_at: string | null
+          review_due_on: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url: string | null
+          status: Database["public"]["Enums"]["knowledge_source_status"]
+          summary: string | null
+          supersedes_source_id: string | null
+          title: string
+          updated_at: string
+          valid_from: string | null
+          version_label: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sources"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       is_active_member: {
         Args: { target_organization_id: string }
         Returns: boolean
@@ -4564,6 +4625,10 @@ export type Database = {
           created_at: string
           created_by: string
           id: string
+          ingested_byte_size: number | null
+          ingested_file_name: string | null
+          ingested_file_sha256: string | null
+          ingestion_method: string
           organization_id: string
           retired_at: string | null
           review_due_on: string | null
@@ -4925,6 +4990,10 @@ export type Database = {
           created_at: string
           created_by: string
           id: string
+          ingested_byte_size: number | null
+          ingested_file_name: string | null
+          ingested_file_sha256: string | null
+          ingestion_method: string
           organization_id: string
           retired_at: string | null
           review_due_on: string | null
@@ -5029,6 +5098,10 @@ export type Database = {
           created_at: string
           created_by: string
           id: string
+          ingested_byte_size: number | null
+          ingested_file_name: string | null
+          ingested_file_sha256: string | null
+          ingestion_method: string
           organization_id: string
           retired_at: string | null
           review_due_on: string | null

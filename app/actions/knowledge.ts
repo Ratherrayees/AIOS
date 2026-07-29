@@ -1,5 +1,7 @@
 "use server";
 
+import { createHash } from "node:crypto";
+
 import {
   knowledgeConflictReviewInputSchema,
   knowledgeRenewalInputSchema,
@@ -17,10 +19,17 @@ import {
   type KnowledgeSourceInput,
 } from "../../lib/knowledge/schemas";
 import {
+  createKnowledgeTextChunks,
+  knowledgeTextImportInputSchema,
+  MAX_KNOWLEDGE_TEXT_FILE_BYTES,
+  type KnowledgeTextImportInput,
+} from "../../lib/knowledge/text-import";
+import {
   requireActiveMembership,
   requireOrganizationRole,
 } from "../../lib/authorization";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import type { Json } from "../../types/database";
 
 const KNOWLEDGE_CURATOR_ROLES = [
   "owner",
@@ -72,6 +81,54 @@ export async function addKnowledgeSection(input: KnowledgeSectionInput) {
   if (error || !section)
     throw error ?? new Error("The cited knowledge section could not be added.");
   return section;
+}
+
+export async function importKnowledgeTextSource(
+  input: KnowledgeTextImportInput,
+) {
+  const data = knowledgeTextImportInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, KNOWLEDGE_CURATOR_ROLES);
+  const byteSize = Buffer.byteLength(data.text, "utf8");
+  if (byteSize > MAX_KNOWLEDGE_TEXT_FILE_BYTES)
+    throw new Error("The text file is larger than 256 KiB.");
+  const sections = createKnowledgeTextChunks({
+    title: data.title,
+    fileName: data.fileName,
+    text: data.text,
+  });
+  const databaseSections = sections.map((section) => ({
+    heading: section.heading,
+    content: section.content,
+    citation_label: section.citationLabel,
+    position: section.position,
+  }));
+  const fileSha256 = createHash("sha256")
+    .update(data.text, "utf8")
+    .digest("hex");
+  const supabase = await createSupabaseServerClient();
+  const { data: source, error } = await supabase
+    .rpc("import_knowledge_text_source", {
+      target_organization_id: data.organizationId,
+      target_title: data.title,
+      target_source_kind: data.sourceKind,
+      target_authority: data.authority,
+      target_sensitivity: data.sensitivity,
+      target_version_label: data.versionLabel,
+      target_file_name: data.fileName,
+      target_file_sha256: fileSha256,
+      target_byte_size: byteSize,
+      target_sections: databaseSections as Json,
+      ...(data.sourceUrl ? { target_source_url: data.sourceUrl } : {}),
+      ...(data.summary ? { target_summary: data.summary } : {}),
+      ...(data.validFrom ? { target_valid_from: data.validFrom } : {}),
+      ...(data.reviewDueOn
+        ? { target_review_due_on: data.reviewDueOn }
+        : {}),
+    })
+    .single();
+  if (error || !source)
+    throw error ?? new Error("The text knowledge source could not be imported.");
+  return { source, sectionCount: sections.length };
 }
 
 export async function updateKnowledgeSection(
