@@ -2631,6 +2631,12 @@ test.describe("authenticated owner workspace", () => {
       page.getByRole("heading", { name: "AIOS evidence health" }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", { name: "Current quote portfolio" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Data quality watch" }),
+    ).toBeVisible();
+    await expect(
       page.getByText(
         "Tenant-authorized records · Current workspace · No currencies combined",
       ),
@@ -2655,6 +2661,23 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByText(/controls below apply only to sales metrics/i),
     ).toBeVisible();
+
+    const profitabilityTable = page.getByRole("table", {
+      name: "Estimated quote profitability separated by currency",
+    });
+    const inrProfitability = profitabilityTable.getByRole("row", {
+      name: /INR/,
+    });
+    await expect(inrProfitability).toContainText("₹5,45,000");
+    await expect(inrProfitability).toContainText("₹4,10,000");
+    await expect(inrProfitability).toContainText("₹1,35,000");
+    await expect(inrProfitability).toContainText("24.8%");
+    await expect(
+      page.getByRole("link", { name: "Open quote evidence →" }),
+    ).toHaveAttribute("href", "/quotes");
+    await expect(
+      page.getByRole("link", { name: "Review Inbox →" }),
+    ).toHaveAttribute("href", "/inbox");
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({

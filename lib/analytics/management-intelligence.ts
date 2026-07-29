@@ -15,6 +15,7 @@ export type ManagementBooking = {
   trip_id: string;
   supplier_id: string | null;
   status: "draft" | "requested" | "confirmed" | "cancelled" | "failed";
+  cost_amount?: number | null;
 };
 
 export type ManagementSupplier = {
@@ -60,6 +61,60 @@ export type CurrencyExposure = {
   openObligations: number;
 };
 
+export type PortfolioQuote = {
+  id: string;
+  currency: string;
+  status: string;
+  current_version: number;
+};
+
+export type PortfolioQuoteVersion = {
+  id: string;
+  quote_id: string;
+  version: number;
+  total_amount: number;
+};
+
+export type PortfolioCostEstimate = {
+  quote_version_id: string;
+  estimated_cost_amount: number;
+};
+
+export type QualityDeal = {
+  stage: string;
+  owner_id: string | null;
+  value_amount: number | null;
+  destination: string | null;
+  next_step: string | null;
+  expected_close_at: string | null;
+};
+
+export type QualityConversation = {
+  status: string;
+  archived_at: string | null;
+  assignee_id: string | null;
+};
+
+export type PortfolioIntelligenceInput = {
+  quotes: PortfolioQuote[];
+  versions: PortfolioQuoteVersion[];
+  costEstimates: PortfolioCostEstimate[];
+  deals: QualityDeal[];
+  conversations: QualityConversation[];
+  trips: ManagementTrip[];
+  bookings: ManagementBooking[];
+  suppliers: ManagementSupplier[];
+};
+
+export type CurrencyProfitability = {
+  currency: string;
+  quotedRevenue: number;
+  estimatedCost: number;
+  grossMargin: number;
+  grossMarginPercent: number;
+  costedQuotes: number;
+};
+
 const activeTripStatuses = new Set<ManagementTrip["status"]>([
   "draft",
   "confirmed",
@@ -68,6 +123,8 @@ const activeTripStatuses = new Set<ManagementTrip["status"]>([
 const activeExceptionStatuses = new Set(["open", "acknowledged"]);
 const urgentSeverities = new Set(["high", "critical"]);
 const openPaymentStatuses = new Set(["pending", "partially_paid", "overdue"]);
+const openDealStages = new Set(["new", "qualified", "proposal", "decision"]);
+const currentQuoteStatuses = new Set(["draft", "shared", "accepted"]);
 
 function safeMoney(value: number) {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -212,6 +269,139 @@ export function buildManagementIntelligence({
       freshnessRate: approvedSources.length
         ? (approvedCurrent / approvedSources.length) * 100
         : null,
+    },
+  };
+}
+
+export function buildPortfolioIntelligence({
+  quotes,
+  versions,
+  costEstimates,
+  deals,
+  conversations,
+  trips,
+  bookings,
+  suppliers,
+}: PortfolioIntelligenceInput) {
+  const currentQuotes = quotes.filter((quote) =>
+    currentQuoteStatuses.has(quote.status),
+  );
+  const currentVersionByQuote = new Map(
+    versions.map((version) => [
+      `${version.quote_id}:${version.version}`,
+      version,
+    ]),
+  );
+  const costByVersion = new Map(
+    costEstimates.map((estimate) => [
+      estimate.quote_version_id,
+      estimate.estimated_cost_amount,
+    ]),
+  );
+  const profitabilityByCurrency = new Map<string, CurrencyProfitability>();
+  let missingCurrentVersion = 0;
+  let missingCostEstimate = 0;
+
+  for (const quote of currentQuotes) {
+    const version = currentVersionByQuote.get(
+      `${quote.id}:${quote.current_version}`,
+    );
+    if (!version || !Number.isFinite(version.total_amount)) {
+      missingCurrentVersion += 1;
+      continue;
+    }
+    const estimate = costByVersion.get(version.id);
+    if (estimate === undefined || !Number.isFinite(estimate)) {
+      missingCostEstimate += 1;
+      continue;
+    }
+    const currency = quote.currency.trim().toUpperCase();
+    if (!currency) continue;
+    const quotedRevenue = safeMoney(version.total_amount);
+    const estimatedCost = safeMoney(estimate);
+    const current = profitabilityByCurrency.get(currency) ?? {
+      currency,
+      quotedRevenue: 0,
+      estimatedCost: 0,
+      grossMargin: 0,
+      grossMarginPercent: 0,
+      costedQuotes: 0,
+    };
+    current.quotedRevenue += quotedRevenue;
+    current.estimatedCost += estimatedCost;
+    current.grossMargin += quotedRevenue - estimatedCost;
+    current.costedQuotes += 1;
+    profitabilityByCurrency.set(currency, current);
+  }
+
+  const profitability = [...profitabilityByCurrency.values()]
+    .map((row) => ({
+      ...row,
+      grossMarginPercent: row.quotedRevenue
+        ? (row.grossMargin / row.quotedRevenue) * 100
+        : 0,
+    }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
+  const openDeals = deals.filter((deal) => openDealStages.has(deal.stage));
+  const incompleteDeals = openDeals.filter(
+    (deal) =>
+      !deal.owner_id ||
+      !deal.value_amount ||
+      deal.value_amount <= 0 ||
+      !deal.destination?.trim() ||
+      !deal.next_step?.trim() ||
+      !deal.expected_close_at,
+  );
+  const activeTripIds = new Set(
+    trips
+      .filter((trip) => activeTripStatuses.has(trip.status))
+      .map((trip) => trip.id),
+  );
+
+  return {
+    profitability: {
+      currencies: profitability,
+      currentQuotes: currentQuotes.length,
+      costedQuotes: profitability.reduce(
+        (sum, row) => sum + row.costedQuotes,
+        0,
+      ),
+      missingCostEstimate,
+      missingCurrentVersion,
+    },
+    quality: {
+      incompleteDeals: incompleteDeals.length,
+      openDeals: openDeals.length,
+      missingDealOwner: openDeals.filter((deal) => !deal.owner_id).length,
+      missingDealValue: openDeals.filter(
+        (deal) => !deal.value_amount || deal.value_amount <= 0,
+      ).length,
+      missingDealDestination: openDeals.filter(
+        (deal) => !deal.destination?.trim(),
+      ).length,
+      missingDealNextStep: openDeals.filter((deal) => !deal.next_step?.trim())
+        .length,
+      missingDealCloseDate: openDeals.filter(
+        (deal) => !deal.expected_close_at,
+      ).length,
+      unassignedConversations: conversations.filter(
+        (conversation) =>
+          !conversation.archived_at &&
+          conversation.status !== "closed" &&
+          !conversation.assignee_id,
+      ).length,
+      uncategorizedBookingCosts: bookings.filter(
+        (booking) =>
+          activeTripIds.has(booking.trip_id) &&
+          booking.status !== "cancelled" &&
+          booking.cost_amount === null,
+      ).length,
+      unratedActiveSuppliers: suppliers.filter(
+        (supplier) =>
+          !supplier.archived_at &&
+          supplier.status === "active" &&
+          supplier.quality_rating === null,
+      ).length,
     },
   };
 }

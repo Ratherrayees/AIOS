@@ -9,6 +9,7 @@ import { FeatureHeader } from "../../components/ui/feature-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import {
   buildManagementIntelligence,
+  buildPortfolioIntelligence,
   type ManagementBooking,
   type ManagementException,
   type ManagementKnowledgeConflict,
@@ -16,6 +17,10 @@ import {
   type ManagementPayment,
   type ManagementSupplier,
   type ManagementTrip,
+  type PortfolioCostEstimate,
+  type PortfolioQuote,
+  type PortfolioQuoteVersion,
+  type QualityConversation,
 } from "../../lib/analytics/management-intelligence";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
@@ -28,6 +33,9 @@ type Deal = {
   owner_id: string | null;
   source: string | null;
   source_campaign: string | null;
+  destination: string | null;
+  next_step: string | null;
+  expected_close_at: string | null;
   stage: "new" | "qualified" | "proposal" | "decision" | "won" | "lost";
   value_amount: number | null;
   currency: string;
@@ -50,6 +58,7 @@ type StageHistory = {
 type Member = { id: string; name: string };
 type SavedView = { id: string; name: string; filters: Json; created_at: string };
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
+type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
 
 const ranges: { value: AnalyticsRange; label: string; days: number | null }[] = [
   { value: "30d", label: "Last 30 days", days: 30 },
@@ -111,6 +120,7 @@ export default function AnalyticsPage() {
   const [filterTimestamp, setFilterTimestamp] = useState(0);
   const [management, setManagement] =
     useState<ManagementIntelligence | null>(null);
+  const [portfolio, setPortfolio] = useState<PortfolioIntelligence | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -135,11 +145,15 @@ export default function AnalyticsPage() {
         { data: paymentRows, error: paymentError },
         { data: knowledgeSourceRows, error: knowledgeSourceError },
         { data: knowledgeConflictRows, error: knowledgeConflictError },
+        { data: quoteRows, error: quoteError },
+        { data: quoteVersionRows, error: quoteVersionError },
+        { data: quoteCostRows, error: quoteCostError },
+        { data: conversationRows, error: conversationError },
       ] = await Promise.all([
         supabase
           .from("deals")
           .select(
-            "id, owner_id, source, source_campaign, stage, value_amount, currency, probability, created_at, qualified_at, first_response_due_at, first_responded_at, won_at, lost_at",
+            "id, owner_id, source, source_campaign, destination, next_step, expected_close_at, stage, value_amount, currency, probability, created_at, qualified_at, first_response_due_at, first_responded_at, won_at, lost_at",
           )
           .eq("organization_id", active.organization_id)
           .is("archived_at", null)
@@ -176,7 +190,7 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("bookings")
-          .select("trip_id, supplier_id, status")
+          .select("trip_id, supplier_id, status, cost_amount")
           .eq("organization_id", active.organization_id)
           .limit(10000),
         supabase
@@ -199,6 +213,26 @@ export default function AnalyticsPage() {
           .select("status")
           .eq("organization_id", active.organization_id)
           .limit(5000),
+        supabase
+          .from("quotes")
+          .select("id, currency, status, current_version")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
+        supabase
+          .from("quote_versions")
+          .select("id, quote_id, version, total_amount")
+          .eq("organization_id", active.organization_id)
+          .limit(10000),
+        supabase
+          .from("quote_cost_estimates")
+          .select("quote_version_id, estimated_cost_amount")
+          .eq("organization_id", active.organization_id)
+          .limit(10000),
+        supabase
+          .from("conversations")
+          .select("status, archived_at, assignee_id")
+          .eq("organization_id", active.organization_id)
+          .limit(10000),
       ]);
       const dataError =
         dealError ||
@@ -209,7 +243,11 @@ export default function AnalyticsPage() {
         supplierError ||
         paymentError ||
         knowledgeSourceError ||
-        knowledgeConflictError;
+        knowledgeConflictError ||
+        quoteError ||
+        quoteVersionError ||
+        quoteCostError ||
+        conversationError;
       if (dataError) throw dataError;
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
@@ -235,6 +273,18 @@ export default function AnalyticsPage() {
             []) as ManagementKnowledgeSource[],
           knowledgeConflicts: (knowledgeConflictRows ||
             []) as ManagementKnowledgeConflict[],
+        }),
+      );
+      setPortfolio(
+        buildPortfolioIntelligence({
+          quotes: (quoteRows || []) as PortfolioQuote[],
+          versions: (quoteVersionRows || []) as PortfolioQuoteVersion[],
+          costEstimates: (quoteCostRows || []) as PortfolioCostEstimate[],
+          deals: (dealRows || []) as Deal[],
+          conversations: (conversationRows || []) as QualityConversation[],
+          trips: (tripRows || []) as ManagementTrip[],
+          bookings: (bookingRows || []) as ManagementBooking[],
+          suppliers: (supplierRows || []) as ManagementSupplier[],
         }),
       );
       setFilterTimestamp(Date.now());
@@ -646,6 +696,146 @@ export default function AnalyticsPage() {
                 </div>
               </details>
             </>
+          )}
+
+          {portfolio && (
+            <section
+              className="commercial-intelligence"
+              aria-labelledby="commercial-heading"
+            >
+              <header className="management-heading">
+                <div>
+                  <p>COMMERCIAL CONTROL</p>
+                  <h2 id="commercial-heading">
+                    Profitability evidence and data quality
+                  </h2>
+                </div>
+                <span>
+                  Current quote versions only · Internal estimates · Never
+                  presented as realized accounting profit
+                </span>
+              </header>
+              <div className="commercial-grid">
+                <article className="analytics-panel profitability-panel">
+                  <header>
+                    <div>
+                      <p>OWNER · COMMERCIAL & FINANCE</p>
+                      <h2>Current quote portfolio</h2>
+                    </div>
+                    <span>
+                      {portfolio.profitability.costedQuotes} of{" "}
+                      {portfolio.profitability.currentQuotes} current quotes
+                      have matching cost evidence.
+                    </span>
+                  </header>
+                  {portfolio.profitability.currencies.length ? (
+                    <div className="analytics-table-wrap">
+                      <table>
+                        <caption>
+                          Estimated quote profitability separated by currency
+                        </caption>
+                        <thead>
+                          <tr>
+                            <th>Currency</th>
+                            <th>Costed quotes</th>
+                            <th>Quoted revenue</th>
+                            <th>Estimated cost</th>
+                            <th>Gross margin</th>
+                            <th>Margin %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {portfolio.profitability.currencies.map((row) => (
+                            <tr key={row.currency}>
+                              <td>
+                                <b>{row.currency}</b>
+                              </td>
+                              <td>{row.costedQuotes}</td>
+                              <td>
+                                {currency(row.quotedRevenue, row.currency)}
+                              </td>
+                              <td>
+                                {currency(row.estimatedCost, row.currency)}
+                              </td>
+                              <td>{currency(row.grossMargin, row.currency)}</td>
+                              <td>{row.grossMarginPercent.toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="analytics-empty compact">
+                      Add an internal cost estimate to a current quote version
+                      before AIOS shows portfolio margin.
+                    </div>
+                  )}
+                  <footer className="portfolio-footer">
+                    <span>
+                      Missing cost:{" "}
+                      <b>{portfolio.profitability.missingCostEstimate}</b>
+                    </span>
+                    <span>
+                      Missing current version:{" "}
+                      <b>{portfolio.profitability.missingCurrentVersion}</b>
+                    </span>
+                    <Link href="/quotes">Open quote evidence →</Link>
+                  </footer>
+                </article>
+
+                <article className="analytics-panel quality-panel">
+                  <header>
+                    <div>
+                      <p>OWNER · WORKFLOW LEADS</p>
+                      <h2>Data quality watch</h2>
+                    </div>
+                    <span>
+                      Counts are separate signals; one record may need more
+                      than one correction.
+                    </span>
+                  </header>
+                  <div className="quality-list">
+                    <div>
+                      <span>OPEN DEALS</span>
+                      <b>
+                        {portfolio.quality.incompleteDeals} /{" "}
+                        {portfolio.quality.openDeals}
+                      </b>
+                      <p>missing one or more management fields</p>
+                      <Link href="/?view=leads">Review lead pipeline →</Link>
+                    </div>
+                    <div>
+                      <span>OWNERSHIP</span>
+                      <b>{portfolio.quality.unassignedConversations}</b>
+                      <p>open Inbox conversations without an owner</p>
+                      <Link href="/inbox">Review Inbox →</Link>
+                    </div>
+                    <div>
+                      <span>TRIP COSTS</span>
+                      <b>{portfolio.quality.uncategorizedBookingCosts}</b>
+                      <p>active-trip bookings without a cost amount</p>
+                      <Link href="/trips">Review Trip Operations →</Link>
+                    </div>
+                    <div>
+                      <span>SUPPLIER QUALITY</span>
+                      <b>{portfolio.quality.unratedActiveSuppliers}</b>
+                      <p>active suppliers without a quality rating</p>
+                      <Link href="/finance">Review suppliers →</Link>
+                    </div>
+                  </div>
+                  <details className="deal-quality-breakdown">
+                    <summary>Incomplete deal field breakdown</summary>
+                    <p>
+                      Owner {portfolio.quality.missingDealOwner} · Value{" "}
+                      {portfolio.quality.missingDealValue} · Destination{" "}
+                      {portfolio.quality.missingDealDestination} · Next step{" "}
+                      {portfolio.quality.missingDealNextStep} · Close date{" "}
+                      {portfolio.quality.missingDealCloseDate}
+                    </p>
+                  </details>
+                </article>
+              </div>
+            </section>
           )}
 
           <section className="sales-section-heading">

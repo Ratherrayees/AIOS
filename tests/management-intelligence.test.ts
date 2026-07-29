@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildManagementIntelligence } from "../lib/analytics/management-intelligence";
+import {
+  buildManagementIntelligence,
+  buildPortfolioIntelligence,
+} from "../lib/analytics/management-intelligence";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
 
@@ -195,4 +198,183 @@ test("knowledge health treats missing or expired review deadlines as stale", () 
       freshnessRate: 33,
     },
   );
+});
+
+test("portfolio profitability uses only current quote versions with matching costs", () => {
+  const result = buildPortfolioIntelligence({
+    quotes: [
+      { id: "q1", currency: "INR", status: "draft", current_version: 2 },
+      { id: "q2", currency: "INR", status: "shared", current_version: 1 },
+      { id: "q3", currency: "USD", status: "accepted", current_version: 1 },
+      { id: "q4", currency: "USD", status: "rejected", current_version: 1 },
+    ],
+    versions: [
+      { id: "q1-v1", quote_id: "q1", version: 1, total_amount: 90 },
+      { id: "q1-v2", quote_id: "q1", version: 2, total_amount: 120 },
+      { id: "q2-v1", quote_id: "q2", version: 1, total_amount: 80 },
+      { id: "q3-v1", quote_id: "q3", version: 1, total_amount: 300 },
+      { id: "q4-v1", quote_id: "q4", version: 1, total_amount: 1000 },
+    ],
+    costEstimates: [
+      { quote_version_id: "q1-v1", estimated_cost_amount: 30 },
+      { quote_version_id: "q1-v2", estimated_cost_amount: 90 },
+      { quote_version_id: "q3-v1", estimated_cost_amount: 240 },
+      { quote_version_id: "q4-v1", estimated_cost_amount: 1 },
+    ],
+    deals: [],
+    conversations: [],
+    trips: [],
+    bookings: [],
+    suppliers: [],
+  });
+
+  assert.deepEqual(result.profitability, {
+    currencies: [
+      {
+        currency: "INR",
+        quotedRevenue: 120,
+        estimatedCost: 90,
+        grossMargin: 30,
+        grossMarginPercent: 25,
+        costedQuotes: 1,
+      },
+      {
+        currency: "USD",
+        quotedRevenue: 300,
+        estimatedCost: 240,
+        grossMargin: 60,
+        grossMarginPercent: 20,
+        costedQuotes: 1,
+      },
+    ],
+    currentQuotes: 3,
+    costedQuotes: 2,
+    missingCostEstimate: 1,
+    missingCurrentVersion: 0,
+  });
+});
+
+test("portfolio quality identifies incomplete work without double-counting records", () => {
+  const result = buildPortfolioIntelligence({
+    quotes: [],
+    versions: [],
+    costEstimates: [],
+    deals: [
+      {
+        stage: "proposal",
+        owner_id: null,
+        value_amount: null,
+        destination: "",
+        next_step: null,
+        expected_close_at: null,
+      },
+      {
+        stage: "qualified",
+        owner_id: "owner",
+        value_amount: 500,
+        destination: "Ladakh",
+        next_step: "Review route",
+        expected_close_at: "2026-08-20",
+      },
+      {
+        stage: "won",
+        owner_id: null,
+        value_amount: null,
+        destination: null,
+        next_step: null,
+        expected_close_at: null,
+      },
+    ],
+    conversations: [
+      { status: "open", archived_at: null, assignee_id: null },
+      { status: "closed", archived_at: null, assignee_id: null },
+      { status: "inbox", archived_at: "2026-07-01", assignee_id: null },
+    ],
+    trips: [
+      { id: "active", status: "confirmed", start_date: "2026-08-01" },
+      { id: "done", status: "completed", start_date: "2026-07-01" },
+    ],
+    bookings: [
+      {
+        trip_id: "active",
+        supplier_id: null,
+        status: "requested",
+        cost_amount: null,
+      },
+      {
+        trip_id: "active",
+        supplier_id: null,
+        status: "cancelled",
+        cost_amount: null,
+      },
+      {
+        trip_id: "done",
+        supplier_id: null,
+        status: "confirmed",
+        cost_amount: null,
+      },
+    ],
+    suppliers: [
+      {
+        id: "missing-rating",
+        status: "active",
+        archived_at: null,
+        quality_rating: null,
+      },
+      {
+        id: "rated",
+        status: "active",
+        archived_at: null,
+        quality_rating: 4,
+      },
+    ],
+  });
+
+  assert.deepEqual(result.quality, {
+    incompleteDeals: 1,
+    openDeals: 2,
+    missingDealOwner: 1,
+    missingDealValue: 1,
+    missingDealDestination: 1,
+    missingDealNextStep: 1,
+    missingDealCloseDate: 1,
+    unassignedConversations: 1,
+    uncategorizedBookingCosts: 1,
+    unratedActiveSuppliers: 1,
+  });
+});
+
+test("portfolio margin normalizes invalid money without combining currencies", () => {
+  const result = buildPortfolioIntelligence({
+    quotes: [
+      { id: "q1", currency: "EUR", status: "draft", current_version: 1 },
+    ],
+    versions: [
+      {
+        id: "q1-v1",
+        quote_id: "q1",
+        version: 1,
+        total_amount: -100,
+      },
+    ],
+    costEstimates: [
+      { quote_version_id: "q1-v1", estimated_cost_amount: -50 },
+    ],
+    deals: [],
+    conversations: [],
+    trips: [],
+    bookings: [],
+    suppliers: [],
+  });
+
+  assert.deepEqual(result.profitability.currencies, [
+    {
+      currency: "EUR",
+      quotedRevenue: 0,
+      estimatedCost: 0,
+      grossMargin: 0,
+      grossMarginPercent: 0,
+      costedQuotes: 1,
+    },
+  ]);
 });
