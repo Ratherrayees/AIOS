@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 
+import { saveAnalyticsTarget } from "../actions/analytics";
 import { createSavedView, deleteSavedView } from "../actions/crm";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
@@ -23,6 +30,10 @@ import {
   type PortfolioQuoteVersion,
   type QualityConversation,
 } from "../../lib/analytics/management-intelligence";
+import {
+  buildTargetCoverage,
+  type AnalyticsTarget,
+} from "../../lib/analytics/targets";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -110,6 +121,7 @@ function analyticsFiltersFromSavedView(savedView: SavedView | undefined) {
 
 export default function AnalyticsPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [history, setHistory] = useState<StageHistory[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -126,6 +138,7 @@ export default function AnalyticsPage() {
   const [management, setManagement] =
     useState<ManagementIntelligence | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioIntelligence | null>(null);
+  const [targets, setTargets] = useState<AnalyticsTarget[]>([]);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -138,6 +151,7 @@ export default function AnalyticsPage() {
         return;
       }
       setOrganizationId(active.organization_id);
+      setRole(active.role);
       const [
         { data: dealRows, error: dealError },
         { data: historyRows, error: historyError },
@@ -154,6 +168,7 @@ export default function AnalyticsPage() {
         { data: quoteVersionRows, error: quoteVersionError },
         { data: quoteCostRows, error: quoteCostError },
         { data: conversationRows, error: conversationError },
+        { data: targetRows, error: targetError },
       ] = await Promise.all([
         supabase
           .from("deals")
@@ -238,6 +253,14 @@ export default function AnalyticsPage() {
           .select("status, archived_at, assignee_id")
           .eq("organization_id", active.organization_id)
           .limit(10000),
+        supabase
+          .from("analytics_targets")
+          .select(
+            "id, label, currency, period_start, period_end, target_amount, is_active",
+          )
+          .eq("organization_id", active.organization_id)
+          .order("period_start", { ascending: true })
+          .limit(1000),
       ]);
       const dataError =
         dealError ||
@@ -252,7 +275,8 @@ export default function AnalyticsPage() {
         quoteError ||
         quoteVersionError ||
         quoteCostError ||
-        conversationError;
+        conversationError ||
+        targetError;
       if (dataError) throw dataError;
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
@@ -292,6 +316,7 @@ export default function AnalyticsPage() {
           suppliers: (supplierRows || []) as ManagementSupplier[],
         }),
       );
+      setTargets((targetRows || []) as AnalyticsTarget[]);
       setFilterTimestamp(Date.now());
       setLoading(false);
     };
@@ -343,6 +368,15 @@ export default function AnalyticsPage() {
         horizonDays: forecastHorizon,
       }),
     [deals, filterTimestamp, forecastHorizon],
+  );
+  const targetCoverage = useMemo(
+    () =>
+      buildTargetCoverage(
+        deals,
+        targets,
+        filterTimestamp ? new Date(filterTimestamp) : new Date(),
+      ),
+    [deals, filterTimestamp, targets],
   );
 
   const won = filteredDeals.filter((deal) => deal.stage === "won");
@@ -412,6 +446,7 @@ export default function AnalyticsPage() {
     };
   });
   const maxSourceLeads = Math.max(1, ...sourceRows.map((row) => row.leads));
+  const canConfigureTargets = role === "owner" || role === "admin";
 
   function selectSavedView(savedViewId: string) {
     setSelectedSavedViewId(savedViewId);
@@ -466,6 +501,73 @@ export default function AnalyticsPage() {
       } catch (error) {
         setNotice(
           error instanceof Error ? error.message : "That view was not removed.",
+        );
+      }
+    });
+  }
+
+  function submitAnalyticsTarget(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || pending || !canConfigureTargets) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const target = await saveAnalyticsTarget({
+          organizationId,
+          targetId: null,
+          label: String(formData.get("label") || ""),
+          currency: String(formData.get("currency") || ""),
+          periodStart: String(formData.get("periodStart") || ""),
+          periodEnd: String(formData.get("periodEnd") || ""),
+          targetAmount: Number(formData.get("targetAmount")),
+          isActive: true,
+        });
+        setTargets((current) => [
+          target as AnalyticsTarget,
+          ...current.filter((item) => item.id !== target.id),
+        ]);
+        form.reset();
+        setNotice(
+          `Approved ${target.label} target added. Coverage now uses its exact period and currency.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The analytics target could not be saved.",
+        );
+      }
+    });
+  }
+
+  function retireAnalyticsTarget(target: AnalyticsTarget) {
+    if (!organizationId || pending || !canConfigureTargets) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const retired = await saveAnalyticsTarget({
+          organizationId,
+          targetId: target.id,
+          label: target.label,
+          currency: target.currency,
+          periodStart: target.period_start,
+          periodEnd: target.period_end,
+          targetAmount: target.target_amount,
+          isActive: false,
+        });
+        setTargets((current) =>
+          current.map((item) =>
+            item.id === retired.id ? (retired as AnalyticsTarget) : item,
+          ),
+        );
+        setNotice(`${retired.label} was retired from active coverage.`);
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The analytics target could not be retired.",
         );
       }
     });
@@ -943,14 +1045,28 @@ export default function AnalyticsPage() {
                   </span>
                   <Link href="/?view=leads">Inspect forecast records →</Link>
                 </footer>
-                <div className="coverage-boundary">
-                  <span>PIPELINE COVERAGE</span>
-                  <b>Target not configured</b>
-                  <p>
-                    AIOS will not infer a sales target. Coverage starts only
-                    after leadership approves a currency and period target.
-                  </p>
-                </div>
+                {targetCoverage.length ? (
+                  <div className="coverage-boundary configured">
+                    <span>PIPELINE COVERAGE</span>
+                    <b>
+                      {targetCoverage.length} approved{" "}
+                      {targetCoverage.length === 1 ? "target" : "targets"}
+                    </b>
+                    <p>
+                      Coverage below matches opportunities only to each
+                      target&apos;s exact currency and close-date period.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="coverage-boundary">
+                    <span>PIPELINE COVERAGE</span>
+                    <b>Target not configured</b>
+                    <p>
+                      AIOS will not infer a sales target. Coverage starts only
+                      after leadership approves a currency and period target.
+                    </p>
+                  </div>
+                )}
               </article>
 
               <article className="analytics-panel retention-panel">
@@ -990,6 +1106,143 @@ export default function AnalyticsPage() {
                 <Link href="/contacts">Open customer records →</Link>
               </article>
             </div>
+            <article className="analytics-panel target-coverage-panel">
+              <header>
+                <div>
+                  <p>OWNER · OWNER / ADMIN</p>
+                  <h2>Approved pipeline coverage</h2>
+                </div>
+                <span>
+                  Targets are auditable management inputs. Retiring a target
+                  removes it from active coverage without deleting history.
+                </span>
+              </header>
+              {targetCoverage.length ? (
+                <div className="analytics-table-wrap">
+                  <table>
+                    <caption>
+                      Active sales targets and matching open pipeline
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Period</th>
+                        <th>Target amount</th>
+                        <th>Open pipeline</th>
+                        <th>Pipeline coverage</th>
+                        <th>Weighted coverage</th>
+                        {canConfigureTargets && <th>Control</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetCoverage.map((target) => (
+                        <tr key={target.id}>
+                          <td>
+                            <b>{target.label}</b>
+                            <span>{target.currency}</span>
+                          </td>
+                          <td>
+                            {target.period_start} → {target.period_end}
+                          </td>
+                          <td>
+                            {currency(target.target_amount, target.currency)}
+                          </td>
+                          <td>
+                            {currency(target.pipelineValue, target.currency)}
+                            <span>
+                              {target.opportunities}{" "}
+                              {target.opportunities === 1
+                                ? "opportunity"
+                                : "opportunities"}
+                            </span>
+                          </td>
+                          <td>
+                            {target.pipelineCoveragePercent === null
+                              ? "—"
+                              : `${target.pipelineCoveragePercent.toFixed(1)}%`}
+                          </td>
+                          <td>
+                            {target.weightedCoveragePercent === null
+                              ? "—"
+                              : `${target.weightedCoveragePercent.toFixed(1)}%`}
+                          </td>
+                          {canConfigureTargets && (
+                            <td>
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() => retireAnalyticsTarget(target)}
+                              >
+                                Retire
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="analytics-empty compact">
+                  No active approved targets. Forecasts remain visible, but
+                  AIOS will not calculate target coverage.
+                </div>
+              )}
+              {canConfigureTargets ? (
+                <form
+                  className="target-form"
+                  onSubmit={submitAnalyticsTarget}
+                >
+                  <label>
+                    Target name
+                    <input
+                      name="label"
+                      minLength={3}
+                      maxLength={80}
+                      placeholder="Q4 INR sales"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Currency
+                    <input
+                      name="currency"
+                      minLength={3}
+                      maxLength={3}
+                      pattern="[A-Za-z]{3}"
+                      placeholder="INR"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Period start
+                    <input name="periodStart" type="date" required />
+                  </label>
+                  <label>
+                    Period end
+                    <input name="periodEnd" type="date" required />
+                  </label>
+                  <label>
+                    Approved target
+                    <input
+                      name="targetAmount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      required
+                    />
+                  </label>
+                  <button type="submit" disabled={pending}>
+                    {pending ? "Saving…" : "Add approved target"}
+                  </button>
+                </form>
+              ) : (
+                <p className="target-permission">
+                  Only workspace owners and admins can approve or retire sales
+                  targets.
+                </p>
+              )}
+            </article>
           </section>
 
           <section className="sales-section-heading">

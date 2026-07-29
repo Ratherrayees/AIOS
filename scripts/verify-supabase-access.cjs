@@ -57,6 +57,7 @@ const protectedTables = [
   "itinerary_comments",
   "organization_invitations",
   "saved_views",
+  "analytics_targets",
   "message_templates",
   "message_drafts",
   "knowledge_sources",
@@ -457,6 +458,18 @@ async function verify() {
       ],
     },
   );
+  const { error: anonymousAnalyticsTargetError } = await anonymous.rpc(
+    "upsert_analytics_target",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_label: "Blocked anonymous target",
+      target_currency: "INR",
+      target_period_start: "2026-08-01",
+      target_period_end: "2026-08-31",
+      target_amount: 100000,
+      target_is_active: true,
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -640,6 +653,11 @@ async function verify() {
       function: "import_knowledge_text_source",
       anonymousExecutionBlocked: Boolean(anonymousKnowledgeTextImportError),
       anonymousErrorCode: anonymousKnowledgeTextImportError?.code ?? null,
+    },
+    {
+      function: "upsert_analytics_target",
+      anonymousExecutionBlocked: Boolean(anonymousAnalyticsTargetError),
+      anonymousErrorCode: anonymousAnalyticsTargetError?.code ?? null,
     },
   ];
 

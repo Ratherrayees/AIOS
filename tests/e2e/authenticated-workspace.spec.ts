@@ -2729,6 +2729,57 @@ test.describe("authenticated owner workspace", () => {
     await expect(inrForecast).toContainText("₹81,250");
     await page.getByLabel("Forecast horizon").selectOption("90");
     await expect(inrForecast).toContainText("₹5,75,000");
+
+    const targetName = `E2E Q3 INR target ${forecastSuffix}`;
+    await page.getByLabel("Target name").fill(targetName);
+    await page.getByLabel("Currency", { exact: true }).fill("INR");
+    await page.getByLabel("Period start").fill("2026-07-01");
+    await page.getByLabel("Period end").fill("2026-09-30");
+    await page.getByLabel("Approved target").fill("1000000");
+    await page
+      .getByRole("button", { name: "Add approved target" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      `Approved ${targetName} target added`,
+    );
+
+    const targetTable = page.getByRole("table", {
+      name: "Active sales targets and matching open pipeline",
+    });
+    const targetRow = targetTable.getByRole("row", { name: new RegExp(targetName) });
+    await expect(targetRow).toContainText("₹10,00,000");
+    await expect(targetRow).toContainText("₹5,75,000");
+    await expect(targetRow).toContainText("57.5%");
+    await expect(targetRow).toContainText("18.1%");
+
+    const { data: analyticsTarget, error: analyticsTargetError } = await admin!
+      .from("analytics_targets")
+      .select("id, is_active")
+      .eq("organization_id", organizationIds[0])
+      .eq("label", targetName)
+      .single();
+    expect(analyticsTargetError).toBeNull();
+    expect(analyticsTarget?.is_active).toBe(true);
+
+    await targetRow.getByRole("button", { name: "Retire" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      `${targetName} was retired`,
+    );
+    await expect(targetRow).toHaveCount(0);
+    const { data: retiredTarget, error: retiredTargetError } = await admin!
+      .from("analytics_targets")
+      .select("is_active")
+      .eq("id", analyticsTarget!.id)
+      .single();
+    expect(retiredTargetError).toBeNull();
+    expect(retiredTarget?.is_active).toBe(false);
+    const { count: targetAuditCount, error: targetAuditError } = await admin!
+      .from("audit_events")
+      .select("id", { count: "exact", head: true })
+      .eq("entity_type", "analytics_target")
+      .eq("entity_id", analyticsTarget!.id);
+    expect(targetAuditError).toBeNull();
+    expect(targetAuditCount).toBe(2);
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({

@@ -531,6 +531,73 @@ export type Database = {
           },
         ]
       }
+      analytics_targets: {
+        Row: {
+          created_at: string
+          created_by: string
+          currency: string
+          id: string
+          is_active: boolean
+          label: string
+          organization_id: string
+          period_end: string
+          period_start: string
+          target_amount: number
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          currency: string
+          id?: string
+          is_active?: boolean
+          label: string
+          organization_id: string
+          period_end: string
+          period_start: string
+          target_amount: number
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          currency?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          organization_id?: string
+          period_end?: string
+          period_start?: string
+          target_amount?: number
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analytics_targets_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_targets_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_targets_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       approval_requests: {
         Row: {
           action: string
@@ -5075,6 +5142,38 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "knowledge_sections"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_analytics_target: {
+        Args: {
+          target_amount: number
+          target_currency: string
+          target_id?: string
+          target_is_active: boolean
+          target_label: string
+          target_organization_id: string
+          target_period_end: string
+          target_period_start: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          currency: string
+          id: string
+          is_active: boolean
+          label: string
+          organization_id: string
+          period_end: string
+          period_start: string
+          target_amount: number
+          updated_at: string
+          updated_by: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "analytics_targets"
           isOneToOne: false
           isSetofReturn: true
         }

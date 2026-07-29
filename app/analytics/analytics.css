@@ -516,6 +516,11 @@
   line-height: 1.5;
 }
 
+.coverage-boundary.configured {
+  background: #e6f4e2;
+  border-left-color: #67a84b;
+}
+
 .retention-primary {
   display: grid;
   gap: 8px;
@@ -573,6 +578,100 @@
   font-size: 0.7rem;
   font-weight: 900;
   text-decoration: none;
+}
+
+.target-coverage-panel {
+  margin-top: 18px;
+}
+
+.target-coverage-panel table caption {
+  padding: 0 0 12px;
+  color: #778784;
+  font-size: 0.67rem;
+  text-align: left;
+}
+
+.target-coverage-panel td:first-child {
+  min-width: 130px;
+}
+
+.target-coverage-panel td span {
+  display: block;
+  margin-top: 4px;
+  color: #7d8b89;
+  font-size: 0.61rem;
+}
+
+.target-coverage-panel td button {
+  padding: 7px 9px;
+  color: #7f4634;
+  background: #fff4ed;
+  border: 1px solid #f0d7ca;
+  border-radius: 7px;
+  cursor: pointer;
+  font: 800 0.62rem Arial, sans-serif;
+}
+
+.target-form {
+  display: grid;
+  grid-template-columns: 1.3fr 90px repeat(3, minmax(130px, 0.7fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #e7ece6;
+}
+
+.target-form label {
+  display: grid;
+  gap: 6px;
+  color: #607671;
+  font-size: 0.61rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.target-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 39px;
+  padding: 0 9px;
+  color: #173637;
+  background: white;
+  border: 1px solid #d5ddd4;
+  border-radius: 9px;
+}
+
+.target-form input[name="currency"] {
+  text-transform: uppercase;
+}
+
+.target-form button {
+  min-height: 39px;
+  padding: 0 13px;
+  color: #eaffba;
+  background: #123536;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.target-form button:disabled,
+.target-coverage-panel td button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.target-permission {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  color: #80603e;
+  background: #fff7e9;
+  border-radius: 9px;
+  font-size: 0.68rem;
 }
 
 .sales-section-heading {
@@ -804,6 +903,10 @@
   .growth-grid {
     grid-template-columns: 1fr;
   }
+
+  .target-form {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (max-width: 680px) {
@@ -878,6 +981,10 @@
 
   .forecast-footer a {
     margin-left: 0;
+  }
+
+  .target-form {
+    grid-template-columns: 1fr;
   }
 
   .analytics-controls,

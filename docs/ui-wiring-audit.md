@@ -11,7 +11,7 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 45/45 browser journeys
-- 157/157 behavioral tests
+- 160/160 behavioral tests
 - 21/21 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -19,7 +19,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 59-table/35-RPC anonymous-access probes and 225 authenticated authorization assertions
+- all 60-table/36-RPC anonymous-access probes and 234 authenticated authorization assertions
 
 ## Feature evidence
 
@@ -45,7 +45,7 @@ The audited build passed with:
 | Account Security | TOTP enrollment, live code verification, verified-factor display and removal | Supabase Auth reports the factor, then confirms it is removed | Pass |
 | AIOS Control | Daily budget, provider selection, model kill switch, approved price version, lead and Inbox triage, autonomy modes, workflow disable/enable and non-bypassable external-action guard | Budget, price and autonomy policy rows persist; triage writes only bounded internal work; quote sharing cannot be set to Auto | Pass |
 | Governed Knowledge | Versioned source draft, bounded private text/Markdown import with file hash/name/size provenance and deterministic server-created citations, source authority/sensitivity/freshness metadata, human review, approval, stale-source queue, controlled replacement draft, draft-only passage revision, atomic supersession, approved retrieval, side-by-side factual Conflict Watch with human evidence decisions, and an Answer Desk with claim-level source links, explicit unsupported/stale states, and high-impact human review | Direct writes are denied; imported files become Drafts atomically and duplicate active hashes are rejected; drafts, restricted material, conflict evidence, and retired sources are permission-filtered by role; guarded import, transition, renewal, scanning, and conflict-review RPCs record provenance/reviewer/lineage/audit evidence; the conflict detector flags but never resolves semantics; the answer path sends only permitted fresh evidence, validates model claims against exact retrieved passages, attaches citations server-side, and makes no provider call for unsupported evidence | Pass |
-| Analytics | Authenticated loading, lead/source conversion evidence, live Trip Operations and supplier readiness, currency-separated open financial exposure, AIOS knowledge freshness/conflict health, current-quote profitability, 30/90/365-day weighted forecasts, repeat-customer evidence, workflow data-quality controls, metric definitions, and source-workspace drill-through | Metrics derive only from tenant-authorized deal/history/trip/exception/booking/supplier/payment/quote/version/cost/Inbox/knowledge rows; only current costed Draft/Shared/Accepted quote versions enter internal margin, rejected/expired/superseded or incomplete evidence is excluded and reported, forecasts use bounded stored probabilities and close dates, sales targets are never inferred, repeat customers require two linked wins, settled obligations are excluded, missing review deadlines fail stale, active-trip scope is explicit, overlapping quality signals are not summed, and currencies are never combined | Pass |
+| Analytics | Authenticated loading, lead/source conversion evidence, live Trip Operations and supplier readiness, currency-separated open financial exposure, AIOS knowledge freshness/conflict health, current-quote profitability, 30/90/365-day weighted forecasts, repeat-customer evidence, owner/admin-approved period targets with active coverage and audited retirement, workflow data-quality controls, metric definitions, and source-workspace drill-through | Metrics derive only from tenant-authorized deal/history/trip/exception/booking/supplier/payment/quote/version/cost/Inbox/knowledge/target rows; only current costed Draft/Shared/Accepted quote versions enter internal margin, rejected/expired/superseded or incomplete evidence is excluded and reported, forecasts use bounded stored probabilities and close dates, coverage uses only an explicitly approved matching period/currency target, direct target writes/viewer/foreign access are denied, repeat customers require two linked wins, settled obligations are excluded, missing review deadlines fail stale, active-trip scope is explicit, overlapping quality signals are not summed, and currencies are never combined | Pass |
 | Private document vault | UI upload from lead detail and metadata verification | Object bytes and metadata exist in the private tenant path; anonymous/foreign access and browser deletion are denied | Pass |
 | Responsive and runtime integrity | All principal protected routes at desktop and 390px mobile widths | No horizontal overflow; route sweep produced no browser errors or warnings | Pass |
 
@@ -71,6 +71,7 @@ The audited build passed with:
 18. The first Knowledge retrieval panel reused a legacy global `.knowledge-search` dashboard selector. At a mid-width viewport that inherited a fixed-height flex layout and let approved citation cards overlap the inventory below. The governed workspace now uses an isolated selector namespace, and browser layout inspection covers the exact failing width plus the 390px overflow boundary.
 19. The initial Answer Desk browser assertion targeted a generic search button after the evidence preview label became more explicit. The journey now selects the actual “Preview evidence” control and separately proves that an unsupported question creates an auditable deterministic refusal with zero model job or token usage.
 20. The first text-import adapter passed its TypeScript `citationLabel` key directly to a SQL JSON contract that requires `citation_label`. The atomic database function rolled the transaction back on its non-null constraint; the server action now maps the boundary explicitly, and the browser journey verifies both imported citations and provenance.
+21. The first analytics-target retirement update used a function argument with the same name as the target table column, making PostgreSQL reject the assignment as ambiguous. The authorization probe caught the missing retirement/audit result; the function now binds the positional input explicitly, and the clean replay plus 234-assertion probe verify non-destructive retirement and both audit events.
 
 ## Deferred external acceptance
 

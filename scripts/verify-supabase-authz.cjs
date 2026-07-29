@@ -3568,6 +3568,138 @@ async function verifyAuthorization() {
       Boolean(ownerForeignSavedView.error),
     );
 
+    activeVerificationPhase = "verifying governed analytics targets";
+    const directAnalyticsTarget = await owner
+      .from("analytics_targets")
+      .insert({
+        organization_id: organizationA.id,
+        label: "Blocked direct target",
+        currency: "INR",
+        period_start: "2026-08-01",
+        period_end: "2026-09-30",
+        target_amount: 100000,
+        created_by: ownerUser.id,
+        updated_by: ownerUser.id,
+      });
+    record(
+      "browser clients cannot write analytics targets directly",
+      Boolean(directAnalyticsTarget.error),
+    );
+
+    const viewerAnalyticsTarget = await viewer.rpc(
+      "upsert_analytics_target",
+      {
+        target_organization_id: organizationB.id,
+        target_label: "Blocked viewer target",
+        target_currency: "INR",
+        target_period_start: "2026-08-01",
+        target_period_end: "2026-09-30",
+        target_amount: 100000,
+        target_is_active: true,
+      },
+    );
+    record(
+      "viewers cannot approve analytics targets",
+      Boolean(viewerAnalyticsTarget.error),
+    );
+
+    const foreignAnalyticsTarget = await owner.rpc(
+      "upsert_analytics_target",
+      {
+        target_organization_id: organizationB.id,
+        target_label: "Blocked foreign target",
+        target_currency: "INR",
+        target_period_start: "2026-08-01",
+        target_period_end: "2026-09-30",
+        target_amount: 100000,
+        target_is_active: true,
+      },
+    );
+    record(
+      "owners cannot approve targets in a foreign tenant",
+      Boolean(foreignAnalyticsTarget.error),
+    );
+
+    const ownerAnalyticsTarget = await owner.rpc(
+      "upsert_analytics_target",
+      {
+        target_organization_id: organizationA.id,
+        target_label: "Authz Q3 target",
+        target_currency: "INR",
+        target_period_start: "2026-08-01",
+        target_period_end: "2026-09-30",
+        target_amount: 100000,
+        target_is_active: true,
+      },
+    );
+    const analyticsTarget = ownerAnalyticsTarget.data?.[0];
+    record(
+      "owners approve bounded period and currency targets",
+      !ownerAnalyticsTarget.error &&
+        analyticsTarget?.label === "Authz Q3 target" &&
+        analyticsTarget?.currency === "INR" &&
+        analyticsTarget?.is_active === true,
+    );
+    if (ownerAnalyticsTarget.error || !analyticsTarget)
+      throw ownerAnalyticsTarget.error ??
+        new Error("Analytics target authorization fixture was not created.");
+
+    const viewerForeignTargetRead = await viewer
+      .from("analytics_targets")
+      .select("id")
+      .eq("id", analyticsTarget.id);
+    record(
+      "analytics targets remain tenant isolated",
+      !viewerForeignTargetRead.error &&
+        viewerForeignTargetRead.data?.length === 0,
+    );
+
+    const directAnalyticsTargetUpdate = await owner
+      .from("analytics_targets")
+      .update({ target_amount: 1 })
+      .eq("id", analyticsTarget.id)
+      .select("id");
+    record(
+      "browser clients cannot rewrite approved analytics targets",
+      Boolean(directAnalyticsTargetUpdate.error) ||
+        directAnalyticsTargetUpdate.data?.length === 0,
+    );
+
+    const retiredAnalyticsTarget = await owner.rpc(
+      "upsert_analytics_target",
+      {
+        target_organization_id: organizationA.id,
+        target_id: analyticsTarget.id,
+        target_label: analyticsTarget.label,
+        target_currency: analyticsTarget.currency,
+        target_period_start: analyticsTarget.period_start,
+        target_period_end: analyticsTarget.period_end,
+        target_amount: analyticsTarget.target_amount,
+        target_is_active: false,
+      },
+    );
+    record(
+      "owners retire analytics targets without deleting history",
+      !retiredAnalyticsTarget.error &&
+        retiredAnalyticsTarget.data?.[0]?.is_active === false,
+      retiredAnalyticsTarget.error?.message ??
+        JSON.stringify(retiredAnalyticsTarget.data),
+    );
+
+    const analyticsTargetAudit = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("entity_type", "analytics_target")
+      .eq("entity_id", analyticsTarget.id);
+    record(
+      "analytics target changes preserve audit evidence",
+      !analyticsTargetAudit.error &&
+        (analyticsTargetAudit.data?.length ?? 0) === 2,
+      analyticsTargetAudit.error?.message ??
+        `audit rows: ${analyticsTargetAudit.data?.length ?? 0}`,
+    );
+
     const forgedApproval = await owner.from("approval_requests").insert({
       organization_id: organizationA.id,
       requester_id: ownerUser.id,
