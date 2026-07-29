@@ -40,6 +40,7 @@ Security and operations references:
 - `docs/database-recovery.md`
 - `docs/database-seeding.md`
 - `docs/load-testing.md`
+- `docs/supabase-read-only-audit.md`
 
 ## Architecture
 
