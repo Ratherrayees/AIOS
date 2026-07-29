@@ -735,6 +735,247 @@ async function verifyAuthorization() {
       clearedRadarScan.error?.message ?? null,
     );
 
+    activeVerificationPhase = "durable Operations Radar authorization";
+    const [
+      ownerRadarPolicy,
+      ownerForeignRadarPolicy,
+      viewerRadarPolicy,
+    ] = await Promise.all([
+      owner
+        .from("operations_radar_policies")
+        .select("*")
+        .eq("organization_id", organizationA.id)
+        .single(),
+      owner
+        .from("operations_radar_policies")
+        .select("organization_id")
+        .eq("organization_id", organizationB.id),
+      viewer
+        .from("operations_radar_policies")
+        .select("*")
+        .eq("organization_id", organizationB.id)
+        .single(),
+    ]);
+    record(
+      "new workspaces receive one tenant-isolated Radar schedule",
+      !ownerRadarPolicy.error &&
+        ownerRadarPolicy.data?.scan_interval_minutes === 60 &&
+        !viewerRadarPolicy.error &&
+        ownerForeignRadarPolicy.data?.length === 0,
+      ownerRadarPolicy.error?.message ??
+        viewerRadarPolicy.error?.message ??
+        ownerForeignRadarPolicy.error?.message ??
+        null,
+    );
+
+    const directRadarPolicyUpdate = await owner
+      .from("operations_radar_policies")
+      .update({ scan_interval_minutes: 15 })
+      .eq("organization_id", organizationA.id)
+      .select("organization_id");
+    record(
+      "browser clients cannot mutate Radar schedules directly",
+      Boolean(directRadarPolicyUpdate.error) ||
+        directRadarPolicyUpdate.data?.length === 0,
+    );
+
+    const viewerRadarPolicyUpdate = await viewer.rpc(
+      "upsert_operations_radar_policy",
+      {
+        target_organization_id: organizationB.id,
+        target_is_enabled: true,
+        target_scan_interval_minutes: 30,
+        target_confirmation_watch_days: 14,
+        target_confirmation_critical_hours: 48,
+        target_confirmation_high_days: 7,
+        target_document_expiry_days: 30,
+        target_document_high_days: 7,
+        target_payment_due_days: 7,
+        target_payment_high_days: 2,
+        target_task_critical_hours: 24,
+      },
+    );
+    record(
+      "viewer cannot configure durable Radar automation",
+      Boolean(viewerRadarPolicyUpdate.error),
+    );
+
+    const foreignRadarAssignee = await owner.rpc(
+      "upsert_operations_radar_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_is_enabled: true,
+        target_scan_interval_minutes: 30,
+        target_confirmation_watch_days: 14,
+        target_confirmation_critical_hours: 48,
+        target_confirmation_high_days: 7,
+        target_document_expiry_days: 21,
+        target_document_high_days: 5,
+        target_payment_due_days: 5,
+        target_payment_high_days: 2,
+        target_task_critical_hours: 36,
+        target_default_assignee_id: viewerUser.id,
+      },
+    );
+    record(
+      "Radar fallback ownership cannot cross tenant boundaries",
+      Boolean(foreignRadarAssignee.error),
+    );
+
+    const governedRadarPolicy = await owner
+      .rpc("upsert_operations_radar_policy", {
+        target_organization_id: organizationA.id,
+        target_is_enabled: true,
+        target_scan_interval_minutes: 30,
+        target_confirmation_watch_days: 10,
+        target_confirmation_critical_hours: 36,
+        target_confirmation_high_days: 5,
+        target_document_expiry_days: 21,
+        target_document_high_days: 5,
+        target_payment_due_days: 5,
+        target_payment_high_days: 2,
+        target_task_critical_hours: 36,
+        target_default_assignee_id: ownerUser.id,
+      })
+      .single();
+    record(
+      "authorized owner can save bounded Radar thresholds and ownership",
+      !governedRadarPolicy.error &&
+        governedRadarPolicy.data?.scan_interval_minutes === 30 &&
+        governedRadarPolicy.data?.document_expiry_days === 21 &&
+        governedRadarPolicy.data?.default_assignee_id === ownerUser.id,
+      governedRadarPolicy.error?.message ?? null,
+    );
+
+    const ownerRadarClaim = await owner.rpc(
+      "claim_operations_radar_runs",
+      {
+        target_worker_id: `owner-radar-${suffix}`,
+        target_limit: 1,
+      },
+    );
+    record(
+      "ordinary authenticated clients cannot claim worker leases",
+      Boolean(ownerRadarClaim.error),
+    );
+
+    const radarWorkerId = `authz-radar-worker-${suffix}`;
+    const claimedRadarRun = await admin
+      .rpc("claim_operations_radar_runs", {
+        target_worker_id: radarWorkerId,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      })
+      .single();
+    record(
+      "service worker claims one durable tenant-scoped Radar lease",
+      !claimedRadarRun.error &&
+        claimedRadarRun.data?.organization_id === organizationA.id &&
+        claimedRadarRun.data?.trigger_type === "operator",
+      claimedRadarRun.error?.message ?? null,
+    );
+    if (claimedRadarRun.error || !claimedRadarRun.data)
+      throw (
+        claimedRadarRun.error ??
+        new Error("Durable Radar run was not claimed.")
+      );
+
+    const duplicateRadarClaim = await admin.rpc(
+      "claim_operations_radar_runs",
+      {
+        target_worker_id: `${radarWorkerId}-duplicate`,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      },
+    );
+    record(
+      "an active workspace lease prevents a duplicate Radar run",
+      !duplicateRadarClaim.error &&
+        (duplicateRadarClaim.data?.length ?? 0) === 0,
+      duplicateRadarClaim.error?.message ?? null,
+    );
+
+    const wrongRadarSettlement = await admin.rpc(
+      "settle_operations_radar_run",
+      {
+        target_run_id: claimedRadarRun.data.run_id,
+        target_worker_id: `${radarWorkerId}-wrong`,
+        target_status: "failed",
+        target_error_code: "wrong_worker",
+      },
+    );
+    record(
+      "a Radar run can be settled only by its lease owner",
+      Boolean(wrongRadarSettlement.error),
+    );
+
+    const scheduledRadarScan = await admin
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationA.id,
+      })
+      .single();
+    if (scheduledRadarScan.error || !scheduledRadarScan.data)
+      throw (
+        scheduledRadarScan.error ??
+        new Error("Service Radar scan did not return a result.")
+      );
+    const settledRadarRun = await admin
+      .rpc("settle_operations_radar_run", {
+        target_run_id: claimedRadarRun.data.run_id,
+        target_worker_id: radarWorkerId,
+        target_status: "succeeded",
+        target_active_count: scheduledRadarScan.data.active_count,
+        target_critical_count: scheduledRadarScan.data.critical_count,
+        target_resolved_count: scheduledRadarScan.data.resolved_count,
+      })
+      .single();
+    record(
+      "lease-owned Radar settlement preserves bounded run evidence",
+      !settledRadarRun.error &&
+        settledRadarRun.data?.status === "succeeded" &&
+        settledRadarRun.data?.active_count ===
+          scheduledRadarScan.data.active_count &&
+        Boolean(settledRadarRun.data?.finished_at),
+      settledRadarRun.error?.message ?? null,
+    );
+
+    const [
+      ownerRadarRuns,
+      viewerForeignRadarRuns,
+      completedRadarPolicy,
+    ] = await Promise.all([
+      owner
+        .from("operations_radar_runs")
+        .select("id, status")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("operations_radar_runs")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("operations_radar_policies")
+        .select("last_run_status, last_run_at")
+        .eq("organization_id", organizationA.id)
+        .single(),
+    ]);
+    record(
+      "Radar run history and terminal policy state remain tenant isolated",
+      !ownerRadarRuns.error &&
+        ownerRadarRuns.data?.length === 1 &&
+        ownerRadarRuns.data[0].status === "succeeded" &&
+        !viewerForeignRadarRuns.error &&
+        viewerForeignRadarRuns.data?.length === 0 &&
+        !completedRadarPolicy.error &&
+        completedRadarPolicy.data?.last_run_status === "succeeded" &&
+        Boolean(completedRadarPolicy.data?.last_run_at),
+      ownerRadarRuns.error?.message ??
+        viewerForeignRadarRuns.error?.message ??
+        completedRadarPolicy.error?.message ??
+        null,
+    );
+
     activeVerificationPhase = "supplier and finance authorization";
     const { data: alphaSupplier, error: alphaSupplierError } = await owner
       .from("suppliers")

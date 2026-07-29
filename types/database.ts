@@ -2238,6 +2238,150 @@ export type Database = {
           },
         ]
       }
+      operations_radar_policies: {
+        Row: {
+          confirmation_critical_hours: number
+          confirmation_high_days: number
+          confirmation_watch_days: number
+          created_at: string
+          default_assignee_id: string | null
+          document_expiry_days: number
+          document_high_days: number
+          is_enabled: boolean
+          last_run_at: string | null
+          last_run_status: string | null
+          next_run_at: string
+          organization_id: string
+          payment_due_days: number
+          payment_high_days: number
+          scan_interval_minutes: number
+          task_critical_hours: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          confirmation_critical_hours?: number
+          confirmation_high_days?: number
+          confirmation_watch_days?: number
+          created_at?: string
+          default_assignee_id?: string | null
+          document_expiry_days?: number
+          document_high_days?: number
+          is_enabled?: boolean
+          last_run_at?: string | null
+          last_run_status?: string | null
+          next_run_at?: string
+          organization_id: string
+          payment_due_days?: number
+          payment_high_days?: number
+          scan_interval_minutes?: number
+          task_critical_hours?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          confirmation_critical_hours?: number
+          confirmation_high_days?: number
+          confirmation_watch_days?: number
+          created_at?: string
+          default_assignee_id?: string | null
+          document_expiry_days?: number
+          document_high_days?: number
+          is_enabled?: boolean
+          last_run_at?: string | null
+          last_run_status?: string | null
+          next_run_at?: string
+          organization_id?: string
+          payment_due_days?: number
+          payment_high_days?: number
+          scan_interval_minutes?: number
+          task_critical_hours?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operations_radar_policies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operations_radar_policies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operations_radar_policy_assignee_same_organization_fkey"
+            columns: ["organization_id", "default_assignee_id"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+        ]
+      }
+      operations_radar_runs: {
+        Row: {
+          active_count: number | null
+          created_at: string
+          critical_count: number | null
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          organization_id: string
+          policy_snapshot: Json
+          resolved_count: number | null
+          scheduled_for: string
+          started_at: string
+          status: string
+          trigger_type: string
+          worker_id: string
+        }
+        Insert: {
+          active_count?: number | null
+          created_at?: string
+          critical_count?: number | null
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          organization_id: string
+          policy_snapshot: Json
+          resolved_count?: number | null
+          scheduled_for: string
+          started_at?: string
+          status?: string
+          trigger_type: string
+          worker_id: string
+        }
+        Update: {
+          active_count?: number | null
+          created_at?: string
+          critical_count?: number | null
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          organization_id?: string
+          policy_snapshot?: Json
+          resolved_count?: number | null
+          scheduled_for?: string
+          started_at?: string
+          status?: string
+          trigger_type?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operations_radar_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_invitations: {
         Row: {
           accepted_at: string | null
@@ -3677,6 +3821,19 @@ export type Database = {
           job_payload: Json
         }[]
       }
+      claim_operations_radar_runs: {
+        Args: {
+          target_force?: boolean
+          target_limit?: number
+          target_organization_id?: string
+          target_worker_id: string
+        }
+        Returns: {
+          organization_id: string
+          run_id: string
+          trigger_type: string
+        }[]
+      }
       classify_trip_document: {
         Args: {
           target_document_id: string
@@ -4185,6 +4342,39 @@ export type Database = {
           job_status: Database["public"]["Enums"]["ai_job_status"]
         }[]
       }
+      settle_operations_radar_run: {
+        Args: {
+          target_active_count?: number
+          target_critical_count?: number
+          target_error_code?: string
+          target_resolved_count?: number
+          target_run_id: string
+          target_status: string
+          target_worker_id: string
+        }
+        Returns: {
+          active_count: number | null
+          created_at: string
+          critical_count: number | null
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          organization_id: string
+          policy_snapshot: Json
+          resolved_count: number | null
+          scheduled_for: string
+          started_at: string
+          status: string
+          trigger_type: string
+          worker_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "operations_radar_runs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       shares_active_organization: {
         Args: { target_user_id: string }
         Returns: boolean
@@ -4298,6 +4488,48 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_operations_radar_policy: {
+        Args: {
+          target_confirmation_critical_hours: number
+          target_confirmation_high_days: number
+          target_confirmation_watch_days: number
+          target_default_assignee_id?: string
+          target_document_expiry_days: number
+          target_document_high_days: number
+          target_is_enabled: boolean
+          target_organization_id: string
+          target_payment_due_days: number
+          target_payment_high_days: number
+          target_scan_interval_minutes: number
+          target_task_critical_hours: number
+        }
+        Returns: {
+          confirmation_critical_hours: number
+          confirmation_high_days: number
+          confirmation_watch_days: number
+          created_at: string
+          default_assignee_id: string | null
+          document_expiry_days: number
+          document_high_days: number
+          is_enabled: boolean
+          last_run_at: string | null
+          last_run_status: string | null
+          next_run_at: string
+          organization_id: string
+          payment_due_days: number
+          payment_high_days: number
+          scan_interval_minutes: number
+          task_critical_hours: number
+          updated_at: string
+          updated_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "operations_radar_policies"
           isOneToOne: false
           isSetofReturn: true
         }

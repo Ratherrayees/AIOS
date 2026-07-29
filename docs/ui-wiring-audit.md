@@ -4,14 +4,14 @@ Reviewed: 29 July 2026
 
 ## Outcome
 
-Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 42 Chromium journeys: 21 public/authentication and security-boundary checks plus 21 authenticated, browser-to-database workflows.
+Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 43 Chromium journeys: 22 public/authentication and security-boundary checks plus 21 authenticated, browser-to-database workflows.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
-- 42/42 browser journeys
-- 123/123 behavioral tests
+- 43/43 browser journeys
+- 126/126 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -35,6 +35,7 @@ The audited build passed with:
 | Quotes | Draft creation, immutable revision, internal cost/margin signal and quote-sharing approval request | Version history and internal cost persist; sharing remains approval-gated and unsent | Pass |
 | Itinerary Studio | Trip drafts, day items, comments, conflict/readiness checks, reusable template creation and application | Trips, items, comments, readiness tasks and copied template items persist; no booking or external share occurs | Pass |
 | Trip Operations | Won-deal handoff, operating details, lead/additional travellers, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement, and Operations Radar scan/clear behavior | Conversion is idempotent, direct trip/booking/exception status writes are blocked, lifecycle history and actor/audit evidence persist, eight objective risk types are deduplicated and routed, and no supplier message, inventory reservation, or money movement occurs | Pass |
+| Durable Operations Radar | Enable/pause, cadence, bounded confirmation/document/payment/task thresholds, same-workspace fallback owner, operator-triggered durable run, recent history, and unavailable-without-secret worker endpoint | Policy/run tables are browser-read-only; service claims are tenant-scoped and `SKIP LOCKED`; one active lease is enforced; abandoned leases and failure retry state are bounded; wrong workers, viewers, foreign owners, duplicate claims, and anonymous calls are denied | Pass |
 | Traveler Portal | Traveler-file classification, exact-scope approval request, human approval, expiring publication, safe public journey/payment/document rendering, approved voucher download, and immediate evidence-backed revocation | Only a frozen narrow snapshot and selected normal-sensitivity file mappings are exposed; raw tokens are returned once and stored only as SHA-256 hashes; identity documents, internal notes, supplier terms, margins, payables, and storage paths remain absent | Pass |
 | Suppliers & Finance | Supplier profile, named contact, contract terms, receivable creation, settlement evidence, currency-separated balances, due-date Radar signal, and settled-filter workflow | Tenant and role boundaries persist; direct payment/allocation writes are denied; guarded RPCs record actor/audit evidence; the ledger records facts without charging, paying, refunding, or messaging anyone | Pass |
 | Lead Capture settings | Form creation, public preview route, pause and resume | Form configuration and active state persist; public submission uses the governed endpoint | Pass |
@@ -60,6 +61,8 @@ The audited build passed with:
 10. The first traveler-portal migration linked a tenant/document pair without a matching composite unique key. The clean zero-state replay caught it; documents now expose the required tenant-safe key before the mapping foreign key is created.
 11. PostgreSQL emits JSON timestamps with explicit numeric UTC offsets, while the first public snapshot parser accepted only a trailing `Z`. The parser now accepts valid ISO offsets, the unit fixture uses offset timestamps, and the full publish/view/download/revoke browser journey enforces the boundary.
 12. The generic anonymous-access verifier assumed every protected table had a single `id` column. The portal document-mapping table correctly uses a composite primary key, so the verifier now selects the table shape generically and covers all 53 tables.
+13. The first durable-schedule migration referenced the immutable-tenant trigger helper in the public schema instead of the established private schema. Clean zero-state replay failed immediately; the migration now uses the shared private helper and replays cleanly.
+14. The initial schedule component mixed its external fetch and state application in one effect helper. React 19 lint rejected the cascading pattern; fetching is now side-effect-free and state is applied only from the guarded promise continuation.
 
 ## Deferred external acceptance
 

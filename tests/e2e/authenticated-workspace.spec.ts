@@ -1426,6 +1426,44 @@ test.describe("authenticated owner workspace", () => {
         .filter({ hasText: "Trip dates are incomplete" }),
     ).toBeVisible();
 
+    const radarSchedule = page.locator(".radar-schedule");
+    await expect(
+      radarSchedule.getByRole("heading", {
+        name: "Monitor continuously. Escalate internally.",
+      }),
+    ).toBeVisible();
+    await radarSchedule
+      .getByLabel("Scan frequency")
+      .selectOption("30");
+    await radarSchedule
+      .getByLabel("Fallback exception owner")
+      .selectOption(userId!);
+    await radarSchedule
+      .locator("article")
+      .filter({ hasText: "Traveler documents" })
+      .getByLabel("Watch days")
+      .fill("21");
+    await radarSchedule
+      .locator("article")
+      .filter({ hasText: "Traveler documents" })
+      .getByLabel("High within days")
+      .fill("5");
+    await radarSchedule
+      .getByRole("button", { name: "Save governed policy" })
+      .click();
+    await expect(radarSchedule.getByRole("status")).toContainText(
+      "Schedule saved",
+    );
+    await radarSchedule
+      .getByRole("button", { name: "Run durable scan now" })
+      .click();
+    await expect(radarSchedule.getByRole("status")).toContainText(
+      "Durable run complete: 1 succeeded, 0 failed",
+    );
+    await expect(
+      radarSchedule.getByText("operator scan", { exact: true }),
+    ).toBeVisible();
+
     const tripLink = page
       .locator(".trip-grid > a")
       .filter({ hasText: "Kyoto discovery journey" });
@@ -1616,6 +1654,27 @@ test.describe("authenticated owner workspace", () => {
       "confirmed",
       "in_travel",
     ]);
+    const { data: radarPolicy, error: radarPolicyError } = await admin!
+      .from("operations_radar_policies")
+      .select(
+        "scan_interval_minutes, document_expiry_days, document_high_days, default_assignee_id, last_run_status",
+      )
+      .eq("organization_id", organizationIds[0])
+      .single();
+    expect(radarPolicyError).toBeNull();
+    expect(radarPolicy).toMatchObject({
+      scan_interval_minutes: 30,
+      document_expiry_days: 21,
+      document_high_days: 5,
+      default_assignee_id: userId,
+      last_run_status: "succeeded",
+    });
+    const { count: durableRadarRunCount } = await admin!
+      .from("operations_radar_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationIds[0])
+      .eq("status", "succeeded");
+    expect(durableRadarRunCount).toBe(1);
   });
 
   test("wires supplier memory, payment evidence, and payment-due radar", async ({

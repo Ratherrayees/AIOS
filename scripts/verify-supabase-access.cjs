@@ -41,6 +41,8 @@ const protectedTables = [
   "trips",
   "trip_status_history",
   "operational_exceptions",
+  "operations_radar_policies",
+  "operations_radar_runs",
   "travelers",
   "itinerary_items",
   "bookings",
@@ -303,6 +305,38 @@ async function verify() {
       target_document_id: "22222222-2222-4222-8222-222222222222",
     },
   );
+  const { error: anonymousRadarPolicyError } = await anonymous.rpc(
+    "upsert_operations_radar_policy",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_is_enabled: true,
+      target_scan_interval_minutes: 60,
+      target_confirmation_watch_days: 14,
+      target_confirmation_critical_hours: 48,
+      target_confirmation_high_days: 7,
+      target_document_expiry_days: 30,
+      target_document_high_days: 7,
+      target_payment_due_days: 7,
+      target_payment_high_days: 2,
+      target_task_critical_hours: 24,
+    },
+  );
+  const { error: anonymousRadarClaimError } = await anonymous.rpc(
+    "claim_operations_radar_runs",
+    {
+      target_worker_id: "anonymous-worker-blocked",
+      target_limit: 1,
+    },
+  );
+  const { error: anonymousRadarSettleError } = await anonymous.rpc(
+    "settle_operations_radar_run",
+    {
+      target_run_id: "11111111-1111-4111-8111-111111111111",
+      target_worker_id: "anonymous-worker-blocked",
+      target_status: "failed",
+      target_error_code: "blocked",
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -413,6 +447,21 @@ async function verify() {
       function: "get_traveler_portal_document",
       anonymousExecutionBlocked: Boolean(anonymousPortalDocumentError),
       anonymousErrorCode: anonymousPortalDocumentError?.code ?? null,
+    },
+    {
+      function: "upsert_operations_radar_policy",
+      anonymousExecutionBlocked: Boolean(anonymousRadarPolicyError),
+      anonymousErrorCode: anonymousRadarPolicyError?.code ?? null,
+    },
+    {
+      function: "claim_operations_radar_runs",
+      anonymousExecutionBlocked: Boolean(anonymousRadarClaimError),
+      anonymousErrorCode: anonymousRadarClaimError?.code ?? null,
+    },
+    {
+      function: "settle_operations_radar_run",
+      anonymousExecutionBlocked: Boolean(anonymousRadarSettleError),
+      anonymousErrorCode: anonymousRadarSettleError?.code ?? null,
     },
   ];
 

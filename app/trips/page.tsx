@@ -13,6 +13,7 @@ import {
   OperationsRadar,
   type OperationalException,
 } from "../../components/ui/operations-radar";
+import { OperationsRadarSchedule } from "../../components/ui/operations-radar-schedule";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import "./trips.css";
@@ -232,12 +233,18 @@ export default function TripsPage() {
       </section>
 
       {!loading && organizationId && (
-        <OperationsRadar
-          organizationId={organizationId}
-          initialExceptions={exceptions}
-          canManage={canManageRadar}
-          onExceptionsChange={setExceptions}
-        />
+        <>
+          <OperationsRadar
+            organizationId={organizationId}
+            initialExceptions={exceptions}
+            canManage={canManageRadar}
+            onExceptionsChange={setExceptions}
+          />
+          <OperationsRadarSchedule
+            organizationId={organizationId}
+            role={role}
+          />
+        </>
       )}
 
       {canConvert && (
