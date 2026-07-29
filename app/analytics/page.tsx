@@ -56,6 +56,7 @@ import {
   type PeriodQuote,
   type PeriodTripTransition,
 } from "../../lib/analytics/management-period";
+import { buildManagementAnomalyDesk } from "../../lib/analytics/management-anomalies";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -524,6 +525,17 @@ export default function AnalyticsPage() {
     managementPeriodEvidence,
     managementPeriodPreset,
   ]);
+  const anomalyDesk = useMemo(
+    () =>
+      management && portfolio && managementPeriod.report
+        ? buildManagementAnomalyDesk({
+            management,
+            portfolio,
+            managementPeriod: managementPeriod.report,
+          })
+        : null,
+    [management, managementPeriod.report, portfolio],
+  );
 
   const won = filteredDeals.filter((deal) => deal.stage === "won");
   const open = filteredDeals.filter((deal) => activeStages.has(deal.stage));
@@ -734,7 +746,8 @@ export default function AnalyticsPage() {
       !management ||
       !portfolio ||
       !tripEconomics ||
-      !managementPeriod.report
+      !managementPeriod.report ||
+      !anomalyDesk
     ) {
       setNotice("Management intelligence is still loading.");
       return;
@@ -748,6 +761,7 @@ export default function AnalyticsPage() {
       growth,
       retentionCohorts,
       managementPeriod: managementPeriod.report,
+      anomalyDesk,
       targetCoverage,
     });
     const url = URL.createObjectURL(
@@ -824,7 +838,8 @@ export default function AnalyticsPage() {
                         !management ||
                         !portfolio ||
                         !tripEconomics ||
-                        !managementPeriod.report
+                        !managementPeriod.report ||
+                        !anomalyDesk
                       }
                     >
                       Download aggregate CSV
@@ -1145,6 +1160,76 @@ export default function AnalyticsPage() {
                   </article>
                 )}
               </section>
+              {anomalyDesk && (
+                <section
+                  className="anomaly-desk"
+                  aria-labelledby="anomaly-desk-heading"
+                >
+                  <header className="management-heading">
+                    <div>
+                      <p>AIOS SIGNAL DESK</p>
+                      <h2 id="anomaly-desk-heading">
+                        AIOS explains only what the evidence can prove
+                      </h2>
+                    </div>
+                    <span>
+                      {anomalyDesk.engine} · Rules {anomalyDesk.rulesVersion} ·{" "}
+                      {anomalyDesk.evaluatedSignals} governed signals checked
+                    </span>
+                  </header>
+                  <p className="anomaly-boundary">
+                    AIOS detects material changes and current control gaps,
+                    attaches exact metric citations, and proposes where a human
+                    should investigate. It never invents a root cause.
+                  </p>
+                  {anomalyDesk.anomalies.length ? (
+                    <div className="anomaly-grid">
+                      {anomalyDesk.anomalies.map((anomaly) => (
+                        <article
+                          className={`anomaly-card severity-${anomaly.severity}`}
+                          data-testid="aios-anomaly"
+                          key={anomaly.id}
+                        >
+                          <header>
+                            <span>{anomaly.severity}</span>
+                            <small>{anomaly.category}</small>
+                          </header>
+                          <h3>{anomaly.headline}</h3>
+                          <p>{anomaly.explanation}</p>
+                          <div
+                            className="anomaly-evidence"
+                            aria-label={`Evidence for ${anomaly.headline}`}
+                          >
+                            {anomaly.evidence.map((evidence) => (
+                              <Link
+                                href={evidence.href}
+                                key={`${anomaly.id}-${evidence.metric}-${evidence.scope}`}
+                              >
+                                <span>{evidence.metric}</span>
+                                <b>{evidence.value}</b>
+                                <small>
+                                  {evidence.scope} · {evidence.source}
+                                </small>
+                              </Link>
+                            ))}
+                          </div>
+                          <p className="anomaly-next">
+                            <b>Human next step</b>
+                            {anomaly.nextStep}
+                          </p>
+                          <footer>{anomaly.limitation}</footer>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="analytics-empty anomaly-empty">
+                      No material rule-grounded anomaly is visible in the
+                      selected period or current control snapshot. AIOS will
+                      continue to evaluate the same cited signals.
+                    </div>
+                  )}
+                </section>
+              )}
             </>
           )}
 

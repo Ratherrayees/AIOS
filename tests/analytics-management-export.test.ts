@@ -16,6 +16,7 @@ import { buildTargetCoverage } from "../lib/analytics/targets";
 import { buildCompletedTripEconomics } from "../lib/analytics/trip-economics";
 import { buildRetentionCohorts } from "../lib/analytics/retention-cohorts";
 import { buildManagementPeriodComparison } from "../lib/analytics/management-period";
+import { buildManagementAnomalyDesk } from "../lib/analytics/management-anomalies";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
 const deal = {
@@ -180,6 +181,11 @@ function fixture() {
     payments: [],
     knowledgeSources: [],
   });
+  const anomalyDesk = buildManagementAnomalyDesk({
+    management,
+    portfolio,
+    managementPeriod,
+  });
   return {
     generatedAt: now,
     management,
@@ -188,12 +194,21 @@ function fixture() {
     growth,
     retentionCohorts,
     managementPeriod,
+    anomalyDesk,
     targetCoverage,
   };
 }
 
 test("management export contains currency-safe aggregates and formula provenance", () => {
   const rows = buildManagementExportRows(fixture());
+  assert.ok(
+    rows.some(
+      (row) =>
+        row.section === "AIOS anomaly desk" &&
+        row.metric === "Explanation engine" &&
+        row.value === "AIOS deterministic evidence rules",
+    ),
+  );
   assert.ok(
     rows.some(
       (row) =>

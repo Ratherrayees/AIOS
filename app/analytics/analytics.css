@@ -449,6 +449,168 @@
   font-size: 0.68rem;
 }
 
+.anomaly-desk {
+  max-width: 1500px;
+  margin: 0 auto 60px;
+  padding: 30px;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(86, 137, 126, 0.18), transparent 30%),
+    #102d2d;
+  border: 1px solid #294847;
+  border-radius: 22px;
+  box-shadow: 0 26px 70px rgba(18, 50, 48, 0.13);
+}
+
+.anomaly-desk .management-heading {
+  margin-bottom: 13px;
+}
+
+.anomaly-desk .management-heading p,
+.anomaly-desk .management-heading span {
+  color: #a4c9c0;
+}
+
+.anomaly-desk .management-heading h2 {
+  color: #f5f2e8;
+}
+
+.anomaly-boundary {
+  max-width: 840px;
+  margin: 0 0 24px;
+  color: #bbccc7;
+  font-size: 0.72rem;
+  line-height: 1.65;
+}
+
+.anomaly-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.anomaly-card {
+  display: flex;
+  min-height: 360px;
+  flex-direction: column;
+  padding: 20px;
+  background: rgba(250, 248, 240, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left-width: 4px;
+  border-radius: 15px;
+}
+
+.anomaly-card.severity-urgent {
+  border-left-color: #c76b43;
+}
+
+.anomaly-card.severity-watch {
+  border-left-color: #d2a23d;
+}
+
+.anomaly-card.severity-information {
+  border-left-color: #5c9187;
+}
+
+.anomaly-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.anomaly-card > header span,
+.anomaly-card > header small {
+  color: #526f6a;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.anomaly-card.severity-urgent > header span {
+  color: #a34325;
+}
+
+.anomaly-card.severity-watch > header span {
+  color: #8a681f;
+}
+
+.anomaly-card h3 {
+  margin: 18px 0 9px;
+  color: #173637;
+  font: 500 1.35rem/1.08 Georgia, serif;
+  letter-spacing: -0.025em;
+}
+
+.anomaly-card > p {
+  margin: 0 0 16px;
+  color: #5d726e;
+  font-size: 0.69rem;
+  line-height: 1.55;
+}
+
+.anomaly-evidence {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.anomaly-evidence a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 11px 12px;
+  color: #234b47;
+  background: #edf2ec;
+  border: 1px solid #dce5dc;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.anomaly-evidence a:hover {
+  border-color: #7da197;
+  transform: translateY(-1px);
+}
+
+.anomaly-evidence span,
+.anomaly-evidence b {
+  font-size: 0.64rem;
+}
+
+.anomaly-evidence small {
+  grid-column: 1 / -1;
+  color: #74847f;
+  font-size: 0.57rem;
+}
+
+.anomaly-card .anomaly-next {
+  display: grid;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.anomaly-next b {
+  color: #294e4a;
+  font-size: 0.57rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.anomaly-card > footer {
+  padding-top: 13px;
+  color: #7c8985;
+  border-top: 1px solid #e0e6de;
+  font-size: 0.59rem;
+  line-height: 1.45;
+}
+
+.anomaly-empty {
+  color: #c7d5d1;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.13);
+}
+
 .commercial-intelligence {
   max-width: 1500px;
   margin: 0 auto 60px;
@@ -1193,6 +1355,10 @@
     grid-template-columns: 1fr;
   }
 
+  .anomaly-grid {
+    grid-template-columns: 1fr;
+  }
+
   .growth-grid {
     grid-template-columns: 1fr;
   }
@@ -1275,6 +1441,12 @@
 
   .management-period-section {
     margin-bottom: 44px;
+  }
+
+  .anomaly-desk {
+    margin-bottom: 44px;
+    padding: 20px 16px;
+    border-radius: 16px;
   }
 
   .commercial-intelligence {

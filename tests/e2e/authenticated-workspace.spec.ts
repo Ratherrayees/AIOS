@@ -2930,6 +2930,25 @@ test.describe("authenticated owner workspace", () => {
       }),
     ).toHaveAttribute("href", "/trips");
 
+    await expect(
+      page.getByRole("heading", {
+        name: "AIOS explains only what the evidence can prove",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/AIOS deterministic evidence rules/),
+    ).toBeVisible();
+    const anomalyCards = page.getByTestId("aios-anomaly");
+    expect(await anomalyCards.count()).toBeGreaterThan(0);
+    const firstAnomaly = anomalyCards.first();
+    await expect(firstAnomaly.getByRole("link").first()).toHaveAttribute(
+      "href",
+      /^\//,
+    );
+    await expect(firstAnomaly.locator("footer")).toContainText(
+      /do not|does not|not its cause|does not prove|not bank reconciliation/i,
+    );
+
     const periodViewName = `E2E July management ${forecastSuffix}`;
     await page.getByLabel("Name this Analytics view").fill(periodViewName);
     await page.getByRole("button", { name: "Save view" }).click();
@@ -3065,6 +3084,10 @@ test.describe("authenticated owner workspace", () => {
     expect(reportCsv).toContain(
       '"Management period","Won opportunities: current","","3"',
     );
+    expect(reportCsv).toContain(
+      '"AIOS anomaly desk","Explanation engine","","AIOS deterministic evidence rules"',
+    );
+    expect(reportCsv).toContain('"AIOS anomaly citation"');
     expect(reportCsv).not.toContain(targetName);
     expect(reportCsv).not.toContain(contactId!);
     expect(reportCsv).not.toContain(email);

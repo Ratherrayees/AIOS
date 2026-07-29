@@ -7,6 +7,7 @@ import type { buildTargetCoverage } from "./targets";
 import type { buildCompletedTripEconomics } from "./trip-economics";
 import type { buildRetentionCohorts } from "./retention-cohorts";
 import type { buildManagementPeriodComparison } from "./management-period";
+import type { buildManagementAnomalyDesk } from "./management-anomalies";
 
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
@@ -15,6 +16,7 @@ type TargetCoverage = ReturnType<typeof buildTargetCoverage>;
 type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
 type RetentionCohorts = ReturnType<typeof buildRetentionCohorts>;
 type ManagementPeriod = ReturnType<typeof buildManagementPeriodComparison>;
+type ManagementAnomalyDesk = ReturnType<typeof buildManagementAnomalyDesk>;
 
 export type ManagementExportRow = {
   section: string;
@@ -33,6 +35,7 @@ export type ManagementExportInput = {
   growth: GrowthIntelligence;
   retentionCohorts: RetentionCohorts;
   managementPeriod: ManagementPeriod;
+  anomalyDesk: ManagementAnomalyDesk;
   targetCoverage: TargetCoverage;
 };
 
@@ -68,6 +71,7 @@ export function buildManagementExportRows({
   growth,
   retentionCohorts,
   managementPeriod,
+  anomalyDesk,
   targetCoverage,
 }: ManagementExportInput) {
   const rows: ManagementExportRow[] = [
@@ -248,6 +252,45 @@ export function buildManagementExportRows({
           : `${Number(comparison.deltaPercent.toFixed(2))}% versus the previous equal period.`,
       ),
     );
+  }
+
+  rows.push(
+    row(
+      "AIOS anomaly desk",
+      "Explanation engine",
+      anomalyDesk.engine,
+      `rules ${anomalyDesk.rulesVersion}`,
+      `${anomalyDesk.evaluatedSignals} governed signals evaluated; causal inference is prohibited.`,
+    ),
+    row(
+      "AIOS anomaly desk",
+      "Material signals",
+      anomalyDesk.anomalies.length,
+      "signals",
+      "Deterministic changes or control gaps that crossed a documented evidence rule.",
+    ),
+  );
+  for (const anomaly of anomalyDesk.anomalies) {
+    rows.push(
+      row(
+        "AIOS anomaly desk",
+        `${anomaly.severity}: ${anomaly.headline}`,
+        anomaly.explanation,
+        anomaly.category,
+        `${anomaly.nextStep} Boundary: ${anomaly.limitation}`,
+      ),
+    );
+    for (const evidence of anomaly.evidence) {
+      rows.push(
+        row(
+          "AIOS anomaly citation",
+          evidence.metric,
+          evidence.value,
+          evidence.scope,
+          `${evidence.source}; source workspace ${evidence.href}.`,
+        ),
+      );
+    }
   }
 
   for (const exposure of management.finance.currencies) {
