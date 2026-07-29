@@ -363,6 +363,92 @@
   line-height: 1.55;
 }
 
+.management-period-section {
+  max-width: 1500px;
+  margin: 0 auto 60px;
+}
+
+.period-controls {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.period-controls label {
+  display: grid;
+  gap: 5px;
+  color: #657a76;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.period-controls select,
+.period-controls input {
+  min-width: 170px;
+  min-height: 40px;
+  padding: 0 10px;
+  color: #173637;
+  background: white;
+  border: 1px solid #d5ddd4;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.custom-period-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.period-panel table caption {
+  padding: 0 0 12px;
+  color: #778784;
+  font-size: 0.67rem;
+  text-align: left;
+}
+
+.period-panel td:first-child {
+  min-width: 180px;
+}
+
+.period-panel td:last-child {
+  min-width: 220px;
+}
+
+.period-panel td a {
+  color: #315d57;
+  font-size: 0.65rem;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.period-panel td a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.period-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 18px;
+  color: #748481;
+  font-size: 0.66rem;
+}
+
+.period-error {
+  padding: 13px 15px;
+  color: #8b3d2c;
+  background: #fff2ec;
+  border: 1px solid #f1d4c8;
+  border-radius: 11px;
+  font-size: 0.68rem;
+}
+
 .commercial-intelligence {
   max-width: 1500px;
   margin: 0 auto 60px;
@@ -1168,6 +1254,26 @@
   }
 
   .metric-glossary {
+    margin-bottom: 44px;
+  }
+
+  .period-controls {
+    justify-items: start;
+    width: 100%;
+  }
+
+  .custom-period-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .period-controls label,
+  .period-controls select,
+  .period-controls input {
+    width: 100%;
+  }
+
+  .management-period-section {
     margin-bottom: 44px;
   }
 

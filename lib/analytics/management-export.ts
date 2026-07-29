@@ -6,6 +6,7 @@ import type {
 import type { buildTargetCoverage } from "./targets";
 import type { buildCompletedTripEconomics } from "./trip-economics";
 import type { buildRetentionCohorts } from "./retention-cohorts";
+import type { buildManagementPeriodComparison } from "./management-period";
 
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
@@ -13,6 +14,7 @@ type GrowthIntelligence = ReturnType<typeof buildGrowthIntelligence>;
 type TargetCoverage = ReturnType<typeof buildTargetCoverage>;
 type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
 type RetentionCohorts = ReturnType<typeof buildRetentionCohorts>;
+type ManagementPeriod = ReturnType<typeof buildManagementPeriodComparison>;
 
 export type ManagementExportRow = {
   section: string;
@@ -30,6 +32,7 @@ export type ManagementExportInput = {
   tripEconomics: TripEconomics;
   growth: GrowthIntelligence;
   retentionCohorts: RetentionCohorts;
+  managementPeriod: ManagementPeriod;
   targetCoverage: TargetCoverage;
 };
 
@@ -64,6 +67,7 @@ export function buildManagementExportRows({
   tripEconomics,
   growth,
   retentionCohorts,
+  managementPeriod,
   targetCoverage,
 }: ManagementExportInput) {
   const rows: ManagementExportRow[] = [
@@ -94,6 +98,27 @@ export function buildManagementExportRows({
       "Separated",
       "policy",
       "Amounts are never added across currencies.",
+    ),
+    row(
+      "Management period",
+      "Current period",
+      `${managementPeriod.period.start} to ${managementPeriod.period.end}`,
+      `${managementPeriod.period.days} inclusive days`,
+      "User-selected bounded management activity window.",
+    ),
+    row(
+      "Management period",
+      "Previous comparison period",
+      `${managementPeriod.period.previousStart} to ${managementPeriod.period.previousEnd}`,
+      `${managementPeriod.period.days} inclusive days`,
+      "Immediately preceding equal-length window.",
+    ),
+    row(
+      "Management period",
+      "Missing or invalid event timestamps",
+      managementPeriod.invalidOrMissingEventTimes,
+      "events",
+      "Events excluded because their governed timestamp is absent or invalid.",
     ),
     row(
       "Operations",
@@ -196,6 +221,34 @@ export function buildManagementExportRows({
       "Pending, Partially paid, or Overdue receivables and payables.",
     ),
   ];
+
+  for (const comparison of managementPeriod.rows) {
+    rows.push(
+      row(
+        "Management period",
+        `${comparison.label}: current`,
+        comparison.current,
+        "events",
+        `${comparison.source}; ${managementPeriod.period.start} to ${managementPeriod.period.end}.`,
+      ),
+      row(
+        "Management period",
+        `${comparison.label}: previous`,
+        comparison.previous,
+        "events",
+        `${comparison.source}; ${managementPeriod.period.previousStart} to ${managementPeriod.period.previousEnd}.`,
+      ),
+      row(
+        "Management period",
+        `${comparison.label}: change`,
+        comparison.delta,
+        "events",
+        comparison.deltaPercent === null
+          ? "New activity; the previous equal period contained zero events."
+          : `${Number(comparison.deltaPercent.toFixed(2))}% versus the previous equal period.`,
+      ),
+    );
+  }
 
   for (const exposure of management.finance.currencies) {
     rows.push(

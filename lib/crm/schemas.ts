@@ -90,6 +90,56 @@ const savedViewBaseSchema = z.object({
   name: z.string().trim().min(1).max(80),
 });
 
+const savedAnalyticsFiltersSchema = z
+  .object({
+    range: z.enum(["30d", "90d", "365d", "all"]),
+    source: z.string().trim().min(1).max(120),
+    ownerId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
+    managementPeriod: z.union([
+      z.literal(30),
+      z.literal(90),
+      z.literal(365),
+      z.literal("custom"),
+    ]).default(30),
+    customPeriodStart: z.union([
+      z.literal(""),
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    ]).default(""),
+    customPeriodEnd: z.union([
+      z.literal(""),
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    ]).default(""),
+  })
+  .superRefine((value, context) => {
+    if (value.managementPeriod !== "custom") return;
+    const start = new Date(`${value.customPeriodStart}T00:00:00.000Z`);
+    const end = new Date(`${value.customPeriodEnd}T00:00:00.000Z`);
+    const startIsValid =
+      value.customPeriodStart !== "" &&
+      !Number.isNaN(start.getTime()) &&
+      start.toISOString().slice(0, 10) === value.customPeriodStart;
+    const endIsValid =
+      value.customPeriodEnd !== "" &&
+      !Number.isNaN(end.getTime()) &&
+      end.toISOString().slice(0, 10) === value.customPeriodEnd;
+    if (!startIsValid || !endIsValid) {
+      context.addIssue({
+        code: "custom",
+        path: ["customPeriodStart"],
+        message: "A custom Analytics view needs real start and end dates.",
+      });
+      return;
+    }
+    const span = end.getTime() - start.getTime();
+    if (span < 0 || span > 365 * 86_400_000) {
+      context.addIssue({
+        code: "custom",
+        path: ["customPeriodEnd"],
+        message: "A custom Analytics period must span 1 to 366 days.",
+      });
+    }
+  });
+
 export const savedViewInputSchema = z.discriminatedUnion("feature", [
   savedViewBaseSchema.extend({
     feature: z.literal("contacts"),
@@ -131,11 +181,7 @@ export const savedViewInputSchema = z.discriminatedUnion("feature", [
   }),
   savedViewBaseSchema.extend({
     feature: z.literal("analytics"),
-    filters: z.object({
-      range: z.enum(["30d", "90d", "365d", "all"]),
-      source: z.string().trim().min(1).max(120),
-      ownerId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
-    }),
+    filters: savedAnalyticsFiltersSchema,
   }),
 ]);
 

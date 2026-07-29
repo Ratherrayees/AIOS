@@ -2762,6 +2762,19 @@ test.describe("authenticated owner workspace", () => {
       .select("id")
       .single();
     expect(economicsTripError).toBeNull();
+    const { error: economicsTripHistoryError } = await admin!
+      .from("trip_status_history")
+      .insert({
+        organization_id: organizationIds[0],
+        trip_id: economicsTrip!.id,
+        from_status: "confirmed",
+        to_status: "completed",
+        changed_by: userId,
+        change_source: "human",
+        note: "E2E completed-trip economics fixture",
+        changed_at: "2026-07-18T12:00:00.000Z",
+      });
+    expect(economicsTripHistoryError).toBeNull();
     const { error: economicsBookingError } = await admin!
       .from("bookings")
       .insert({
@@ -2847,6 +2860,11 @@ test.describe("authenticated owner workspace", () => {
       page.getByRole("heading", { name: "First-win retention cohorts" }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", {
+        name: "Compare management activity on equal ground",
+      }),
+    ).toBeVisible();
+    await expect(
       page.getByText(
         "Tenant-authorized records · Current workspace · No currencies combined",
       ),
@@ -2888,6 +2906,52 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("link", { name: "Review Inbox →" }),
     ).toHaveAttribute("href", "/inbox");
+
+    await page.getByLabel("Management period").selectOption("custom");
+    await page
+      .getByLabel("Management period start")
+      .fill("2026-07-01");
+    await page.getByLabel("Management period end").fill("2026-07-31");
+    const periodTable = page.getByRole("table", {
+      name: /2026-07-01.*2026-07-31.*2026-05-31.*2026-06-30/,
+    });
+    const wonPeriodRow = periodTable.getByRole("row", {
+      name: /Won opportunities/,
+    });
+    await expect(wonPeriodRow).toContainText("3");
+    await expect(wonPeriodRow).toContainText("New activity");
+    const completedPeriodRow = periodTable.getByRole("row", {
+      name: /Completed trips/,
+    });
+    await expect(completedPeriodRow).toContainText("1");
+    await expect(
+      completedPeriodRow.getByRole("link", {
+        name: "Trip lifecycle · Completed transition →",
+      }),
+    ).toHaveAttribute("href", "/trips");
+
+    const periodViewName = `E2E July management ${forecastSuffix}`;
+    await page.getByLabel("Name this Analytics view").fill(periodViewName);
+    await page.getByRole("button", { name: "Save view" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "private Analytics view",
+    );
+    const { data: periodSavedView, error: periodSavedViewError } = await admin!
+      .from("saved_views")
+      .select("filters")
+      .eq("organization_id", organizationIds[0])
+      .eq("name", periodViewName)
+      .single();
+    expect(periodSavedViewError).toBeNull();
+    expect(periodSavedView?.filters).toMatchObject({
+      managementPeriod: "custom",
+      customPeriodStart: "2026-07-01",
+      customPeriodEnd: "2026-07-31",
+    });
+    await page.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Private Analytics view removed",
+    );
 
     const completedEconomicsTable = page.getByRole("table", {
       name: "Completed-trip margin and obligation reconciliation by currency",
@@ -2939,8 +3003,8 @@ test.describe("authenticated owner workspace", () => {
     const targetName = `E2E Q3 INR target ${forecastSuffix}`;
     await page.getByLabel("Target name").fill(targetName);
     await page.getByLabel("Currency", { exact: true }).fill("INR");
-    await page.getByLabel("Period start").fill("2026-07-01");
-    await page.getByLabel("Period end").fill("2026-09-30");
+    await page.getByLabel("Period start", { exact: true }).fill("2026-07-01");
+    await page.getByLabel("Period end", { exact: true }).fill("2026-09-30");
     await page.getByLabel("Approved target").fill("1000000");
     await page
       .getByRole("button", { name: "Add approved target" })
@@ -2997,6 +3061,9 @@ test.describe("authenticated owner workspace", () => {
     );
     expect(reportCsv).toContain(
       '"Retention cohorts","2025 Q1: returned within 90 days","","50"',
+    );
+    expect(reportCsv).toContain(
+      '"Management period","Won opportunities: current","","3"',
     );
     expect(reportCsv).not.toContain(targetName);
     expect(reportCsv).not.toContain(contactId!);

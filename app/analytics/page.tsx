@@ -47,6 +47,15 @@ import {
   type EconomicsTrip,
 } from "../../lib/analytics/trip-economics";
 import { buildRetentionCohorts } from "../../lib/analytics/retention-cohorts";
+import {
+  buildManagementPeriodComparison,
+  type ManagementPeriodPreset,
+  type PeriodException,
+  type PeriodKnowledgeSource,
+  type PeriodPayment,
+  type PeriodQuote,
+  type PeriodTripTransition,
+} from "../../lib/analytics/management-period";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -87,6 +96,13 @@ type SavedView = { id: string; name: string; filters: Json; created_at: string }
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
 type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
+type ManagementPeriodEvidence = {
+  tripTransitions: PeriodTripTransition[];
+  exceptions: PeriodException[];
+  payments: PeriodPayment[];
+  quotes: PeriodQuote[];
+  knowledgeSources: PeriodKnowledgeSource[];
+};
 
 const ranges: { value: AnalyticsRange; label: string; days: number | null }[] = [
   { value: "30d", label: "Last 30 days", days: 30 },
@@ -124,6 +140,15 @@ function cohortWindowLabel(window: {
   return `${window.returnedCustomers} / ${window.eligibleCustomers} · ${window.returnRate.toFixed(1)}%`;
 }
 
+function managementPeriodHref(key: string) {
+  if (key === "won-opportunities") return "/?view=leads";
+  if (key === "accepted-quotes") return "/quotes";
+  if (key === "completed-trips" || key === "detected-exceptions")
+    return "/trips";
+  if (key === "knowledge-approvals") return "/knowledge";
+  return "/finance";
+}
+
 function analyticsFiltersFromSavedView(savedView: SavedView | undefined) {
   const filters = savedView?.filters;
   if (!filters || typeof filters !== "object" || Array.isArray(filters))
@@ -135,10 +160,26 @@ function analyticsFiltersFromSavedView(savedView: SavedView | undefined) {
     filters.range === "all"
       ? filters.range
       : "90d";
+  const managementPeriod =
+    filters.managementPeriod === 30 ||
+    filters.managementPeriod === 90 ||
+    filters.managementPeriod === 365 ||
+    filters.managementPeriod === "custom"
+      ? filters.managementPeriod
+      : 30;
   return {
     range: range as AnalyticsRange,
     source: typeof filters.source === "string" ? filters.source : "all",
     ownerId: typeof filters.ownerId === "string" ? filters.ownerId : "all",
+    managementPeriod: managementPeriod as ManagementPeriodPreset,
+    customPeriodStart:
+      typeof filters.customPeriodStart === "string"
+        ? filters.customPeriodStart
+        : "",
+    customPeriodEnd:
+      typeof filters.customPeriodEnd === "string"
+        ? filters.customPeriodEnd
+        : "",
   };
 }
 
@@ -153,6 +194,10 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<AnalyticsRange>("90d");
   const [forecastHorizon, setForecastHorizon] =
     useState<ForecastHorizon>(90);
+  const [managementPeriodPreset, setManagementPeriodPreset] =
+    useState<ManagementPeriodPreset>(30);
+  const [customPeriodStart, setCustomPeriodStart] = useState("");
+  const [customPeriodEnd, setCustomPeriodEnd] = useState("");
   const [source, setSource] = useState("all");
   const [ownerId, setOwnerId] = useState("all");
   const [notice, setNotice] = useState("");
@@ -164,6 +209,8 @@ export default function AnalyticsPage() {
   const [tripEconomics, setTripEconomics] = useState<TripEconomics | null>(
     null,
   );
+  const [managementPeriodEvidence, setManagementPeriodEvidence] =
+    useState<ManagementPeriodEvidence | null>(null);
   const [targets, setTargets] = useState<AnalyticsTarget[]>([]);
   const [pending, startTransition] = useTransition();
 
@@ -195,6 +242,7 @@ export default function AnalyticsPage() {
         { data: quoteCostRows, error: quoteCostError },
         { data: conversationRows, error: conversationError },
         { data: targetRows, error: targetError },
+        { data: tripTransitionRows, error: tripTransitionError },
       ] = await Promise.all([
         supabase
           .from("deals")
@@ -231,7 +279,7 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("operational_exceptions")
-          .select("status, severity, due_at, assigned_to")
+          .select("status, severity, due_at, assigned_to, detected_at")
           .eq("organization_id", active.organization_id)
           .limit(5000),
         supabase
@@ -246,12 +294,14 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("payments")
-          .select("trip_id, amount, paid_amount, currency, direction, status")
+          .select(
+            "trip_id, amount, paid_amount, currency, direction, status, created_at",
+          )
           .eq("organization_id", active.organization_id)
           .limit(10000),
         supabase
           .from("knowledge_sources")
-          .select("status, review_due_on")
+          .select("status, review_due_on, reviewed_at")
           .eq("organization_id", active.organization_id)
           .limit(5000),
         supabase
@@ -261,7 +311,7 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("quotes")
-          .select("id, currency, status, current_version")
+          .select("id, currency, status, current_version, accepted_at")
           .eq("organization_id", active.organization_id)
           .limit(5000),
         supabase
@@ -287,6 +337,12 @@ export default function AnalyticsPage() {
           .eq("organization_id", active.organization_id)
           .order("period_start", { ascending: true })
           .limit(1000),
+        supabase
+          .from("trip_status_history")
+          .select("to_status, changed_at")
+          .eq("organization_id", active.organization_id)
+          .order("changed_at", { ascending: false })
+          .limit(10000),
       ]);
       const dataError =
         dealError ||
@@ -302,7 +358,8 @@ export default function AnalyticsPage() {
         quoteVersionError ||
         quoteCostError ||
         conversationError ||
-        targetError;
+        targetError ||
+        tripTransitionError;
       if (dataError) throw dataError;
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
@@ -350,6 +407,21 @@ export default function AnalyticsPage() {
           bookings: (bookingRows || []) as EconomicsBooking[],
           payments: (paymentRows || []) as EconomicsPayment[],
         }),
+      );
+      setManagementPeriodEvidence({
+        tripTransitions: (tripTransitionRows || []) as PeriodTripTransition[],
+        exceptions: (exceptionRows || []) as PeriodException[],
+        payments: (paymentRows || []) as PeriodPayment[],
+        quotes: (quoteRows || []) as PeriodQuote[],
+        knowledgeSources: (knowledgeSourceRows ||
+          []) as PeriodKnowledgeSource[],
+      });
+      const loadedAt = new Date();
+      setCustomPeriodEnd(loadedAt.toISOString().slice(0, 10));
+      setCustomPeriodStart(
+        new Date(loadedAt.getTime() - 29 * 86_400_000)
+          .toISOString()
+          .slice(0, 10),
       );
       setTargets((targetRows || []) as AnalyticsTarget[]);
       setFilterTimestamp(Date.now());
@@ -421,6 +493,37 @@ export default function AnalyticsPage() {
       ),
     [deals, filterTimestamp],
   );
+  const managementPeriod = useMemo(() => {
+    if (!managementPeriodEvidence) return { report: null, error: "" };
+    try {
+      return {
+        report: buildManagementPeriodComparison({
+          preset: managementPeriodPreset,
+          customStart: customPeriodStart,
+          customEnd: customPeriodEnd,
+          now: filterTimestamp ? new Date(filterTimestamp) : new Date(),
+          deals,
+          ...managementPeriodEvidence,
+        }),
+        error: "",
+      };
+    } catch (error) {
+      return {
+        report: null,
+        error:
+          error instanceof Error
+            ? error.message
+            : "That reporting period is not valid.",
+      };
+    }
+  }, [
+    customPeriodEnd,
+    customPeriodStart,
+    deals,
+    filterTimestamp,
+    managementPeriodEvidence,
+    managementPeriodPreset,
+  ]);
 
   const won = filteredDeals.filter((deal) => deal.stage === "won");
   const open = filteredDeals.filter((deal) => activeStages.has(deal.stage));
@@ -504,6 +607,9 @@ export default function AnalyticsPage() {
     setRange(filters.range);
     setSource(filters.source);
     setOwnerId(filters.ownerId);
+    setManagementPeriodPreset(filters.managementPeriod);
+    setCustomPeriodStart(filters.customPeriodStart);
+    setCustomPeriodEnd(filters.customPeriodEnd);
   }
 
   function saveCurrentView(name: string) {
@@ -514,7 +620,14 @@ export default function AnalyticsPage() {
           organizationId,
           feature: "analytics",
           name,
-          filters: { range, source, ownerId },
+          filters: {
+            range,
+            source,
+            ownerId,
+            managementPeriod: managementPeriodPreset,
+            customPeriodStart,
+            customPeriodEnd,
+          },
         });
         setSavedViews((current) => [saved as SavedView, ...current]);
         setSelectedSavedViewId(saved.id);
@@ -617,7 +730,12 @@ export default function AnalyticsPage() {
   }
 
   function downloadManagementReport() {
-    if (!management || !portfolio || !tripEconomics) {
+    if (
+      !management ||
+      !portfolio ||
+      !tripEconomics ||
+      !managementPeriod.report
+    ) {
       setNotice("Management intelligence is still loading.");
       return;
     }
@@ -629,6 +747,7 @@ export default function AnalyticsPage() {
       tripEconomics,
       growth,
       retentionCohorts,
+      managementPeriod: managementPeriod.report,
       targetCoverage,
     });
     const url = URL.createObjectURL(
@@ -701,7 +820,12 @@ export default function AnalyticsPage() {
                     <button
                       type="button"
                       onClick={downloadManagementReport}
-                      disabled={!management || !portfolio || !tripEconomics}
+                      disabled={
+                        !management ||
+                        !portfolio ||
+                        !tripEconomics ||
+                        !managementPeriod.report
+                      }
                     >
                       Download aggregate CSV
                     </button>
@@ -897,6 +1021,130 @@ export default function AnalyticsPage() {
                   </p>
                 </div>
               </details>
+              <section
+                className="management-period-section"
+                aria-labelledby="management-period-heading"
+              >
+                <header className="management-heading">
+                  <div>
+                    <p>PERIOD COMPARISON</p>
+                    <h2 id="management-period-heading">
+                      Compare management activity on equal ground
+                    </h2>
+                  </div>
+                  <div className="period-controls">
+                    <label>
+                      Management period
+                      <select
+                        value={managementPeriodPreset}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setManagementPeriodPreset(
+                            value === "custom"
+                              ? "custom"
+                              : (Number(value) as 30 | 90 | 365),
+                          );
+                        }}
+                      >
+                        <option value={30}>Last 30 days</option>
+                        <option value={90}>Last 90 days</option>
+                        <option value={365}>Last 365 days</option>
+                        <option value="custom">Custom period</option>
+                      </select>
+                    </label>
+                    {managementPeriodPreset === "custom" && (
+                      <div className="custom-period-controls">
+                        <label>
+                          Management period start
+                          <input
+                            type="date"
+                            value={customPeriodStart}
+                            onChange={(event) =>
+                              setCustomPeriodStart(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label>
+                          Management period end
+                          <input
+                            type="date"
+                            value={customPeriodEnd}
+                            onChange={(event) =>
+                              setCustomPeriodEnd(event.target.value)
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </header>
+                {managementPeriod.error && (
+                  <p className="period-error" role="alert">
+                    {managementPeriod.error}
+                  </p>
+                )}
+                {managementPeriod.report && (
+                  <article className="analytics-panel period-panel">
+                    <div className="analytics-table-wrap">
+                      <table>
+                        <caption>
+                          {managementPeriod.report.period.start} →{" "}
+                          {managementPeriod.report.period.end} compared with{" "}
+                          {managementPeriod.report.period.previousStart} →{" "}
+                          {managementPeriod.report.period.previousEnd}
+                        </caption>
+                        <thead>
+                          <tr>
+                            <th>Evidence event</th>
+                            <th>Current period</th>
+                            <th>Previous equal period</th>
+                            <th>Change</th>
+                            <th>Source</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {managementPeriod.report.rows.map((row) => (
+                            <tr key={row.key}>
+                              <td>
+                                <b>{row.label}</b>
+                              </td>
+                              <td>{row.current}</td>
+                              <td>{row.previous}</td>
+                              <td>
+                                {row.deltaPercent === null
+                                  ? "New activity"
+                                  : `${row.delta >= 0 ? "+" : ""}${row.delta} · ${row.deltaPercent >= 0 ? "+" : ""}${row.deltaPercent.toFixed(1)}%`}
+                              </td>
+                              <td>
+                                <Link href={managementPeriodHref(row.key)}>
+                                  {row.source} →
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <footer className="period-footnote">
+                      <span>
+                        {managementPeriod.report.period.days} inclusive days
+                      </span>
+                      <span>
+                        Missing / invalid event timestamps{" "}
+                        <b>
+                          {
+                            managementPeriod.report
+                              .invalidOrMissingEventTimes
+                          }
+                        </b>
+                      </span>
+                      <span>
+                        Counts only · no currency amounts combined
+                      </span>
+                    </footer>
+                  </article>
+                )}
+              </section>
             </>
           )}
 

@@ -283,6 +283,38 @@ test("saved views validate feature-specific filters", () => {
     }).success,
     false,
   );
+  assert.equal(
+    savedViewInputSchema.safeParse({
+      organizationId,
+      name: "Quarterly management review",
+      feature: "analytics",
+      filters: {
+        range: "90d",
+        source: "all",
+        ownerId: "all",
+        managementPeriod: "custom",
+        customPeriodStart: "2026-07-01",
+        customPeriodEnd: "2026-09-30",
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    savedViewInputSchema.safeParse({
+      organizationId,
+      name: "Invalid management period",
+      feature: "analytics",
+      filters: {
+        range: "90d",
+        source: "all",
+        ownerId: "all",
+        managementPeriod: "custom",
+        customPeriodStart: "2026-09-30",
+        customPeriodEnd: "2026-07-01",
+      },
+    }).success,
+    false,
+  );
 });
 
 test("contact imports reject repeated normalized email identities", () => {

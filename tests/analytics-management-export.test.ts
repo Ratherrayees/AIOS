@@ -15,6 +15,7 @@ import {
 import { buildTargetCoverage } from "../lib/analytics/targets";
 import { buildCompletedTripEconomics } from "../lib/analytics/trip-economics";
 import { buildRetentionCohorts } from "../lib/analytics/retention-cohorts";
+import { buildManagementPeriodComparison } from "../lib/analytics/management-period";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
 const deal = {
@@ -164,6 +165,21 @@ function fixture() {
     ],
     now,
   );
+  const managementPeriod = buildManagementPeriodComparison({
+    preset: 30,
+    now,
+    deals: [
+      {
+        stage: "won",
+        won_at: "2026-07-20T00:00:00.000Z",
+      },
+    ],
+    quotes: [],
+    tripTransitions: [],
+    exceptions: [],
+    payments: [],
+    knowledgeSources: [],
+  });
   return {
     generatedAt: now,
     management,
@@ -171,6 +187,7 @@ function fixture() {
     tripEconomics,
     growth,
     retentionCohorts,
+    managementPeriod,
     targetCoverage,
   };
 }
@@ -183,6 +200,14 @@ test("management export contains currency-safe aggregates and formula provenance
         row.section === "Forecast" &&
         row.currency === "INR" &&
         row.value === 200_000,
+    ),
+  );
+  assert.ok(
+    rows.some(
+      (row) =>
+        row.section === "Management period" &&
+        row.metric === "Won opportunities: current" &&
+        row.value === 1,
     ),
   );
   assert.ok(
