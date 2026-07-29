@@ -46,6 +46,7 @@ import {
   type EconomicsQuoteVersion,
   type EconomicsTrip,
 } from "../../lib/analytics/trip-economics";
+import { buildRetentionCohorts } from "../../lib/analytics/retention-cohorts";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -112,6 +113,15 @@ function compactDuration(seconds: number) {
   if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}m`;
   if (seconds < 86_400) return `${(seconds / 3600).toFixed(1)}h`;
   return `${(seconds / 86_400).toFixed(1)}d`;
+}
+
+function cohortWindowLabel(window: {
+  eligibleCustomers: number;
+  returnedCustomers: number;
+  returnRate: number | null;
+}) {
+  if (window.returnRate === null) return "Collecting";
+  return `${window.returnedCustomers} / ${window.eligibleCustomers} · ${window.returnRate.toFixed(1)}%`;
 }
 
 function analyticsFiltersFromSavedView(savedView: SavedView | undefined) {
@@ -403,6 +413,14 @@ export default function AnalyticsPage() {
       ),
     [deals, filterTimestamp, targets],
   );
+  const retentionCohorts = useMemo(
+    () =>
+      buildRetentionCohorts(
+        deals,
+        filterTimestamp ? new Date(filterTimestamp) : new Date(),
+      ),
+    [deals, filterTimestamp],
+  );
 
   const won = filteredDeals.filter((deal) => deal.stage === "won");
   const open = filteredDeals.filter((deal) => activeStages.has(deal.stage));
@@ -610,6 +628,7 @@ export default function AnalyticsPage() {
       portfolio,
       tripEconomics,
       growth,
+      retentionCohorts,
       targetCoverage,
     });
     const url = URL.createObjectURL(
@@ -1336,6 +1355,82 @@ export default function AnalyticsPage() {
                 <Link href="/contacts">Open customer records →</Link>
               </article>
             </div>
+            <article className="analytics-panel cohort-panel">
+              <header>
+                <div>
+                  <p>OWNER · CUSTOMER SUCCESS</p>
+                  <h2>First-win retention cohorts</h2>
+                </div>
+                <span>
+                  Each customer belongs to the quarter of their first Won
+                  opportunity. A window counts only after that customer has had
+                  the full 90, 180, or 365 days to return.
+                </span>
+              </header>
+              {retentionCohorts.cohorts.length ? (
+                <div className="analytics-table-wrap">
+                  <table>
+                    <caption>
+                      Customers returning after their first Won opportunity
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th>First-win cohort</th>
+                        <th>Customers</th>
+                        <th>Returned ≤ 90 days</th>
+                        <th>Returned ≤ 180 days</th>
+                        <th>Returned ≤ 365 days</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {retentionCohorts.cohorts.map((cohort) => (
+                        <tr key={cohort.cohortStart}>
+                          <td>
+                            <b>{cohort.cohort}</b>
+                            <span>{cohort.cohortStart}</span>
+                          </td>
+                          <td>{cohort.customers}</td>
+                          <td>
+                            {cohortWindowLabel(cohort.within90Days)}
+                          </td>
+                          <td>
+                            {cohortWindowLabel(cohort.within180Days)}
+                          </td>
+                          <td>
+                            {cohortWindowLabel(cohort.within365Days)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="analytics-empty compact">
+                  Cohorts begin after Won opportunities have a linked contact
+                  and a valid win timestamp.
+                </div>
+              )}
+              <footer className="cohort-quality">
+                <span>
+                  Timed customers{" "}
+                  <b>{retentionCohorts.summary.timedCustomers}</b>
+                </span>
+                <span>
+                  Unlinked wins <b>{retentionCohorts.summary.unlinkedWins}</b>
+                </span>
+                <span>
+                  Missing / invalid win time{" "}
+                  <b>
+                    {retentionCohorts.summary.missingOrInvalidWinTime}
+                  </b>
+                </span>
+                <span>
+                  Future win time excluded{" "}
+                  <b>{retentionCohorts.summary.futureWinTime}</b>
+                </span>
+                <Link href="/contacts">Review customer evidence →</Link>
+              </footer>
+            </article>
             <article className="analytics-panel target-coverage-panel">
               <header>
                 <div>

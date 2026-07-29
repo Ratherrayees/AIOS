@@ -14,6 +14,7 @@ import {
 } from "../lib/analytics/management-intelligence";
 import { buildTargetCoverage } from "../lib/analytics/targets";
 import { buildCompletedTripEconomics } from "../lib/analytics/trip-economics";
+import { buildRetentionCohorts } from "../lib/analytics/retention-cohorts";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
 const deal = {
@@ -148,12 +149,28 @@ function fixture() {
     ],
     payments: [],
   });
+  const retentionCohorts = buildRetentionCohorts(
+    [
+      {
+        stage: "won",
+        contact_id: "customer-private",
+        won_at: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        stage: "won",
+        contact_id: "customer-private",
+        won_at: "2025-03-01T00:00:00.000Z",
+      },
+    ],
+    now,
+  );
   return {
     generatedAt: now,
     management,
     portfolio,
     tripEconomics,
     growth,
+    retentionCohorts,
     targetCoverage,
   };
 }
@@ -166,6 +183,14 @@ test("management export contains currency-safe aggregates and formula provenance
         row.section === "Forecast" &&
         row.currency === "INR" &&
         row.value === 200_000,
+    ),
+  );
+  assert.ok(
+    rows.some(
+      (row) =>
+        row.section === "Retention cohorts" &&
+        row.metric === "2025 Q1: returned within 90 days" &&
+        row.value === 100,
     ),
   );
   assert.ok(
@@ -207,6 +232,7 @@ test("management export omits raw identifiers, target labels, and customer conte
     "private destination",
     "private next step",
     "unsafe.example",
+    "customer-private",
   ]) {
     assert.equal(csv.includes(privateValue), false);
   }

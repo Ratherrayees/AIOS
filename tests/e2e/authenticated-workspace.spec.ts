@@ -2640,6 +2640,70 @@ test.describe("authenticated owner workspace", () => {
     ]);
     expect(growthFixtureError).toBeNull();
 
+    const { data: cohortContacts, error: cohortContactsError } = await admin!
+      .from("contacts")
+      .insert([
+        {
+          organization_id: organizationIds[0],
+          owner_id: userId,
+          first_name: `E2E Return ${forecastSuffix}`,
+        },
+        {
+          organization_id: organizationIds[0],
+          owner_id: userId,
+          first_name: `E2E One-time ${forecastSuffix}`,
+        },
+      ])
+      .select("id, first_name");
+    expect(cohortContactsError).toBeNull();
+    const returningCohortContact = cohortContacts?.find((contact) =>
+      contact.first_name.startsWith("E2E Return"),
+    );
+    const oneTimeCohortContact = cohortContacts?.find((contact) =>
+      contact.first_name.startsWith("E2E One-time"),
+    );
+    expect(returningCohortContact).toBeTruthy();
+    expect(oneTimeCohortContact).toBeTruthy();
+    const { error: cohortDealsError } = await admin!.from("deals").insert([
+      {
+        organization_id: organizationIds[0],
+        contact_id: returningCohortContact!.id,
+        owner_id: userId,
+        title: `E2E cohort first win ${forecastSuffix}`,
+        destination: "Rajasthan, India",
+        stage: "won",
+        value_amount: 100000,
+        currency: "INR",
+        probability: 100,
+        won_at: "2025-01-01T12:00:00.000Z",
+      },
+      {
+        organization_id: organizationIds[0],
+        contact_id: returningCohortContact!.id,
+        owner_id: userId,
+        title: `E2E cohort return ${forecastSuffix}`,
+        destination: "Kerala, India",
+        stage: "won",
+        value_amount: 120000,
+        currency: "INR",
+        probability: 100,
+        won_at: "2025-03-01T12:00:00.000Z",
+      },
+      {
+        organization_id: organizationIds[0],
+        contact_id: oneTimeCohortContact!.id,
+        owner_id: userId,
+        title: `E2E cohort one-time win ${forecastSuffix}`,
+        destination: "Sikkim, India",
+        stage: "won",
+        value_amount: 90000,
+        currency: "INR",
+        probability: 100,
+        won_at: "2025-01-15T12:00:00.000Z",
+      },
+    ]);
+    expect(cohortDealsError).toBeNull();
+
     const { data: economicsDeal, error: economicsDealError } = await admin!
       .from("deals")
       .insert({
@@ -2780,6 +2844,9 @@ test.describe("authenticated owner workspace", () => {
       }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", { name: "First-win retention cohorts" }),
+    ).toBeVisible();
+    await expect(
       page.getByText(
         "Tenant-authorized records · Current workspace · No currencies combined",
       ),
@@ -2850,7 +2917,17 @@ test.describe("authenticated owner workspace", () => {
     const inrForecast = forecastTable.getByRole("row", { name: /INR/ });
     await expect(inrForecast).toContainText("₹5,75,000");
     await expect(inrForecast).toContainText("₹1,81,250");
-    await expect(page.locator(".retention-panel")).toContainText("100%");
+    await expect(page.locator(".retention-panel")).toContainText("67%");
+    const cohortTable = page.getByRole("table", {
+      name: "Customers returning after their first Won opportunity",
+    });
+    const matureCohort = cohortTable.getByRole("row", { name: /2025 Q1/ });
+    await expect(matureCohort).toContainText("2");
+    await expect(matureCohort).toContainText("1 / 2 · 50.0%");
+    const collectingCohort = cohortTable.getByRole("row", {
+      name: /2026 Q3/,
+    });
+    await expect(collectingCohort).toContainText("Collecting");
     await expect(page.getByText("Target not configured")).toBeVisible();
 
     await page.getByLabel("Forecast horizon").selectOption("30");
@@ -2917,6 +2994,9 @@ test.describe("authenticated owner workspace", () => {
     );
     expect(reportCsv).toContain(
       '"Completed-trip economics","Operating margin evidence","INR","240000"',
+    );
+    expect(reportCsv).toContain(
+      '"Retention cohorts","2025 Q1: returned within 90 days","","50"',
     );
     expect(reportCsv).not.toContain(targetName);
     expect(reportCsv).not.toContain(contactId!);

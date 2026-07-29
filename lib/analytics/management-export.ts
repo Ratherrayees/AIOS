@@ -5,12 +5,14 @@ import type {
 } from "./management-intelligence";
 import type { buildTargetCoverage } from "./targets";
 import type { buildCompletedTripEconomics } from "./trip-economics";
+import type { buildRetentionCohorts } from "./retention-cohorts";
 
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
 type GrowthIntelligence = ReturnType<typeof buildGrowthIntelligence>;
 type TargetCoverage = ReturnType<typeof buildTargetCoverage>;
 type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
+type RetentionCohorts = ReturnType<typeof buildRetentionCohorts>;
 
 export type ManagementExportRow = {
   section: string;
@@ -27,6 +29,7 @@ export type ManagementExportInput = {
   portfolio: PortfolioIntelligence;
   tripEconomics: TripEconomics;
   growth: GrowthIntelligence;
+  retentionCohorts: RetentionCohorts;
   targetCoverage: TargetCoverage;
 };
 
@@ -60,6 +63,7 @@ export function buildManagementExportRows({
   portfolio,
   tripEconomics,
   growth,
+  retentionCohorts,
   targetCoverage,
 }: ManagementExportInput) {
   const rows: ManagementExportRow[] = [
@@ -629,7 +633,74 @@ export function buildManagementExportRows({
       "percent",
       "Customers with at least two wins divided by customers with at least one win.",
     ),
+    row(
+      "Retention cohorts",
+      "Customers with timed first wins",
+      retentionCohorts.summary.timedCustomers,
+      "customers",
+      "Customers with a linked contact and a valid non-future Won timestamp.",
+    ),
+    row(
+      "Retention cohorts",
+      "Unlinked wins excluded",
+      retentionCohorts.summary.unlinkedWins,
+      "wins",
+      "Won opportunities excluded because no contact is linked.",
+    ),
+    row(
+      "Retention cohorts",
+      "Missing or invalid win times excluded",
+      retentionCohorts.summary.missingOrInvalidWinTime,
+      "wins",
+      "Won opportunities excluded because cohort timing cannot be established.",
+    ),
+    row(
+      "Retention cohorts",
+      "Future win times excluded",
+      retentionCohorts.summary.futureWinTime,
+      "wins",
+      "Won opportunities excluded because the recorded win time is in the future.",
+    ),
   );
+
+  for (const cohort of retentionCohorts.cohorts) {
+    rows.push(
+      row(
+        "Retention cohorts",
+        `${cohort.cohort}: first-win customers`,
+        cohort.customers,
+        "customers",
+        `Customers whose first Won opportunity falls in the quarter beginning ${cohort.cohortStart}.`,
+      ),
+      row(
+        "Retention cohorts",
+        `${cohort.cohort}: returned within 90 days`,
+        cohort.within90Days.returnRate === null
+          ? "Collecting"
+          : Number(cohort.within90Days.returnRate.toFixed(2)),
+        "percent",
+        `${cohort.within90Days.returnedCustomers} returned of ${cohort.within90Days.eligibleCustomers} customers mature enough for the full window.`,
+      ),
+      row(
+        "Retention cohorts",
+        `${cohort.cohort}: returned within 180 days`,
+        cohort.within180Days.returnRate === null
+          ? "Collecting"
+          : Number(cohort.within180Days.returnRate.toFixed(2)),
+        "percent",
+        `${cohort.within180Days.returnedCustomers} returned of ${cohort.within180Days.eligibleCustomers} customers mature enough for the full window.`,
+      ),
+      row(
+        "Retention cohorts",
+        `${cohort.cohort}: returned within 365 days`,
+        cohort.within365Days.returnRate === null
+          ? "Collecting"
+          : Number(cohort.within365Days.returnRate.toFixed(2)),
+        "percent",
+        `${cohort.within365Days.returnedCustomers} returned of ${cohort.within365Days.eligibleCustomers} customers mature enough for the full window.`,
+      ),
+    );
+  }
 
   targetCoverage.forEach((target, index) => {
     const targetReference = `Approved target ${index + 1} (${target.period_start} to ${target.period_end})`;
