@@ -121,6 +121,54 @@
   text-align: right;
 }
 
+.management-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  max-width: 430px;
+  text-align: right;
+}
+
+.management-actions > span {
+  color: #748583;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.management-actions button {
+  padding: 10px 14px;
+  color: #f8fff4;
+  background: #173637;
+  border: 1px solid #173637;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.045em;
+  cursor: pointer;
+}
+
+.management-actions button:hover {
+  background: #24504d;
+}
+
+.management-actions button:focus-visible {
+  outline: 3px solid rgba(182, 229, 82, 0.55);
+  outline-offset: 3px;
+}
+
+.management-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.management-actions small {
+  max-width: 390px;
+  color: #8b9694;
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+
 .management-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -935,6 +983,11 @@
 
   .management-heading > span,
   .sales-section-heading > span {
+    text-align: left;
+  }
+
+  .management-actions {
+    justify-items: start;
     text-align: left;
   }
 

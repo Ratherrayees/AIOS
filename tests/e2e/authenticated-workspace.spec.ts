@@ -2761,6 +2761,38 @@ test.describe("authenticated owner workspace", () => {
     expect(analyticsTargetError).toBeNull();
     expect(analyticsTarget?.is_active).toBe(true);
 
+    const exportDownload = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download aggregate CSV" })
+      .click();
+    const downloadedReport = await exportDownload;
+    expect(downloadedReport.suggestedFilename()).toMatch(
+      /^aios-management-report-\d{4}-\d{2}-\d{2}\.csv$/,
+    );
+    const reportStream = await downloadedReport.createReadStream();
+    expect(reportStream).not.toBeNull();
+    const reportChunks: Buffer[] = [];
+    for await (const chunk of reportStream!) {
+      reportChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const reportCsv = Buffer.concat(reportChunks).toString("utf8");
+    expect(reportCsv).toContain('"Report boundary","Personal data"');
+    expect(reportCsv).toContain(
+      '"Forecast","Open pipeline within 90 days","INR","575000"',
+    );
+    expect(reportCsv).toContain(
+      '"Forecast","Probability-weighted forecast within 90 days","INR","181250"',
+    );
+    expect(reportCsv).toContain(
+      '"Pipeline coverage","Approved target 1 (2026-07-01 to 2026-09-30): pipeline coverage","INR","57.5"',
+    );
+    expect(reportCsv).not.toContain(targetName);
+    expect(reportCsv).not.toContain(contactId!);
+    expect(reportCsv).not.toContain(email);
+    await expect(page.getByRole("status")).toContainText(
+      "Raw records, personal data, free-text labels, and cross-currency totals were excluded",
+    );
+
     await targetRow.getByRole("button", { name: "Retire" }).click();
     await expect(page.getByRole("status")).toContainText(
       `${targetName} was retired`,

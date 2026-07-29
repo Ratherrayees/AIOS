@@ -31,6 +31,10 @@ import {
   type QualityConversation,
 } from "../../lib/analytics/management-intelligence";
 import {
+  createManagementExportCsv,
+  managementExportFilename,
+} from "../../lib/analytics/management-export";
+import {
   buildTargetCoverage,
   type AnalyticsTarget,
 } from "../../lib/analytics/targets";
@@ -573,6 +577,35 @@ export default function AnalyticsPage() {
     });
   }
 
+  function downloadManagementReport() {
+    if (!management || !portfolio) {
+      setNotice("Management intelligence is still loading.");
+      return;
+    }
+    const generatedAt = new Date();
+    const csv = createManagementExportCsv({
+      generatedAt,
+      management,
+      portfolio,
+      growth,
+      targetCoverage,
+    });
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = managementExportFilename(generatedAt);
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNotice(
+      "Aggregate management report downloaded. Raw records, personal data, free-text labels, and cross-currency totals were excluded.",
+    );
+  }
+
   return (
     <main className="analytics-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
@@ -619,10 +652,23 @@ export default function AnalyticsPage() {
                       What needs leadership attention now
                     </h2>
                   </div>
-                  <span>
-                    Tenant-authorized records · Current workspace · No currencies
-                    combined
-                  </span>
+                  <div className="management-actions">
+                    <span>
+                      Tenant-authorized records · Current workspace · No
+                      currencies combined
+                    </span>
+                    <button
+                      type="button"
+                      onClick={downloadManagementReport}
+                      disabled={!management || !portfolio}
+                    >
+                      Download aggregate CSV
+                    </button>
+                    <small>
+                      No names, contact details, notes, record IDs, or free-text
+                      target labels
+                    </small>
+                  </div>
                 </header>
                 <div className="management-grid">
                   <article className="management-card operations-card">
