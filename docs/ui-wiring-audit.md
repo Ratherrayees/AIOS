@@ -19,7 +19,8 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 62-table/39-RPC anonymous-access probes and 248 authenticated authorization assertions
+- all 62-table/39-RPC anonymous-access probes and 253 authenticated authorization assertions
+- scheduled-report failure-path probes covering wrong-worker settlement, abandoned-lease recovery, duplicate active leases, and disposal of partial report payloads
 
 ## Feature evidence
 

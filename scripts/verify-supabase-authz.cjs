@@ -3855,6 +3855,125 @@ async function verifyAuthorization() {
         JSON.stringify(serverReportSettle.data),
     );
 
+    const failureWorkerId = `authz-report-fail-${randomUUID()}`;
+    const failureClaim = await admin.rpc("claim_analytics_report_runs", {
+      target_worker_id: failureWorkerId,
+      target_limit: 1,
+      target_organization_id: organizationA.id,
+      target_force: true,
+    });
+    const failureRun = failureClaim.data?.[0];
+    if (failureClaim.error || !failureRun)
+      throw failureClaim.error ??
+        new Error("Failure-path report lease was not created.");
+    const wrongReportWorkerSettlement = await admin.rpc(
+      "settle_analytics_report_run",
+      {
+        target_run_id: failureRun.run_id,
+        target_worker_id: `wrong-report-${randomUUID()}`,
+        target_status: "failed",
+        target_error_code: "wrong_worker",
+      },
+    );
+    record(
+      "one report worker cannot settle another worker's lease",
+      Boolean(wrongReportWorkerSettlement.error),
+    );
+    const failedReportSettlement = await admin.rpc(
+      "settle_analytics_report_run",
+      {
+        target_run_id: failureRun.run_id,
+        target_worker_id: failureWorkerId,
+        target_status: "failed",
+        target_error_code: "fixture_failure",
+      },
+    );
+    record(
+      "failed report settlement stores no partial report payload",
+      !failedReportSettlement.error &&
+        failedReportSettlement.data?.[0]?.status === "failed" &&
+        failedReportSettlement.data?.[0]?.report_csv === null &&
+        failedReportSettlement.data?.[0]?.report_sha256 === null,
+    );
+
+    const expiredWorkerId = `expired-report-${randomUUID()}`;
+    const expiredDelivery = await admin
+      .from("analytics_report_deliveries")
+      .insert({
+        organization_id: organizationA.id,
+        trigger_type: "scheduled",
+        status: "running",
+        scheduled_for: new Date(Date.now() - 17 * 60_000).toISOString(),
+        started_at: new Date(Date.now() - 16 * 60_000).toISOString(),
+        worker_id: expiredWorkerId,
+        schedule_snapshot: {
+          schema_version: 1,
+          cadence: "weekly",
+          period_days: 30,
+          forecast_horizon_days: 90,
+          delivery_channel: "in_app",
+        },
+      })
+      .select("id")
+      .single();
+    if (expiredDelivery.error || !expiredDelivery.data)
+      throw expiredDelivery.error ??
+        new Error("Expired report lease fixture was not created.");
+    const reclaimWorkerId = `reclaim-report-${randomUUID()}`;
+    const reclaimedReport = await admin.rpc(
+      "claim_analytics_report_runs",
+      {
+        target_worker_id: reclaimWorkerId,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      },
+    );
+    const reclaimedRun = reclaimedReport.data?.[0];
+    record(
+      "report claims reap an abandoned fifteen-minute lease",
+      !reclaimedReport.error && reclaimedReport.data?.length === 1,
+    );
+    if (reclaimedReport.error || !reclaimedRun)
+      throw reclaimedReport.error ??
+        new Error("Expired report lease was not reclaimed.");
+    const expiredDeliveryState = await admin
+      .from("analytics_report_deliveries")
+      .select("status, error_code, report_csv")
+      .eq("id", expiredDelivery.data.id)
+      .single();
+    record(
+      "expired report leases retain only a bounded failure code",
+      !expiredDeliveryState.error &&
+        expiredDeliveryState.data?.status === "failed" &&
+        expiredDeliveryState.data?.error_code === "lease_expired" &&
+        expiredDeliveryState.data?.report_csv === null,
+    );
+    const duplicateActiveClaim = await admin.rpc(
+      "claim_analytics_report_runs",
+      {
+        target_worker_id: `duplicate-report-${randomUUID()}`,
+        target_limit: 1,
+        target_organization_id: organizationA.id,
+        target_force: true,
+      },
+    );
+    record(
+      "one workspace cannot receive a duplicate active report lease",
+      !duplicateActiveClaim.error &&
+        duplicateActiveClaim.data?.length === 0,
+    );
+    const reclaimedSettlement = await admin.rpc(
+      "settle_analytics_report_run",
+      {
+        target_run_id: reclaimedRun.run_id,
+        target_worker_id: reclaimWorkerId,
+        target_status: "failed",
+        target_error_code: "reclaimed_fixture",
+      },
+    );
+    if (reclaimedSettlement.error) throw reclaimedSettlement.error;
+
     const ownerReportDelivery = await owner
       .from("analytics_report_deliveries")
       .select("id, status, report_csv")
