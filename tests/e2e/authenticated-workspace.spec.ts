@@ -2236,6 +2236,110 @@ test.describe("authenticated owner workspace", () => {
     expect(invitation?.revoked_at).toBeTruthy();
   });
 
+  test("curates, approves, and retrieves permission-aware knowledge with a citation", async ({
+    page,
+  }) => {
+    const sourceTitle = `Kyoto rail policy ${Date.now()}`;
+    await signIn(page);
+    await page.goto("/knowledge");
+    await expect(
+      page.getByRole("heading", {
+        name: "Give AIOS trusted material, with a source for every answer.",
+      }),
+    ).toBeVisible();
+
+    await page.getByLabel("Source title").fill(sourceTitle);
+    await page.getByLabel("Source type").selectOption("destination_guide");
+    await page.getByLabel("Authority").selectOption("official");
+    await page.getByLabel("Sensitivity").selectOption("normal");
+    await page.getByLabel("Version").fill("2026.1");
+    await page
+      .getByLabel("HTTPS source link")
+      .fill("https://example.com/kyoto-rail-policy");
+    await page
+      .getByLabel("Curator summary")
+      .fill("Human-reviewed rail guidance for itinerary planning.");
+    await page
+      .getByRole("button", { name: "Create governed draft" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Draft source saved",
+    );
+
+    await page.getByLabel("Section heading").fill("Cancellation windows");
+    await page
+      .getByLabel("Evidence content")
+      .fill(
+        "Kyoto rail cancellation windows require operator review before any traveller-facing commitment.",
+      );
+    await page
+      .getByLabel("Citation label")
+      .fill("Kyoto rail policy §4");
+    await page.getByRole("button", { name: "Add cited passage" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Cited section added",
+    );
+
+    await page
+      .getByRole("button", { name: "Send to human review" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Knowledge moved to in review",
+    );
+    await page
+      .getByRole("button", { name: "Approve for AIOS retrieval" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Knowledge moved to approved",
+    );
+
+    await page
+      .getByLabel("Question or evidence needed")
+      .fill("cancellation windows");
+    await page
+      .getByRole("button", { name: "Search approved sources" })
+      .click();
+    await expect(page.getByText("Kyoto rail policy §4")).toBeVisible();
+    await expect(page.getByText("Current review")).toBeVisible();
+    await page.setViewportSize({ width: 748, height: 900 });
+    const [retrievalBox, inventoryBox, retrievalLayout] = await Promise.all([
+      page.locator(".governed-knowledge-search").boundingBox(),
+      page.locator(".knowledge-workspace").boundingBox(),
+      page.evaluate(() => ({
+        innerWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      })),
+    ]);
+    expect(retrievalBox).not.toBeNull();
+    expect(inventoryBox).not.toBeNull();
+    expect(retrievalBox!.y + retrievalBox!.height).toBeLessThanOrEqual(
+      inventoryBox!.y,
+    );
+    expect(retrievalLayout.scrollWidth).toBeLessThanOrEqual(
+      retrievalLayout.innerWidth,
+    );
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const { data: source, error: sourceError } = await admin!
+      .from("knowledge_sources")
+      .select("id, status, reviewed_by, source_url")
+      .eq("organization_id", organizationIds[0])
+      .eq("title", sourceTitle)
+      .single();
+    expect(sourceError).toBeNull();
+    expect(source).toMatchObject({
+      status: "approved",
+      reviewed_by: userId,
+      source_url: "https://example.com/kyoto-rail-policy",
+    });
+    const { data: sections, error: sectionError } = await admin!
+      .from("knowledge_sections")
+      .select("citation_label")
+      .eq("source_id", source!.id);
+    expect(sectionError).toBeNull();
+    expect(sections).toEqual([{ citation_label: "Kyoto rail policy §4" }]);
+  });
+
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({
     page,
   }) => {
@@ -2382,6 +2486,7 @@ test.describe("authenticated owner workspace", () => {
       `/trips/${operationalTripId}/portal`,
       "/finance",
       "/aios",
+      "/knowledge",
       "/analytics",
       "/settings/lead-capture",
       "/settings/sales-workflows",

@@ -192,6 +192,23 @@ const guides: GuideDefinition[] = [
     action: { href: "/trips", label: "Open trip operations" },
   },
   {
+    match: (pathname) => pathname === "/knowledge",
+    eyebrow: "INTELLIGENCE · GOVERNED KNOWLEDGE",
+    title: "Turn reviewed evidence into permission-aware citations.",
+    purpose:
+      "Knowledge preserves source authority, versions, sensitivity, freshness and review status before AIOS can retrieve a passage.",
+    nextAction:
+      "Create a draft, add citation-ready passages, send it to human review and test the approved retrieval result.",
+    aiosRole:
+      "AIOS can retrieve approved evidence visible to the current user; it cannot approve its own sources or hide stale citations.",
+    capabilities: [
+      { label: "Human reviewed", tone: "approval" },
+      { label: "Permission aware", tone: "guided" },
+      { label: "Cited retrieval", tone: "live" },
+    ],
+    action: { href: "/aios", label: "Review AIOS authority" },
+  },
+  {
     match: (pathname) => pathname === "/analytics",
     eyebrow: "INTELLIGENCE · PERFORMANCE",
     title: "Understand where attention becomes revenue.",
@@ -321,6 +338,7 @@ const navigationGroups = [
     label: "Intelligence",
     links: [
       { href: "/aios", label: "AIOS Control" },
+      { href: "/knowledge", label: "Knowledge" },
       { href: "/analytics", label: "Analytics" },
     ],
   },

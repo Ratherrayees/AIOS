@@ -1714,6 +1714,148 @@ export type Database = {
           },
         ]
       }
+      knowledge_sections: {
+        Row: {
+          citation_label: string
+          content: string
+          created_at: string
+          created_by: string
+          heading: string
+          id: string
+          organization_id: string
+          position: number
+          search_document: unknown
+          source_id: string
+          updated_at: string
+        }
+        Insert: {
+          citation_label: string
+          content: string
+          created_at?: string
+          created_by: string
+          heading: string
+          id?: string
+          organization_id: string
+          position?: number
+          search_document?: unknown
+          source_id: string
+          updated_at?: string
+        }
+        Update: {
+          citation_label?: string
+          content?: string
+          created_at?: string
+          created_by?: string
+          heading?: string
+          id?: string
+          organization_id?: string
+          position?: number
+          search_document?: unknown
+          source_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_sections_creator_same_organization_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "knowledge_sections_source_same_organization_fkey"
+            columns: ["organization_id", "source_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_sources"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      knowledge_sources: {
+        Row: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          retired_at: string | null
+          review_due_on: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url: string | null
+          status: Database["public"]["Enums"]["knowledge_source_status"]
+          summary: string | null
+          title: string
+          updated_at: string
+          valid_from: string | null
+          version_label: string
+        }
+        Insert: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at?: string
+          created_by: string
+          id?: string
+          organization_id: string
+          retired_at?: string | null
+          review_due_on?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sensitivity?: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["knowledge_source_status"]
+          summary?: string | null
+          title: string
+          updated_at?: string
+          valid_from?: string | null
+          version_label?: string
+        }
+        Update: {
+          authority?: Database["public"]["Enums"]["knowledge_authority"]
+          created_at?: string
+          created_by?: string
+          id?: string
+          organization_id?: string
+          retired_at?: string | null
+          review_due_on?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sensitivity?: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind?: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["knowledge_source_status"]
+          summary?: string | null
+          title?: string
+          updated_at?: string
+          valid_from?: string | null
+          version_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_sources_creator_same_organization_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "knowledge_sources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_sources_reviewer_same_organization_fkey"
+            columns: ["organization_id", "reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+        ]
+      }
       lead_capture_forms: {
         Row: {
           created_at: string
@@ -3802,6 +3944,35 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      add_knowledge_section: {
+        Args: {
+          target_citation_label: string
+          target_content: string
+          target_heading: string
+          target_organization_id: string
+          target_position?: number
+          target_source_id: string
+        }
+        Returns: {
+          citation_label: string
+          content: string
+          created_at: string
+          created_by: string
+          heading: string
+          id: string
+          organization_id: string
+          position: number
+          search_document: unknown
+          source_id: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sections"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       append_itinerary_item: {
         Args: {
           target_day_number: number
@@ -4341,6 +4512,29 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      search_approved_knowledge: {
+        Args: {
+          target_limit?: number
+          target_organization_id: string
+          target_query: string
+        }
+        Returns: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          citation_label: string
+          excerpt: string
+          heading: string
+          is_stale: boolean
+          relevance: number
+          review_due_on: string
+          section_id: string
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_id: string
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_title: string
+          source_url: string
+          version_label: string
+        }[]
+      }
       set_deal_qualification_check: {
         Args: {
           target_check_id: string
@@ -4541,6 +4735,39 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      transition_knowledge_source: {
+        Args: {
+          target_organization_id: string
+          target_source_id: string
+          target_status: Database["public"]["Enums"]["knowledge_source_status"]
+        }
+        Returns: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          retired_at: string | null
+          review_due_on: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url: string | null
+          status: Database["public"]["Enums"]["knowledge_source_status"]
+          summary: string | null
+          title: string
+          updated_at: string
+          valid_from: string | null
+          version_label: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sources"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       transition_trip_status: {
         Args: {
           target_note?: string
@@ -4569,6 +4796,47 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_knowledge_source: {
+        Args: {
+          target_authority: Database["public"]["Enums"]["knowledge_authority"]
+          target_organization_id: string
+          target_review_due_on?: string
+          target_sensitivity?: Database["public"]["Enums"]["document_sensitivity"]
+          target_source_id?: string
+          target_source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          target_source_url?: string
+          target_summary?: string
+          target_title: string
+          target_valid_from?: string
+          target_version_label?: string
+        }
+        Returns: {
+          authority: Database["public"]["Enums"]["knowledge_authority"]
+          created_at: string
+          created_by: string
+          id: string
+          organization_id: string
+          retired_at: string | null
+          review_due_on: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sensitivity: Database["public"]["Enums"]["document_sensitivity"]
+          source_kind: Database["public"]["Enums"]["knowledge_source_kind"]
+          source_url: string | null
+          status: Database["public"]["Enums"]["knowledge_source_status"]
+          summary: string | null
+          title: string
+          updated_at: string
+          valid_from: string | null
+          version_label: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_sources"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -4748,6 +5016,16 @@ export type Database = {
       conversation_status: "inbox" | "open" | "pending" | "closed"
       deal_stage: "new" | "qualified" | "proposal" | "decision" | "won" | "lost"
       document_sensitivity: "normal" | "restricted"
+      knowledge_authority: "official" | "supplier" | "internal" | "third_party"
+      knowledge_source_kind:
+        | "destination_guide"
+        | "visa_advisory"
+        | "supplier_terms"
+        | "sop"
+        | "policy"
+        | "product_sheet"
+        | "other"
+      knowledge_source_status: "draft" | "in_review" | "approved" | "retired"
       membership_status: "active" | "invited" | "suspended"
       message_direction: "inbound" | "outbound" | "internal"
       payment_status:
@@ -4953,6 +5231,17 @@ export const Constants = {
       conversation_status: ["inbox", "open", "pending", "closed"],
       deal_stage: ["new", "qualified", "proposal", "decision", "won", "lost"],
       document_sensitivity: ["normal", "restricted"],
+      knowledge_authority: ["official", "supplier", "internal", "third_party"],
+      knowledge_source_kind: [
+        "destination_guide",
+        "visa_advisory",
+        "supplier_terms",
+        "sop",
+        "policy",
+        "product_sheet",
+        "other",
+      ],
+      knowledge_source_status: ["draft", "in_review", "approved", "retired"],
       membership_status: ["active", "invited", "suspended"],
       message_direction: ["inbound", "outbound", "internal"],
       payment_status: [

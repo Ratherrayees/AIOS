@@ -1851,6 +1851,347 @@ async function verifyAuthorization() {
       Boolean(forgedTripDocument.error),
     );
 
+    activeVerificationPhase = "governed knowledge authorization";
+    const knowledgeReviewDueOn = new Date(
+      Date.now() + 365 * 86_400_000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const directKnowledgeInsert = await owner.from("knowledge_sources").insert({
+      organization_id: organizationA.id,
+      title: `Bypass knowledge ${suffix}`,
+      source_kind: "sop",
+      authority: "internal",
+      sensitivity: "normal",
+      version_label: "1",
+      review_due_on: knowledgeReviewDueOn,
+      created_by: ownerUser.id,
+    });
+    record(
+      "browser clients cannot bypass guarded knowledge creation",
+      Boolean(directKnowledgeInsert.error),
+    );
+
+    const governedKnowledgeSource = await owner
+      .rpc("upsert_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_title: `Kyoto rail policy ${suffix}`,
+        target_source_kind: "destination_guide",
+        target_authority: "official",
+        target_sensitivity: "normal",
+        target_version_label: "2026.1",
+        target_source_url: "https://example.com/kyoto-rail-policy",
+        target_summary: "Human-curated cancellation guidance.",
+        target_review_due_on: knowledgeReviewDueOn,
+      })
+      .single();
+    record(
+      "authorized curators create versioned knowledge as a draft",
+      !governedKnowledgeSource.error &&
+        governedKnowledgeSource.data?.status === "draft" &&
+        governedKnowledgeSource.data?.created_by === ownerUser.id,
+      governedKnowledgeSource.error?.message ?? null,
+    );
+    if (governedKnowledgeSource.error || !governedKnowledgeSource.data)
+      throw governedKnowledgeSource.error ??
+        new Error("Governed knowledge fixture was not created.");
+
+    const governedKnowledgeSection = await owner
+      .rpc("add_knowledge_section", {
+        target_organization_id: organizationA.id,
+        target_source_id: governedKnowledgeSource.data.id,
+        target_heading: "Cancellation windows",
+        target_content:
+          "Kyoto rail cancellation windows require operator review before any traveller-facing commitment.",
+        target_citation_label: "Kyoto rail policy §4",
+        target_position: 0,
+      })
+      .single();
+    record(
+      "authorized curators add citation-ready evidence to a draft",
+      !governedKnowledgeSection.error &&
+        governedKnowledgeSection.data?.source_id ===
+          governedKnowledgeSource.data.id,
+      governedKnowledgeSection.error?.message ?? null,
+    );
+
+    const directKnowledgeMutation = await owner
+      .from("knowledge_sources")
+      .update({ status: "approved" })
+      .eq("id", governedKnowledgeSource.data.id)
+      .select("id");
+    record(
+      "browser clients cannot approve knowledge with a direct write",
+      Boolean(directKnowledgeMutation.error) ||
+        directKnowledgeMutation.data?.length === 0,
+    );
+
+    const submittedKnowledge = await owner
+      .rpc("transition_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_source_id: governedKnowledgeSource.data.id,
+        target_status: "in_review",
+      })
+      .single();
+    record(
+      "curators explicitly submit knowledge for human review",
+      !submittedKnowledge.error &&
+        submittedKnowledge.data?.status === "in_review",
+      submittedKnowledge.error?.message ?? null,
+    );
+
+    const inReviewMutation = await owner.rpc("add_knowledge_section", {
+      target_organization_id: organizationA.id,
+      target_source_id: governedKnowledgeSource.data.id,
+      target_heading: "Late review mutation",
+      target_content: "This passage must not enter an active review.",
+      target_citation_label: "Blocked late citation",
+      target_position: 1,
+    });
+    record(
+      "in-review evidence is frozen until a curator returns it to draft",
+      Boolean(inReviewMutation.error),
+    );
+
+    const { error: temporaryViewerMembershipError } = await admin
+      .from("memberships")
+      .insert({
+        organization_id: organizationA.id,
+        user_id: viewerUser.id,
+        role: "viewer",
+        status: "active",
+      });
+    if (temporaryViewerMembershipError) throw temporaryViewerMembershipError;
+
+    const [viewerDraftRead, viewerDraftSearch, viewerApprovalAttempt] =
+      await Promise.all([
+        viewer
+          .from("knowledge_sources")
+          .select("id")
+          .eq("id", governedKnowledgeSource.data.id),
+        viewer.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "cancellation windows",
+          target_limit: 8,
+        }),
+        viewer.rpc("transition_knowledge_source", {
+          target_organization_id: organizationA.id,
+          target_source_id: governedKnowledgeSource.data.id,
+          target_status: "approved",
+        }),
+      ]);
+    record(
+      "ordinary members cannot read drafts or retrieve them through AIOS search",
+      !viewerDraftRead.error &&
+        viewerDraftRead.data?.length === 0 &&
+        !viewerDraftSearch.error &&
+        viewerDraftSearch.data?.length === 0,
+      viewerDraftRead.error?.message ?? viewerDraftSearch.error?.message ?? null,
+    );
+    record(
+      "ordinary members cannot approve knowledge",
+      Boolean(viewerApprovalAttempt.error),
+    );
+
+    const approvedKnowledge = await owner
+      .rpc("transition_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_source_id: governedKnowledgeSource.data.id,
+        target_status: "approved",
+      })
+      .single();
+    record(
+      "authorized human approval records reviewer and review time",
+      !approvedKnowledge.error &&
+        approvedKnowledge.data?.status === "approved" &&
+        approvedKnowledge.data?.reviewed_by === ownerUser.id &&
+        Boolean(approvedKnowledge.data?.reviewed_at),
+      approvedKnowledge.error?.message ?? null,
+    );
+
+    const [viewerApprovedRead, viewerApprovedSections, viewerCitedSearch] =
+      await Promise.all([
+        viewer
+          .from("knowledge_sources")
+          .select("id, status, sensitivity")
+          .eq("id", governedKnowledgeSource.data.id),
+        viewer
+          .from("knowledge_sections")
+          .select("id, citation_label")
+          .eq("source_id", governedKnowledgeSource.data.id),
+        viewer.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "cancellation windows",
+          target_limit: 8,
+        }),
+      ]);
+    record(
+      "ordinary members read approved normal sources and their sections",
+      !viewerApprovedRead.error &&
+        viewerApprovedRead.data?.length === 1 &&
+        !viewerApprovedSections.error &&
+        viewerApprovedSections.data?.length === 1,
+      viewerApprovedRead.error?.message ??
+        viewerApprovedSections.error?.message ??
+        null,
+    );
+    record(
+      "approved retrieval returns a source-linked citation and freshness state",
+      !viewerCitedSearch.error &&
+        viewerCitedSearch.data?.length === 1 &&
+        viewerCitedSearch.data[0].source_id ===
+          governedKnowledgeSource.data.id &&
+        viewerCitedSearch.data[0].citation_label ===
+          "Kyoto rail policy §4" &&
+        viewerCitedSearch.data[0].is_stale === false,
+      viewerCitedSearch.error?.message ?? null,
+    );
+
+    const restrictedKnowledge = await owner
+      .rpc("upsert_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_title: `Supplier allotment ${suffix}`,
+        target_source_kind: "supplier_terms",
+        target_authority: "supplier",
+        target_sensitivity: "restricted",
+        target_version_label: "2026.1",
+        target_review_due_on: knowledgeReviewDueOn,
+      })
+      .single();
+    if (restrictedKnowledge.error || !restrictedKnowledge.data)
+      throw restrictedKnowledge.error ??
+        new Error("Restricted knowledge fixture was not created.");
+    const restrictedSection = await owner.rpc("add_knowledge_section", {
+      target_organization_id: organizationA.id,
+      target_source_id: restrictedKnowledge.data.id,
+      target_heading: "Confidential allotment",
+      target_content:
+        "Secret supplier allotment details are restricted to curators.",
+      target_citation_label: "Supplier allotment §1",
+      target_position: 0,
+    });
+    if (restrictedSection.error) throw restrictedSection.error;
+    const restrictedReview = await owner.rpc("transition_knowledge_source", {
+      target_organization_id: organizationA.id,
+      target_source_id: restrictedKnowledge.data.id,
+      target_status: "in_review",
+    });
+    if (restrictedReview.error) throw restrictedReview.error;
+    const restrictedApproval = await owner.rpc(
+      "transition_knowledge_source",
+      {
+        target_organization_id: organizationA.id,
+        target_source_id: restrictedKnowledge.data.id,
+        target_status: "approved",
+      },
+    );
+    if (restrictedApproval.error) throw restrictedApproval.error;
+    const [viewerRestrictedRead, viewerRestrictedSearch, ownerRestrictedSearch] =
+      await Promise.all([
+        viewer
+          .from("knowledge_sources")
+          .select("id")
+          .eq("id", restrictedKnowledge.data.id),
+        viewer.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "secret supplier allotment",
+          target_limit: 8,
+        }),
+        owner.rpc("search_approved_knowledge", {
+          target_organization_id: organizationA.id,
+          target_query: "secret supplier allotment",
+          target_limit: 8,
+        }),
+      ]);
+    record(
+      "restricted knowledge is excluded from ordinary member reads and search",
+      !viewerRestrictedRead.error &&
+        viewerRestrictedRead.data?.length === 0 &&
+        !viewerRestrictedSearch.error &&
+        viewerRestrictedSearch.data?.length === 0 &&
+        !ownerRestrictedSearch.error &&
+        ownerRestrictedSearch.data?.length === 1,
+      viewerRestrictedRead.error?.message ??
+        viewerRestrictedSearch.error?.message ??
+        ownerRestrictedSearch.error?.message ??
+        null,
+    );
+
+    const yesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const staleKnowledgeUpdate = await admin
+      .from("knowledge_sources")
+      .update({ review_due_on: yesterday })
+      .eq("id", governedKnowledgeSource.data.id);
+    if (staleKnowledgeUpdate.error) throw staleKnowledgeUpdate.error;
+    const staleKnowledgeSearch = await viewer.rpc(
+      "search_approved_knowledge",
+      {
+        target_organization_id: organizationA.id,
+        target_query: "cancellation windows",
+        target_limit: 8,
+      },
+    );
+    record(
+      "retrieval exposes expired review freshness instead of hiding it",
+      !staleKnowledgeSearch.error &&
+        staleKnowledgeSearch.data?.length === 1 &&
+        staleKnowledgeSearch.data[0].is_stale === true,
+      staleKnowledgeSearch.error?.message ?? null,
+    );
+
+    const retiredKnowledge = await owner
+      .rpc("transition_knowledge_source", {
+        target_organization_id: organizationA.id,
+        target_source_id: governedKnowledgeSource.data.id,
+        target_status: "retired",
+      })
+      .single();
+    const retiredKnowledgeSearch = await viewer.rpc(
+      "search_approved_knowledge",
+      {
+        target_organization_id: organizationA.id,
+        target_query: "cancellation windows",
+        target_limit: 8,
+      },
+    );
+    record(
+      "retiring a source removes it from AIOS retrieval immediately",
+      !retiredKnowledge.error &&
+        retiredKnowledge.data?.status === "retired" &&
+        !retiredKnowledgeSearch.error &&
+        retiredKnowledgeSearch.data?.length === 0,
+      retiredKnowledge.error?.message ??
+        retiredKnowledgeSearch.error?.message ??
+        null,
+    );
+
+    const knowledgeAudit = await owner
+      .from("audit_events")
+      .select("event_type")
+      .eq("entity_id", governedKnowledgeSource.data.id)
+      .order("created_at");
+    record(
+      "knowledge lifecycle decisions preserve an audit trail",
+      !knowledgeAudit.error &&
+        knowledgeAudit.data?.some(
+          (event) => event.event_type === "knowledge.source.created",
+        ) &&
+        knowledgeAudit.data?.filter(
+          (event) => event.event_type === "knowledge.source.transitioned",
+        ).length === 3,
+      knowledgeAudit.error?.message ?? null,
+    );
+
+    const { error: temporaryViewerMembershipDeleteError } = await admin
+      .from("memberships")
+      .delete()
+      .eq("organization_id", organizationA.id)
+      .eq("user_id", viewerUser.id);
+    if (temporaryViewerMembershipDeleteError)
+      throw temporaryViewerMembershipDeleteError;
+
     activeVerificationPhase = "sales workflow authorization";
     const qualificationTemplate = await owner
       .rpc("create_qualification_checklist_template", {

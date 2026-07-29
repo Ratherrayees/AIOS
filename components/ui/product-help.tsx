@@ -23,6 +23,11 @@ const glossary = [
     term: "Approval",
     definition: "A human decision required before a sensitive external effect.",
   },
+  {
+    term: "Knowledge",
+    definition:
+      "Human-reviewed evidence AIOS may retrieve with a visible citation and freshness state.",
+  },
 ];
 
 export function ProductHelp() {

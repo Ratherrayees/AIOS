@@ -59,6 +59,8 @@ const protectedTables = [
   "saved_views",
   "message_templates",
   "message_drafts",
+  "knowledge_sources",
+  "knowledge_sections",
 ];
 
 function loadLocalEnv() {
@@ -351,6 +353,44 @@ async function verify() {
       target_visa_status: "unknown",
     },
   );
+  const { error: anonymousKnowledgeSourceError } = await anonymous.rpc(
+    "upsert_knowledge_source",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_title: "Blocked anonymous knowledge",
+      target_source_kind: "sop",
+      target_authority: "internal",
+      target_sensitivity: "normal",
+      target_version_label: "1",
+    },
+  );
+  const { error: anonymousKnowledgeSectionError } = await anonymous.rpc(
+    "add_knowledge_section",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_source_id: "22222222-2222-4222-8222-222222222222",
+      target_heading: "Blocked section",
+      target_content: "Anonymous users cannot curate knowledge.",
+      target_citation_label: "Blocked citation",
+      target_position: 0,
+    },
+  );
+  const { error: anonymousKnowledgeTransitionError } = await anonymous.rpc(
+    "transition_knowledge_source",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_source_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "in_review",
+    },
+  );
+  const { error: anonymousKnowledgeSearchError } = await anonymous.rpc(
+    "search_approved_knowledge",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_query: "blocked retrieval",
+      target_limit: 8,
+    },
+  );
   const rpcChecks = [
     {
       function: "accept_organization_invitation",
@@ -481,6 +521,26 @@ async function verify() {
       function: "upsert_traveler_entry_check",
       anonymousExecutionBlocked: Boolean(anonymousTravelerEntryCheckError),
       anonymousErrorCode: anonymousTravelerEntryCheckError?.code ?? null,
+    },
+    {
+      function: "upsert_knowledge_source",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeSourceError),
+      anonymousErrorCode: anonymousKnowledgeSourceError?.code ?? null,
+    },
+    {
+      function: "add_knowledge_section",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeSectionError),
+      anonymousErrorCode: anonymousKnowledgeSectionError?.code ?? null,
+    },
+    {
+      function: "transition_knowledge_source",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeTransitionError),
+      anonymousErrorCode: anonymousKnowledgeTransitionError?.code ?? null,
+    },
+    {
+      function: "search_approved_knowledge",
+      anonymousExecutionBlocked: Boolean(anonymousKnowledgeSearchError),
+      anonymousErrorCode: anonymousKnowledgeSearchError?.code ?? null,
     },
   ];
 

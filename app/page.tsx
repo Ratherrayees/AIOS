@@ -1058,6 +1058,10 @@ export default function Home() {
             <span className="nav-glyph">✦</span>
             <span>AIOS Control</span>
           </a>
+          <a className="nav-link" href="/knowledge">
+            <span className="nav-glyph">K</span>
+            <span>Knowledge</span>
+          </a>
           <a className="nav-link" href="/analytics">
             <span className="nav-glyph">↗</span>
             <span>Analytics</span>
@@ -1678,6 +1682,7 @@ export default function Home() {
             <div>
               <small>INTELLIGENCE</small>
               <Link href="/aios">AIOS Control</Link>
+              <Link href="/knowledge">Knowledge</Link>
               <Link href="/analytics">Analytics</Link>
             </div>
             <div>

@@ -4,14 +4,14 @@ Reviewed: 29 July 2026
 
 ## Outcome
 
-Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 43 Chromium journeys: 22 public/authentication and security-boundary checks plus 21 authenticated, browser-to-database workflows.
+Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 44 Chromium journeys: 22 public/authentication and security-boundary checks plus 22 authenticated, browser-to-database workflows.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
-- 43/43 browser journeys
-- 129/129 behavioral tests
+- 44/44 browser journeys
+- 134/134 behavioral tests
 - 15/15 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -19,7 +19,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 56-table/25-RPC anonymous-access probes and 187 authenticated authorization assertions
+- all 58-table/29-RPC anonymous-access probes and 202 authenticated authorization assertions
 
 ## Feature evidence
 
@@ -44,6 +44,7 @@ The audited build passed with:
 | Team Access | Role change, teammate suspension/restoration, invitation creation and revocation | Membership state and one-way invitation-token hash persist; final-owner safeguards remain enforced | Pass |
 | Account Security | TOTP enrollment, live code verification, verified-factor display and removal | Supabase Auth reports the factor, then confirms it is removed | Pass |
 | AIOS Control | Daily budget, provider selection, model kill switch, approved price version, lead and Inbox triage, autonomy modes, workflow disable/enable and non-bypassable external-action guard | Budget, price and autonomy policy rows persist; triage writes only bounded internal work; quote sharing cannot be set to Auto | Pass |
+| Governed Knowledge | Versioned source draft, source authority/sensitivity/freshness metadata, citation-ready passages, human review, approval, approved retrieval, source link, and visible freshness state | Direct writes are denied; drafts, restricted material, and retired sources are permission-filtered; guarded transitions record reviewer/audit evidence; retrieval returns only tenant-permitted approved citations | Pass |
 | Analytics | Authenticated loading and lead/source conversion evidence from prior workflow tests | Metrics derive from tenant-authorized deal/history data | Pass |
 | Private document vault | UI upload from lead detail and metadata verification | Object bytes and metadata exist in the private tenant path; anonymous/foreign access and browser deletion are denied | Pass |
 | Responsive and runtime integrity | All principal protected routes at desktop and 390px mobile widths | No horizontal overflow; route sweep produced no browser errors or warnings | Pass |
@@ -65,6 +66,9 @@ The audited build passed with:
 13. The first durable-schedule migration referenced the immutable-tenant trigger helper in the public schema instead of the established private schema. Clean zero-state replay failed immediately; the migration now uses the shared private helper and replays cleanly.
 14. The initial schedule component mixed its external fetch and state application in one effect helper. React 19 lint rejected the cascading pattern; fetching is now side-effect-free and state is applied only from the guarded promise continuation.
 15. The first entry-readiness placement put passport/visa controls before the traveller roster, and the compact global help trigger could overlap a status pill around the 733px breakpoint. The roster now establishes the people context first, while the readiness cards reserve space for the persistent help control at that intermediate width.
+16. The first knowledge-source reviewer foreign key used `ON DELETE SET NULL`, which conflicted with the requirement that approved evidence preserve its reviewer and could block disposable tenant cleanup. Creator and reviewer relationships now use deferred same-tenant constraints, so an organization cascades atomically while standalone membership removal cannot erase historical review accountability.
+17. The initial knowledge lifecycle allowed a curator to add passages while a source was already in review. The UI and guarded RPCs now freeze both metadata and passages in review; corrections require an explicit return to Draft before approval can resume.
+18. The first Knowledge retrieval panel reused a legacy global `.knowledge-search` dashboard selector. At a mid-width viewport that inherited a fixed-height flex layout and let approved citation cards overlap the inventory below. The governed workspace now uses an isolated selector namespace, and browser layout inspection covers the exact failing width plus the 390px overflow boundary.
 
 ## Deferred external acceptance
 
