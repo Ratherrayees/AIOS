@@ -4,14 +4,14 @@ Reviewed: 29 July 2026
 
 ## Outcome
 
-Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 44 Chromium journeys: 22 public/authentication and security-boundary checks plus 22 authenticated, browser-to-database workflows.
+Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 45 Chromium journeys: 22 public/authentication and security-boundary checks plus 23 authenticated, browser-to-database workflows.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
-- 44/44 browser journeys
-- 148/148 behavioral tests
+- 45/45 browser journeys
+- 151/151 behavioral tests
 - 21/21 zero-provider AI safety evaluations
 - zero TypeScript errors
 - zero ESLint errors or warnings
@@ -45,7 +45,7 @@ The audited build passed with:
 | Account Security | TOTP enrollment, live code verification, verified-factor display and removal | Supabase Auth reports the factor, then confirms it is removed | Pass |
 | AIOS Control | Daily budget, provider selection, model kill switch, approved price version, lead and Inbox triage, autonomy modes, workflow disable/enable and non-bypassable external-action guard | Budget, price and autonomy policy rows persist; triage writes only bounded internal work; quote sharing cannot be set to Auto | Pass |
 | Governed Knowledge | Versioned source draft, bounded private text/Markdown import with file hash/name/size provenance and deterministic server-created citations, source authority/sensitivity/freshness metadata, human review, approval, stale-source queue, controlled replacement draft, draft-only passage revision, atomic supersession, approved retrieval, side-by-side factual Conflict Watch with human evidence decisions, and an Answer Desk with claim-level source links, explicit unsupported/stale states, and high-impact human review | Direct writes are denied; imported files become Drafts atomically and duplicate active hashes are rejected; drafts, restricted material, conflict evidence, and retired sources are permission-filtered by role; guarded import, transition, renewal, scanning, and conflict-review RPCs record provenance/reviewer/lineage/audit evidence; the conflict detector flags but never resolves semantics; the answer path sends only permitted fresh evidence, validates model claims against exact retrieved passages, attaches citations server-side, and makes no provider call for unsupported evidence | Pass |
-| Analytics | Authenticated loading and lead/source conversion evidence from prior workflow tests | Metrics derive from tenant-authorized deal/history data | Pass |
+| Analytics | Authenticated loading, lead/source conversion evidence, live Trip Operations and supplier readiness, currency-separated open financial exposure, AIOS knowledge freshness/conflict health, metric definitions, and source-workspace drill-through | Metrics derive only from tenant-authorized deal/history/trip/exception/booking/supplier/payment/knowledge rows; settled obligations are excluded, missing review deadlines fail stale, active-trip scope is explicit, and currencies are never combined | Pass |
 | Private document vault | UI upload from lead detail and metadata verification | Object bytes and metadata exist in the private tenant path; anonymous/foreign access and browser deletion are denied | Pass |
 | Responsive and runtime integrity | All principal protected routes at desktop and 390px mobile widths | No horizontal overflow; route sweep produced no browser errors or warnings | Pass |
 

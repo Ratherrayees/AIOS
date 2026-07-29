@@ -1,11 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { createSavedView, deleteSavedView } from "../actions/crm";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
+import {
+  buildManagementIntelligence,
+  type ManagementBooking,
+  type ManagementException,
+  type ManagementKnowledgeConflict,
+  type ManagementKnowledgeSource,
+  type ManagementPayment,
+  type ManagementSupplier,
+  type ManagementTrip,
+} from "../../lib/analytics/management-intelligence";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -38,6 +49,7 @@ type StageHistory = {
 };
 type Member = { id: string; name: string };
 type SavedView = { id: string; name: string; filters: Json; created_at: string };
+type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 
 const ranges: { value: AnalyticsRange; label: string; days: number | null }[] = [
   { value: "30d", label: "Last 30 days", days: 30 },
@@ -97,6 +109,8 @@ export default function AnalyticsPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [filterTimestamp, setFilterTimestamp] = useState(0);
+  const [management, setManagement] =
+    useState<ManagementIntelligence | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -114,6 +128,13 @@ export default function AnalyticsPage() {
         { data: historyRows, error: historyError },
         { data: memberRows },
         { data: savedViewRows },
+        { data: tripRows, error: tripError },
+        { data: exceptionRows, error: exceptionError },
+        { data: bookingRows, error: bookingError },
+        { data: supplierRows, error: supplierError },
+        { data: paymentRows, error: paymentError },
+        { data: knowledgeSourceRows, error: knowledgeSourceError },
+        { data: knowledgeConflictRows, error: knowledgeConflictError },
       ] = await Promise.all([
         supabase
           .from("deals")
@@ -143,8 +164,53 @@ export default function AnalyticsPage() {
           .eq("organization_id", active.organization_id)
           .eq("feature", "analytics")
           .order("updated_at", { ascending: false }),
+        supabase
+          .from("trips")
+          .select("id, status, start_date")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
+        supabase
+          .from("operational_exceptions")
+          .select("status, severity, due_at, assigned_to")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
+        supabase
+          .from("bookings")
+          .select("trip_id, supplier_id, status")
+          .eq("organization_id", active.organization_id)
+          .limit(10000),
+        supabase
+          .from("suppliers")
+          .select("id, status, archived_at, quality_rating")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
+        supabase
+          .from("payments")
+          .select("amount, paid_amount, currency, direction, status")
+          .eq("organization_id", active.organization_id)
+          .limit(10000),
+        supabase
+          .from("knowledge_sources")
+          .select("status, review_due_on")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
+        supabase
+          .from("knowledge_conflicts")
+          .select("status")
+          .eq("organization_id", active.organization_id)
+          .limit(5000),
       ]);
-      if (dealError || historyError) throw dealError || historyError;
+      const dataError =
+        dealError ||
+        historyError ||
+        tripError ||
+        exceptionError ||
+        bookingError ||
+        supplierError ||
+        paymentError ||
+        knowledgeSourceError ||
+        knowledgeConflictError;
+      if (dataError) throw dataError;
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
         ? await supabase.from("profiles").select("id, full_name").in("id", memberIds)
@@ -158,6 +224,19 @@ export default function AnalyticsPage() {
       setDeals((dealRows || []) as Deal[]);
       setHistory((historyRows || []) as StageHistory[]);
       setSavedViews((savedViewRows || []) as SavedView[]);
+      setManagement(
+        buildManagementIntelligence({
+          trips: (tripRows || []) as ManagementTrip[],
+          exceptions: (exceptionRows || []) as ManagementException[],
+          bookings: (bookingRows || []) as ManagementBooking[],
+          suppliers: (supplierRows || []) as ManagementSupplier[],
+          payments: (paymentRows || []) as ManagementPayment[],
+          knowledgeSources: (knowledgeSourceRows ||
+            []) as ManagementKnowledgeSource[],
+          knowledgeConflicts: (knowledgeConflictRows ||
+            []) as ManagementKnowledgeConflict[],
+        }),
+      );
       setFilterTimestamp(Date.now());
       setLoading(false);
     };
@@ -340,17 +419,17 @@ export default function AnalyticsPage() {
       />
       <section className="analytics-hero">
         <div>
-          <p>REVENUE INTELLIGENCE</p>
-          <h1>See where momentum becomes revenue.</h1>
+          <p>MANAGEMENT INTELLIGENCE</p>
+          <h1>See revenue, readiness, and risk in one place.</h1>
           <span>
-            Source quality, response discipline, conversion, and stage velocity
-            in one tenant-safe operating view.
+            A tenant-safe view of sales momentum, live trip operations,
+            supplier readiness, financial exposure, and AIOS knowledge health.
           </span>
         </div>
         <div className="analytics-signal">
-          <small>LIVE SIGNAL</small>
-          <b>{filteredDeals.length}</b>
-          <span>LEADS IN VIEW</span>
+          <small>ACTIVE TRIPS</small>
+          <b>{management?.operations.activeTrips ?? "—"}</b>
+          <span>LIVE WORKSPACE</span>
         </div>
       </section>
       {notice && (
@@ -362,6 +441,223 @@ export default function AnalyticsPage() {
         <LoadingState label="Loading revenue intelligence" rows={5} />
       ) : (
         <>
+          {management && (
+            <>
+              <section
+                className="management-section"
+                aria-labelledby="management-heading"
+              >
+                <header className="management-heading">
+                  <div>
+                    <p>LIVE MANAGEMENT PULSE</p>
+                    <h2 id="management-heading">
+                      What needs leadership attention now
+                    </h2>
+                  </div>
+                  <span>
+                    Tenant-authorized records · Current workspace · No currencies
+                    combined
+                  </span>
+                </header>
+                <div className="management-grid">
+                  <article className="management-card operations-card">
+                    <header>
+                      <span className="management-index">01</span>
+                      <div>
+                        <small>OWNER · OPERATIONS</small>
+                        <h3>Trip readiness</h3>
+                      </div>
+                    </header>
+                    <div className="management-primary">
+                      <b>{management.operations.activeTrips}</b>
+                      <span>active trips</span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>In travel</dt>
+                        <dd>{management.operations.inTravelTrips}</dd>
+                      </div>
+                      <div>
+                        <dt>Departing ≤ 30 days</dt>
+                        <dd>{management.operations.departingSoon}</dd>
+                      </div>
+                      <div>
+                        <dt>High / critical risks</dt>
+                        <dd>{management.operations.urgentExceptions}</dd>
+                      </div>
+                      <div>
+                        <dt>Overdue / unassigned</dt>
+                        <dd>
+                          {management.operations.overdueExceptions} /{" "}
+                          {management.operations.unassignedExceptions}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Link href="/trips">Open Trip Operations →</Link>
+                  </article>
+
+                  <article className="management-card supplier-card">
+                    <header>
+                      <span className="management-index">02</span>
+                      <div>
+                        <small>OWNER · SUPPLIER OPERATIONS</small>
+                        <h3>Service confirmation</h3>
+                      </div>
+                    </header>
+                    <div className="management-primary">
+                      <b>
+                        {management.suppliers.confirmationRate === null
+                          ? "—"
+                          : `${Math.round(management.suppliers.confirmationRate)}%`}
+                      </b>
+                      <span>active-trip bookings confirmed</span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Confirmed / active</dt>
+                        <dd>
+                          {management.suppliers.confirmedBookings} /{" "}
+                          {management.suppliers.activeBookingInventory}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Active suppliers</dt>
+                        <dd>{management.suppliers.activeSuppliers}</dd>
+                      </div>
+                      <div>
+                        <dt>Used in active trips</dt>
+                        <dd>{management.suppliers.suppliersInActiveTrips}</dd>
+                      </div>
+                      <div>
+                        <dt>Average quality</dt>
+                        <dd>
+                          {management.suppliers.averageQualityRating === null
+                            ? "Not rated"
+                            : `${management.suppliers.averageQualityRating.toFixed(1)} / 5`}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Link href="/finance">Open Suppliers & Finance →</Link>
+                  </article>
+
+                  <article className="management-card finance-card">
+                    <header>
+                      <span className="management-index">03</span>
+                      <div>
+                        <small>OWNER · FINANCE</small>
+                        <h3>Open financial exposure</h3>
+                      </div>
+                    </header>
+                    <div className="management-primary">
+                      <b>{management.finance.openObligations}</b>
+                      <span>open obligations</span>
+                    </div>
+                    {management.finance.currencies.length ? (
+                      <div
+                        className="currency-exposure"
+                        aria-label="Financial exposure by currency"
+                      >
+                        {management.finance.currencies.map((row) => (
+                          <div key={row.currency}>
+                            <b>{row.currency}</b>
+                            <span>
+                              Receive {currency(row.receivable, row.currency)}
+                            </span>
+                            <span>
+                              Pay {currency(row.payable, row.currency)}
+                            </span>
+                            <em>
+                              Overdue {currency(row.overdue, row.currency)}
+                            </em>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="management-empty">
+                        No open receivables or payables.
+                      </p>
+                    )}
+                    <Link href="/finance">Inspect finance ledger →</Link>
+                  </article>
+
+                  <article className="management-card knowledge-card">
+                    <header>
+                      <span className="management-index">04</span>
+                      <div>
+                        <small>OWNER · KNOWLEDGE CURATION</small>
+                        <h3>AIOS evidence health</h3>
+                      </div>
+                    </header>
+                    <div className="management-primary">
+                      <b>
+                        {management.knowledge.freshnessRate === null
+                          ? "—"
+                          : `${Math.round(management.knowledge.freshnessRate)}%`}
+                      </b>
+                      <span>approved evidence current</span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Current / stale approved</dt>
+                        <dd>
+                          {management.knowledge.approvedCurrent} /{" "}
+                          {management.knowledge.approvedStale}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Awaiting review</dt>
+                        <dd>{management.knowledge.inReview}</dd>
+                      </div>
+                      <div>
+                        <dt>Open conflict signals</dt>
+                        <dd>{management.knowledge.openConflicts}</dd>
+                      </div>
+                      <div>
+                        <dt>Confirmed conflicts</dt>
+                        <dd>{management.knowledge.confirmedConflicts}</dd>
+                      </div>
+                    </dl>
+                    <Link href="/knowledge">Review AIOS knowledge →</Link>
+                  </article>
+                </div>
+              </section>
+
+              <details className="metric-glossary">
+                <summary>How these management metrics are calculated</summary>
+                <div>
+                  <p>
+                    <b>Active trips</b> are Draft, Confirmed, or In travel;
+                    Completed and Cancelled trips are excluded.
+                  </p>
+                  <p>
+                    <b>Service confirmation</b> is Confirmed divided by all
+                    non-cancelled bookings on active trips.
+                  </p>
+                  <p>
+                    <b>Financial exposure</b> is obligation amount less recorded
+                    allocations for Pending, Partially paid, or Overdue items.
+                    Values remain separated by currency.
+                  </p>
+                  <p>
+                    <b>Knowledge freshness</b> is current approved sources divided
+                    by all approved sources. Missing or expired review deadlines
+                    count as stale.
+                  </p>
+                </div>
+              </details>
+            </>
+          )}
+
+          <section className="sales-section-heading">
+            <div>
+              <p>SALES INTELLIGENCE</p>
+              <h2>Acquisition and pipeline performance</h2>
+            </div>
+            <span>
+              The controls below apply only to sales metrics, not the live
+              management pulse above.
+            </span>
+          </section>
           <section className="analytics-controls">
             <label>
               Acquisition window

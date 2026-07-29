@@ -304,7 +304,7 @@ test.describe("authenticated owner workspace", () => {
       ["/trips", /From “won” to wheels up/i],
       ["/finance", /Know what is owed/i],
       ["/aios", /Set how autonomous/i],
-      ["/analytics", /See where momentum becomes revenue/i],
+      ["/analytics", /See revenue, readiness, and risk in one place/i],
       ["/settings/lead-capture", /Lead capture that enters/i],
       ["/settings/sales-workflows", /Qualify consistently/i],
       ["/settings/team", /Humans stay accountable/i],
@@ -456,7 +456,9 @@ test.describe("authenticated owner workspace", () => {
 
     await page.goto("/analytics");
     await expect(
-      page.getByRole("heading", { name: /See where momentum becomes revenue/i }),
+      page.getByRole("heading", {
+        name: /See revenue, readiness, and risk in one place/i,
+      }),
     ).toBeVisible();
     await expect(
       page.getByRole("row", { name: /E2E Website/ }),
@@ -2603,6 +2605,56 @@ test.describe("authenticated owner workspace", () => {
       .eq("ai_run_id", answerRun!.id);
     expect(answerJobError).toBeNull();
     expect(answerJobCount).toBe(0);
+  });
+
+  test("explains live management intelligence and links every metric to its source workspace", async ({
+    page,
+  }) => {
+    await signIn(page);
+    await page.goto("/analytics");
+
+    await expect(
+      page.getByRole("heading", {
+        name: "What needs leadership attention now",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Trip readiness" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Service confirmation" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Open financial exposure" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "AIOS evidence health" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Tenant-authorized records · Current workspace · No currencies combined",
+      ),
+    ).toBeVisible();
+
+    await expect(
+      page.getByRole("link", { name: "Open Trip Operations →" }),
+    ).toHaveAttribute("href", "/trips");
+    await expect(
+      page.getByRole("link", { name: "Open Suppliers & Finance →" }),
+    ).toHaveAttribute("href", "/finance");
+    await expect(
+      page.getByRole("link", { name: "Review AIOS knowledge →" }),
+    ).toHaveAttribute("href", "/knowledge");
+
+    await page
+      .getByText("How these management metrics are calculated")
+      .click();
+    await expect(
+      page.getByText(/Financial exposure is obligation amount less recorded/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/controls below apply only to sales metrics/i),
+    ).toBeVisible();
   });
 
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({
