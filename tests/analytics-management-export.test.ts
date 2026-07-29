@@ -13,6 +13,7 @@ import {
   buildPortfolioIntelligence,
 } from "../lib/analytics/management-intelligence";
 import { buildTargetCoverage } from "../lib/analytics/targets";
+import { buildCompletedTripEconomics } from "../lib/analytics/trip-economics";
 
 const now = new Date("2026-07-29T12:00:00.000Z");
 const deal = {
@@ -117,7 +118,44 @@ function fixture() {
     ],
     now,
   );
-  return { generatedAt: now, management, portfolio, growth, targetCoverage };
+  const tripEconomics = buildCompletedTripEconomics({
+    trips: [
+      {
+        id: "trip-private",
+        status: "completed",
+        quote_id: "quote-private",
+        currency: "INR",
+      },
+    ],
+    quotes: [
+      {
+        id: "quote-private",
+        status: "accepted",
+        current_version: 1,
+        currency: "INR",
+      },
+    ],
+    quoteVersions: [
+      { quote_id: "quote-private", version: 1, total_amount: 200_000 },
+    ],
+    bookings: [
+      {
+        trip_id: "trip-private",
+        status: "confirmed",
+        cost_amount: 75_000,
+        currency: "INR",
+      },
+    ],
+    payments: [],
+  });
+  return {
+    generatedAt: now,
+    management,
+    portfolio,
+    tripEconomics,
+    growth,
+    targetCoverage,
+  };
 }
 
 test("management export contains currency-safe aggregates and formula provenance", () => {
@@ -128,6 +166,15 @@ test("management export contains currency-safe aggregates and formula provenance
         row.section === "Forecast" &&
         row.currency === "INR" &&
         row.value === 200_000,
+    ),
+  );
+  assert.ok(
+    rows.some(
+      (row) =>
+        row.section === "Completed-trip economics" &&
+        row.currency === "INR" &&
+        row.metric === "Operating margin evidence" &&
+        row.value === 125_000,
     ),
   );
   assert.ok(

@@ -2640,6 +2640,108 @@ test.describe("authenticated owner workspace", () => {
     ]);
     expect(growthFixtureError).toBeNull();
 
+    const { data: economicsDeal, error: economicsDealError } = await admin!
+      .from("deals")
+      .insert({
+        organization_id: organizationIds[0],
+        contact_id: contactId,
+        owner_id: userId,
+        title: `E2E completed economics ${forecastSuffix}`,
+        destination: "Ladakh, India",
+        stage: "won",
+        value_amount: 760000,
+        currency: "INR",
+        probability: 100,
+        won_at: "2026-07-20T12:00:00.000Z",
+      })
+      .select("id")
+      .single();
+    expect(economicsDealError).toBeNull();
+    const { data: economicsQuote, error: economicsQuoteError } = await admin!
+      .from("quotes")
+      .insert({
+        organization_id: organizationIds[0],
+        deal_id: economicsDeal!.id,
+        owner_id: userId,
+        title: `E2E accepted trip quote ${forecastSuffix}`,
+        status: "accepted",
+        current_version: 1,
+        currency: "INR",
+        accepted_at: "2026-07-20T13:00:00.000Z",
+      })
+      .select("id")
+      .single();
+    expect(economicsQuoteError).toBeNull();
+    const { error: economicsVersionError } = await admin!
+      .from("quote_versions")
+      .insert({
+        organization_id: organizationIds[0],
+        quote_id: economicsQuote!.id,
+        version: 1,
+        total_amount: 760000,
+        created_by: userId,
+      });
+    expect(economicsVersionError).toBeNull();
+    const { data: economicsTrip, error: economicsTripError } = await admin!
+      .from("trips")
+      .insert({
+        organization_id: organizationIds[0],
+        deal_id: economicsDeal!.id,
+        quote_id: economicsQuote!.id,
+        owner_id: userId,
+        name: `E2E completed Ladakh journey ${forecastSuffix}`,
+        status: "completed",
+        start_date: "2026-07-10",
+        end_date: "2026-07-18",
+        currency: "INR",
+      })
+      .select("id")
+      .single();
+    expect(economicsTripError).toBeNull();
+    const { error: economicsBookingError } = await admin!
+      .from("bookings")
+      .insert({
+        organization_id: organizationIds[0],
+        trip_id: economicsTrip!.id,
+        booking_type: "hotel",
+        title: `E2E completed stay ${forecastSuffix}`,
+        status: "confirmed",
+        confirmation_reference: `ECON-${forecastSuffix}`,
+        cost_amount: 520000,
+        currency: "INR",
+        confirmed_at: "2026-07-09T12:00:00.000Z",
+      });
+    expect(economicsBookingError).toBeNull();
+    const { error: economicsPaymentError } = await admin!
+      .from("payments")
+      .insert([
+        {
+          organization_id: organizationIds[0],
+          trip_id: economicsTrip!.id,
+          deal_id: economicsDeal!.id,
+          direction: "receivable",
+          status: "partially_paid",
+          title: `E2E completed customer balance ${forecastSuffix}`,
+          amount: 760000,
+          paid_amount: 400000,
+          currency: "INR",
+          created_by: userId,
+        },
+        {
+          organization_id: organizationIds[0],
+          trip_id: economicsTrip!.id,
+          deal_id: economicsDeal!.id,
+          direction: "payable",
+          status: "paid",
+          title: `E2E completed supplier balance ${forecastSuffix}`,
+          amount: 520000,
+          paid_amount: 520000,
+          currency: "INR",
+          created_by: userId,
+        },
+      ]);
+    expect(economicsPaymentError).toBeNull();
+
     await signIn(page);
     await page.goto("/analytics");
 
@@ -2671,6 +2773,11 @@ test.describe("authenticated owner workspace", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Repeat-customer evidence" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "Reconcile margin only when the evidence closes",
+      }),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -2714,6 +2821,28 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("link", { name: "Review Inbox →" }),
     ).toHaveAttribute("href", "/inbox");
+
+    const completedEconomicsTable = page.getByRole("table", {
+      name: "Completed-trip margin and obligation reconciliation by currency",
+    });
+    const completedInrEconomics = completedEconomicsTable.getByRole("row", {
+      name: /INR/,
+    });
+    await expect(completedInrEconomics).toContainText("₹7,60,000");
+    await expect(completedInrEconomics).toContainText("₹5,20,000");
+    await expect(completedInrEconomics).toContainText("₹2,40,000");
+    await expect(completedInrEconomics).toContainText("31.6%");
+    await expect(completedInrEconomics).toContainText("₹4,00,000");
+    await expect(
+      page.getByRole("link", {
+        name: "Correct trip and booking evidence →",
+      }),
+    ).toHaveAttribute("href", "/trips");
+    await expect(
+      page.getByRole("link", {
+        name: "Reconcile obligation evidence →",
+      }),
+    ).toHaveAttribute("href", "/finance");
 
     const forecastTable = page.getByRole("table", {
       name: "Open pipeline and weighted forecast by currency",
@@ -2785,6 +2914,9 @@ test.describe("authenticated owner workspace", () => {
     );
     expect(reportCsv).toContain(
       '"Pipeline coverage","Approved target 1 (2026-07-01 to 2026-09-30): pipeline coverage","INR","57.5"',
+    );
+    expect(reportCsv).toContain(
+      '"Completed-trip economics","Operating margin evidence","INR","240000"',
     );
     expect(reportCsv).not.toContain(targetName);
     expect(reportCsv).not.toContain(contactId!);

@@ -38,6 +38,14 @@ import {
   buildTargetCoverage,
   type AnalyticsTarget,
 } from "../../lib/analytics/targets";
+import {
+  buildCompletedTripEconomics,
+  type EconomicsBooking,
+  type EconomicsPayment,
+  type EconomicsQuote,
+  type EconomicsQuoteVersion,
+  type EconomicsTrip,
+} from "../../lib/analytics/trip-economics";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import type { Json } from "../../types/database";
@@ -77,6 +85,7 @@ type Member = { id: string; name: string };
 type SavedView = { id: string; name: string; filters: Json; created_at: string };
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
+type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
 
 const ranges: { value: AnalyticsRange; label: string; days: number | null }[] = [
   { value: "30d", label: "Last 30 days", days: 30 },
@@ -142,6 +151,9 @@ export default function AnalyticsPage() {
   const [management, setManagement] =
     useState<ManagementIntelligence | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioIntelligence | null>(null);
+  const [tripEconomics, setTripEconomics] = useState<TripEconomics | null>(
+    null,
+  );
   const [targets, setTargets] = useState<AnalyticsTarget[]>([]);
   const [pending, startTransition] = useTransition();
 
@@ -204,7 +216,7 @@ export default function AnalyticsPage() {
           .order("updated_at", { ascending: false }),
         supabase
           .from("trips")
-          .select("id, status, start_date")
+          .select("id, status, start_date, quote_id, currency")
           .eq("organization_id", active.organization_id)
           .limit(5000),
         supabase
@@ -214,7 +226,7 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("bookings")
-          .select("trip_id, supplier_id, status, cost_amount")
+          .select("trip_id, supplier_id, status, cost_amount, currency")
           .eq("organization_id", active.organization_id)
           .limit(10000),
         supabase
@@ -224,7 +236,7 @@ export default function AnalyticsPage() {
           .limit(5000),
         supabase
           .from("payments")
-          .select("amount, paid_amount, currency, direction, status")
+          .select("trip_id, amount, paid_amount, currency, direction, status")
           .eq("organization_id", active.organization_id)
           .limit(10000),
         supabase
@@ -318,6 +330,15 @@ export default function AnalyticsPage() {
           trips: (tripRows || []) as ManagementTrip[],
           bookings: (bookingRows || []) as ManagementBooking[],
           suppliers: (supplierRows || []) as ManagementSupplier[],
+        }),
+      );
+      setTripEconomics(
+        buildCompletedTripEconomics({
+          trips: (tripRows || []) as EconomicsTrip[],
+          quotes: (quoteRows || []) as EconomicsQuote[],
+          quoteVersions: (quoteVersionRows || []) as EconomicsQuoteVersion[],
+          bookings: (bookingRows || []) as EconomicsBooking[],
+          payments: (paymentRows || []) as EconomicsPayment[],
         }),
       );
       setTargets((targetRows || []) as AnalyticsTarget[]);
@@ -578,7 +599,7 @@ export default function AnalyticsPage() {
   }
 
   function downloadManagementReport() {
-    if (!management || !portfolio) {
+    if (!management || !portfolio || !tripEconomics) {
       setNotice("Management intelligence is still loading.");
       return;
     }
@@ -587,6 +608,7 @@ export default function AnalyticsPage() {
       generatedAt,
       management,
       portfolio,
+      tripEconomics,
       growth,
       targetCoverage,
     });
@@ -660,7 +682,7 @@ export default function AnalyticsPage() {
                     <button
                       type="button"
                       onClick={downloadManagementReport}
-                      disabled={!management || !portfolio}
+                      disabled={!management || !portfolio || !tripEconomics}
                     >
                       Download aggregate CSV
                     </button>
@@ -996,6 +1018,168 @@ export default function AnalyticsPage() {
                   </details>
                 </article>
               </div>
+            </section>
+          )}
+
+          {tripEconomics && (
+            <section
+              className="trip-economics"
+              aria-labelledby="trip-economics-heading"
+            >
+              <header className="management-heading">
+                <div>
+                  <p>COMPLETED-TRIP ECONOMICS</p>
+                  <h2 id="trip-economics-heading">
+                    Reconcile margin only when the evidence closes
+                  </h2>
+                </div>
+                <span>
+                  Accepted current quote · Confirmed booking costs · Completed
+                  trips only · Currency exact
+                </span>
+              </header>
+              <div className="economics-summary">
+                <article>
+                  <span>COMPLETED TRIPS</span>
+                  <b>{tripEconomics.summary.completedTrips}</b>
+                  <p>eligible for evidence review</p>
+                </article>
+                <article>
+                  <span>EVIDENCE READY</span>
+                  <b>{tripEconomics.summary.evidenceReadyTrips}</b>
+                  <p>included in currency-separated margin</p>
+                </article>
+                <article>
+                  <span>COMMERCIAL GAPS</span>
+                  <b>
+                    {tripEconomics.summary.missingAcceptedQuote +
+                      tripEconomics.summary.missingCurrentQuoteVersion +
+                      tripEconomics.summary.unresolvedBookingEvidence +
+                      tripEconomics.summary.missingConfirmedBookingCosts +
+                      tripEconomics.summary.commercialCurrencyConflicts}
+                  </b>
+                  <p>trips excluded rather than estimated</p>
+                </article>
+                <article>
+                  <span>LEDGER CONFLICTS</span>
+                  <b>
+                    {tripEconomics.summary.reconciliationCurrencyConflicts}
+                  </b>
+                  <p>payment rows excluded for currency or direction</p>
+                </article>
+              </div>
+              {tripEconomics.currencies.length ? (
+                <article className="analytics-panel economics-panel">
+                  <header>
+                    <div>
+                      <p>OWNER · COMMERCIAL & FINANCE</p>
+                      <h2>Completed-trip operating evidence</h2>
+                    </div>
+                    <span>
+                      Quote value is contracted commercial evidence—not
+                      accounting revenue recognition. Settled values are ledger
+                      evidence, not bank reconciliation.
+                    </span>
+                  </header>
+                  <div className="analytics-table-wrap">
+                    <table>
+                      <caption>
+                        Completed-trip margin and obligation reconciliation by
+                        currency
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th>Currency</th>
+                          <th>Trips</th>
+                          <th>Accepted quote</th>
+                          <th>Confirmed costs</th>
+                          <th>Operating margin</th>
+                          <th>Receivable / collected</th>
+                          <th>Payable / settled</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tripEconomics.currencies.map((row) => (
+                          <tr key={row.currency}>
+                            <td>
+                              <b>{row.currency}</b>
+                            </td>
+                            <td>{row.trips}</td>
+                            <td>
+                              {currency(row.contractedRevenue, row.currency)}
+                            </td>
+                            <td>
+                              {currency(
+                                row.confirmedBookingCost,
+                                row.currency,
+                              )}
+                            </td>
+                            <td>
+                              {currency(row.operatingMargin, row.currency)}
+                              <span>
+                                {row.operatingMarginPercent.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td>
+                              {currency(row.customerReceivables, row.currency)}{" "}
+                              /{" "}
+                              {currency(row.customerCollected, row.currency)}
+                              <span>
+                                {row.receivableCoveragePercent === null
+                                  ? "No accepted value"
+                                  : `${row.receivableCoveragePercent.toFixed(1)}% recorded`}
+                              </span>
+                            </td>
+                            <td>
+                              {currency(row.supplierPayables, row.currency)} /{" "}
+                              {currency(row.supplierSettled, row.currency)}
+                              <span>
+                                {row.payableCoveragePercent === null
+                                  ? "No confirmed cost"
+                                  : `${row.payableCoveragePercent.toFixed(1)}% recorded`}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              ) : (
+                <div className="analytics-empty economics-empty">
+                  No completed trip has a fully accepted quote and confirmed,
+                  same-currency booking cost evidence yet.
+                </div>
+              )}
+              <details className="economics-gaps">
+                <summary>Why completed trips are excluded</summary>
+                <div>
+                  <span>
+                    Missing Accepted quote{" "}
+                    <b>{tripEconomics.summary.missingAcceptedQuote}</b>
+                  </span>
+                  <span>
+                    Missing current quote version{" "}
+                    <b>{tripEconomics.summary.missingCurrentQuoteVersion}</b>
+                  </span>
+                  <span>
+                    Draft / Requested bookings remain{" "}
+                    <b>{tripEconomics.summary.unresolvedBookingEvidence}</b>
+                  </span>
+                  <span>
+                    No complete Confirmed cost evidence{" "}
+                    <b>{tripEconomics.summary.missingConfirmedBookingCosts}</b>
+                  </span>
+                  <span>
+                    Commercial currency conflict{" "}
+                    <b>{tripEconomics.summary.commercialCurrencyConflicts}</b>
+                  </span>
+                </div>
+              </details>
+              <footer className="economics-links">
+                <Link href="/trips">Correct trip and booking evidence →</Link>
+                <Link href="/finance">Reconcile obligation evidence →</Link>
+              </footer>
             </section>
           )}
 

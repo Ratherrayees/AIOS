@@ -473,6 +473,121 @@
   line-height: 1.55;
 }
 
+.trip-economics {
+  max-width: 1500px;
+  margin: 0 auto 60px;
+}
+
+.economics-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.economics-summary article {
+  min-height: 130px;
+  padding: 18px;
+  background: #eef2ec;
+  border: 1px solid #dde5dc;
+  border-radius: 15px;
+}
+
+.economics-summary span {
+  color: #667c77;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+}
+
+.economics-summary b {
+  display: block;
+  margin: 18px 0 7px;
+  font: 500 2.3rem/0.9 Georgia, serif;
+}
+
+.economics-summary p {
+  margin: 0;
+  color: #798985;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.economics-panel table caption {
+  padding: 0 0 12px;
+  color: #778784;
+  font-size: 0.67rem;
+  text-align: left;
+}
+
+.economics-panel td:first-child {
+  min-width: 80px;
+}
+
+.economics-panel td span {
+  display: block;
+  margin-top: 5px;
+  color: #7a8987;
+  font-size: 0.6rem;
+}
+
+.economics-empty {
+  margin-bottom: 14px;
+  padding-block: 48px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #dde5dc;
+  border-radius: 16px;
+}
+
+.economics-gaps {
+  margin-top: 14px;
+  padding: 14px 16px;
+  color: #536d68;
+  background: #f4f6f1;
+  border: 1px solid #e2e7df;
+  border-radius: 12px;
+  font-size: 0.65rem;
+}
+
+.economics-gaps summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.economics-gaps > div {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.economics-gaps span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  background: white;
+  border-radius: 9px;
+}
+
+.economics-links {
+  display: flex;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.economics-links a {
+  color: #315d57;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.economics-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .growth-intelligence {
   max-width: 1500px;
   margin: 0 auto 60px;
@@ -955,6 +1070,14 @@
   .target-form {
     grid-template-columns: repeat(3, 1fr);
   }
+
+  .economics-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .economics-gaps > div {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 680px) {
@@ -1008,6 +1131,10 @@
     margin-bottom: 44px;
   }
 
+  .trip-economics {
+    margin-bottom: 44px;
+  }
+
   .growth-intelligence {
     margin-bottom: 44px;
   }
@@ -1038,6 +1165,17 @@
 
   .target-form {
     grid-template-columns: 1fr;
+  }
+
+  .economics-summary,
+  .economics-gaps > div {
+    grid-template-columns: 1fr;
+  }
+
+  .economics-links {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .analytics-controls,

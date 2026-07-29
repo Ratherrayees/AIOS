@@ -4,11 +4,13 @@ import type {
   buildPortfolioIntelligence,
 } from "./management-intelligence";
 import type { buildTargetCoverage } from "./targets";
+import type { buildCompletedTripEconomics } from "./trip-economics";
 
 type ManagementIntelligence = ReturnType<typeof buildManagementIntelligence>;
 type PortfolioIntelligence = ReturnType<typeof buildPortfolioIntelligence>;
 type GrowthIntelligence = ReturnType<typeof buildGrowthIntelligence>;
 type TargetCoverage = ReturnType<typeof buildTargetCoverage>;
+type TripEconomics = ReturnType<typeof buildCompletedTripEconomics>;
 
 export type ManagementExportRow = {
   section: string;
@@ -23,6 +25,7 @@ export type ManagementExportInput = {
   generatedAt: Date;
   management: ManagementIntelligence;
   portfolio: PortfolioIntelligence;
+  tripEconomics: TripEconomics;
   growth: GrowthIntelligence;
   targetCoverage: TargetCoverage;
 };
@@ -55,6 +58,7 @@ export function buildManagementExportRows({
   generatedAt,
   management,
   portfolio,
+  tripEconomics,
   growth,
   targetCoverage,
 }: ManagementExportInput) {
@@ -340,6 +344,134 @@ export function buildManagementExportRows({
         "quotes",
         "Costed current quote versions recorded in this currency.",
         profitability.currency,
+      ),
+    );
+  }
+
+  rows.push(
+    row(
+      "Completed-trip economics",
+      "Completed trips",
+      tripEconomics.summary.completedTrips,
+      "trips",
+      "Trips in Completed state that are eligible for evidence review.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Evidence-ready completed trips",
+      tripEconomics.summary.evidenceReadyTrips,
+      "trips",
+      "Completed trips with an Accepted current quote and complete Confirmed same-currency booking costs.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Missing Accepted quote",
+      tripEconomics.summary.missingAcceptedQuote,
+      "trips",
+      "Completed trips excluded because no linked quote is in Accepted state.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Missing current quote version",
+      tripEconomics.summary.missingCurrentQuoteVersion,
+      "trips",
+      "Completed trips excluded because the Accepted quote's current version is unavailable.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Unresolved booking evidence",
+      tripEconomics.summary.unresolvedBookingEvidence,
+      "trips",
+      "Completed trips excluded because Draft or Requested bookings remain.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Missing Confirmed booking costs",
+      tripEconomics.summary.missingConfirmedBookingCosts,
+      "trips",
+      "Completed trips excluded because no Confirmed booking exists or a Confirmed cost is missing.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Commercial currency conflicts",
+      tripEconomics.summary.commercialCurrencyConflicts,
+      "trips",
+      "Completed trips excluded because trip, quote, and Confirmed booking currencies do not agree.",
+    ),
+    row(
+      "Completed-trip economics",
+      "Reconciliation ledger conflicts",
+      tripEconomics.summary.reconciliationCurrencyConflicts,
+      "ledger rows",
+      "Non-void payment rows excluded because currency or direction does not match the completed trip evidence.",
+    ),
+  );
+
+  for (const economics of tripEconomics.currencies) {
+    rows.push(
+      row(
+        "Completed-trip economics",
+        "Accepted quote value",
+        economics.contractedRevenue,
+        "money",
+        "Accepted current quote value on evidence-ready Completed trips; not accounting revenue recognition.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip economics",
+        "Confirmed booking cost",
+        economics.confirmedBookingCost,
+        "money",
+        "Recorded costs on Confirmed bookings for the same evidence-ready Completed trips.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip economics",
+        "Operating margin evidence",
+        economics.operatingMargin,
+        "money",
+        "Accepted quote value less Confirmed booking costs; not realized accounting profit.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip economics",
+        "Operating margin rate",
+        Number(economics.operatingMarginPercent.toFixed(2)),
+        "percent",
+        "Operating margin evidence divided by Accepted quote value.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip reconciliation",
+        "Customer receivables recorded",
+        economics.customerReceivables,
+        "money",
+        "Non-void customer receivable obligations linked to evidence-ready Completed trips.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip reconciliation",
+        "Customer settlement evidence",
+        economics.customerCollected,
+        "money",
+        "Recorded allocations on matching customer receivables; not bank reconciliation.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip reconciliation",
+        "Supplier payables recorded",
+        economics.supplierPayables,
+        "money",
+        "Non-void supplier payable obligations linked to evidence-ready Completed trips.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip reconciliation",
+        "Supplier settlement evidence",
+        economics.supplierSettled,
+        "money",
+        "Recorded allocations on matching supplier payables; not bank reconciliation.",
+        economics.currency,
       ),
     );
   }
