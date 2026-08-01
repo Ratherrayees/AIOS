@@ -31,3 +31,9 @@ temporary confirmed user and two tenant workspaces with the server-only
 Supabase credential. Run it only against a development or dedicated test
 project. The fixture is removed at the end of the suite; CI enables it only
 when all three `TEST_SUPABASE_*` repository secrets are present.
+
+## Local Supabase analytics
+
+Local Logflare analytics is intentionally disabled in `supabase/config.toml`. The database, Auth, REST, Realtime, Storage, Studio, and recovery/authorization tests do not depend on it. This avoids a Vector restart loop on Docker Desktop where the generated container otherwise expects an unauthenticated Docker Engine endpoint at `host.docker.internal:2375`.
+
+Do not enable Docker's unauthenticated TCP API to make local log collection work. If local Logflare becomes necessary, use a supported authenticated/socket-based Docker connection, set `analytics.enabled = true`, and restart only this project's stack with `npx supabase stop` followed by `npx supabase start`. Supabase documents local analytics as optional and disabled by default.
