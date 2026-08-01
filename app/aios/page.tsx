@@ -22,6 +22,7 @@ import {
   MODEL_PROVIDERS,
   parseModelProvider,
   parseModelProviders,
+  parseOptionalModelProvider,
   type ModelProvider,
 } from "../../lib/env";
 import {
@@ -168,6 +169,8 @@ export default function AiosControlPage() {
   const [modelExecutionEnabled, setModelExecutionEnabled] = useState(true);
   const [selectedModelProvider, setSelectedModelProvider] =
     useState<ModelProvider>("glm");
+  const [fallbackModelProvider, setFallbackModelProvider] =
+    useState<ModelProvider | null>(null);
   const [allowedModelProviders, setAllowedModelProviders] = useState<
     Set<ModelProvider>
   >(new Set(MODEL_PROVIDERS));
@@ -247,7 +250,7 @@ export default function AiosControlPage() {
         supabase
           .from("ai_budget_policies")
           .select(
-            "daily_model_run_limit, model_execution_enabled, selected_model_provider, allowed_model_providers",
+            "daily_model_run_limit, model_execution_enabled, selected_model_provider, fallback_model_provider, allowed_model_providers",
           )
           .eq("organization_id", membership.organization_id)
           .maybeSingle(),
@@ -316,6 +319,9 @@ export default function AiosControlPage() {
         setDailyModelRunLimit(budgetPolicy.daily_model_run_limit);
         setModelExecutionEnabled(budgetPolicy.model_execution_enabled);
         setSelectedModelProvider(selectedProvider);
+        setFallbackModelProvider(
+          parseOptionalModelProvider(budgetPolicy.fallback_model_provider),
+        );
         setAllowedModelProviders(
           new Set(
             parseModelProviders(budgetPolicy.allowed_model_providers),
@@ -408,6 +414,7 @@ export default function AiosControlPage() {
           dailyModelRunLimit,
           modelExecutionEnabled,
           selectedModelProvider,
+          fallbackModelProvider,
           allowedModelProviders: [...allowedModelProviders],
         });
         const selectedProvider = parseModelProvider(
@@ -416,6 +423,9 @@ export default function AiosControlPage() {
         setDailyModelRunLimit(policy.daily_model_run_limit);
         setModelExecutionEnabled(policy.model_execution_enabled);
         setSelectedModelProvider(selectedProvider);
+        setFallbackModelProvider(
+          parseOptionalModelProvider(policy.fallback_model_provider),
+        );
         setAllowedModelProviders(
           new Set(parseModelProviders(policy.allowed_model_providers)),
         );
@@ -446,6 +456,7 @@ export default function AiosControlPage() {
 
   function selectProvider(provider: ModelProvider) {
     setSelectedModelProvider(provider);
+    if (fallbackModelProvider === provider) setFallbackModelProvider(null);
     setPriceModel(providerStatuses[provider]?.model || "");
     setAllowedModelProviders((current) => {
       const next = new Set(current);
@@ -454,8 +465,16 @@ export default function AiosControlPage() {
     });
   }
 
+  function selectFallbackProvider(provider: ModelProvider | null) {
+    setFallbackModelProvider(provider);
+    if (!provider) return;
+    setAllowedModelProviders((current) => new Set(current).add(provider));
+  }
+
   function toggleAllowedProvider(provider: ModelProvider, allowed: boolean) {
     if (provider === selectedModelProvider && !allowed) return;
+    if (provider === fallbackModelProvider && !allowed)
+      setFallbackModelProvider(null);
     setAllowedModelProviders((current) => {
       const next = new Set(current);
       if (allowed) next.add(provider);
@@ -806,6 +825,42 @@ export default function AiosControlPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label>
+            Transient fallback
+            <select
+              aria-label="Transient fallback"
+              value={fallbackModelProvider ?? ""}
+              disabled={!canManage || pending}
+              onChange={(event) =>
+                selectFallbackProvider(
+                  event.target.value
+                    ? (event.target.value as ModelProvider)
+                    : null,
+                )
+              }
+            >
+              <option value="">No fallback</option>
+              {MODEL_PROVIDERS.map((provider) => (
+                <option
+                  key={provider}
+                  value={provider}
+                  disabled={provider === selectedModelProvider}
+                >
+                  {providerLabels[provider]}
+                  {providerStatuses[provider]
+                    ? providerStatuses[provider]?.configured
+                      ? " Â· ready"
+                      : " Â· not configured"
+                    : ""}
+                </option>
+              ))}
+            </select>
+            <small>
+              Used once only for network, timeout, rate-limit, or provider 5xx
+              failures. Safety, invalid output, policy, budget, authentication,
+              and approval failures never fall back.
+            </small>
           </label>
           <label className="aios-budget-switch">
             <input

@@ -4189,17 +4189,47 @@ async function verifyAuthorization() {
       .from("ai_budget_policies")
       .update({
         selected_model_provider: "qwen",
+        fallback_model_provider: "glm",
         allowed_model_providers: ["glm", "qwen"],
         updated_by: ownerUser.id,
       })
       .eq("id", ownerBudgetPolicy.data?.id ?? randomUUID())
-      .select("id, selected_model_provider, allowed_model_providers");
+      .select(
+        "id, selected_model_provider, fallback_model_provider, allowed_model_providers",
+      );
     record(
       "authorized owner can select an allowed workspace model provider",
       !ownerProviderPolicy.error &&
         ownerProviderPolicy.data?.length === 1 &&
         ownerProviderPolicy.data[0].selected_model_provider === "qwen" &&
+        ownerProviderPolicy.data[0].fallback_model_provider === "glm" &&
         ownerProviderPolicy.data[0].allowed_model_providers.length === 2,
+    );
+
+    const sameProviderFallback = await owner
+      .from("ai_budget_policies")
+      .update({
+        fallback_model_provider: "qwen",
+        updated_by: ownerUser.id,
+      })
+      .eq("id", ownerBudgetPolicy.data?.id ?? randomUUID())
+      .select("id");
+    record(
+      "database rejects using the primary provider as its own fallback",
+      Boolean(sameProviderFallback.error),
+    );
+
+    const disallowedFallback = await owner
+      .from("ai_budget_policies")
+      .update({
+        fallback_model_provider: "openai",
+        updated_by: ownerUser.id,
+      })
+      .eq("id", ownerBudgetPolicy.data?.id ?? randomUUID())
+      .select("id");
+    record(
+      "database rejects a fallback outside the provider allow-list",
+      Boolean(disallowedFallback.error),
     );
 
     const disallowedSelectedProvider = await owner

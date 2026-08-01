@@ -143,6 +143,7 @@ export type Database = {
           allowed_model_providers: string[]
           created_at: string
           daily_model_run_limit: number
+          fallback_model_provider: string | null
           id: string
           model_execution_enabled: boolean
           organization_id: string
@@ -154,6 +155,7 @@ export type Database = {
           allowed_model_providers?: string[]
           created_at?: string
           daily_model_run_limit?: number
+          fallback_model_provider?: string | null
           id?: string
           model_execution_enabled?: boolean
           organization_id: string
@@ -165,6 +167,7 @@ export type Database = {
           allowed_model_providers?: string[]
           created_at?: string
           daily_model_run_limit?: number
+          fallback_model_provider?: string | null
           id?: string
           model_execution_enabled?: boolean
           organization_id?: string

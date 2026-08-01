@@ -16,6 +16,10 @@ import {
 } from "./contracts";
 import type { ItineraryDraftSource, LeadIntakeSource } from "./input-safety";
 import { AIOS_PROMPT_VERSIONS } from "./prompt-versions";
+import {
+  executeProviderRoute,
+  isTransientProviderFailure,
+} from "./provider-fallback";
 
 const leadIntakeResponseSchema = {
   type: "object", additionalProperties: false,
@@ -111,8 +115,27 @@ const knowledgeAnswerSystemInstruction = [
   "Return only the requested JSON object with claims, caveats, and confidence.",
 ].join(" ");
 
+const AIOS_PROVIDER_TIMEOUT_MS = 45_000;
+
 export class AiosProviderNotConfiguredError extends Error {
   constructor(message = "The selected AIOS model provider is not configured.") { super(message); this.name = "AiosProviderNotConfiguredError"; }
+}
+
+class AiosProviderHttpError extends Error {
+  constructor(
+    public readonly provider: ModelProvider,
+    public readonly status: number,
+  ) {
+    super(`${provider} request failed (${status}).`);
+    this.name = "AiosProviderHttpError";
+  }
+}
+
+class AiosProviderNetworkError extends Error {
+  constructor(provider: ModelProvider, cause: unknown) {
+    super(`${provider} network request failed.`, { cause });
+    this.name = "AiosProviderNetworkError";
+  }
 }
 
 type ProviderResponse = { output: string; responseId: string; inputTokens: number | null; outputTokens: number | null };
@@ -158,7 +181,7 @@ function parseItineraryOutput(output: string, source: ItineraryDraftSource): Iti
 }
 
 async function runOpenAiCompatible(input: { apiKey: string; baseURL?: string; model: string; provider: "glm" | "qwen"; request: StructuredProviderRequest }) : Promise<ProviderResponse> {
-  const client = new OpenAI({ apiKey: input.apiKey, baseURL: input.baseURL });
+  const client = new OpenAI({ apiKey: input.apiKey, baseURL: input.baseURL, maxRetries: 0, timeout: AIOS_PROVIDER_TIMEOUT_MS });
   const response = await client.chat.completions.create({ model: input.model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "system", content: input.request.systemInstruction }, { role: "user", content: JSON.stringify(input.request.payload) }] });
   const output = response.choices[0]?.message.content;
   if (!output) throw new Error(`${input.provider} returned no structured ${input.request.outputLabel} output.`);
@@ -166,33 +189,55 @@ async function runOpenAiCompatible(input: { apiKey: string; baseURL?: string; mo
 }
 
 async function runOpenAi(request: StructuredProviderRequest, apiKey: string, model: string): Promise<ProviderResponse> {
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, maxRetries: 0, timeout: AIOS_PROVIDER_TIMEOUT_MS });
   const response = await client.responses.create({ model, store: false, reasoning: { effort: "low" }, max_output_tokens: 1_200, instructions: request.systemInstruction, input: JSON.stringify(request.payload), text: { format: { type: "json_schema", name: request.schemaName, strict: true, schema: request.responseSchema } } });
   return { output: response.output_text, responseId: response.id, inputTokens: response.usage?.input_tokens ?? null, outputTokens: response.usage?.output_tokens ?? null };
 }
 
 async function runGemini(request: StructuredProviderRequest, apiKey: string, model: string): Promise<ProviderResponse> {
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify({ model, input: `${request.systemInstruction}\n\n${JSON.stringify(request.payload)}`, response_format: { type: "text", mime_type: "application/json", schema: request.responseSchema } }), cache: "no-store" });
-  if (!response.ok) throw new Error(`Gemini request failed (${response.status}).`);
+  let response: Response;
+  try {
+    response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input: `${request.systemInstruction}\n\n${JSON.stringify(request.payload)}`, response_format: { type: "text", mime_type: "application/json", schema: request.responseSchema } }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(AIOS_PROVIDER_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new AiosProviderNetworkError("gemini", error);
+  }
+  if (!response.ok) throw new AiosProviderHttpError("gemini", response.status);
   const payload = await response.json() as { id?: string; output_text?: string; usage_metadata?: { prompt_token_count?: number; candidates_token_count?: number } };
   if (!payload.output_text) throw new Error(`Gemini returned no structured ${request.outputLabel} output.`);
   return { output: payload.output_text, responseId: payload.id || crypto.randomUUID(), inputTokens: payload.usage_metadata?.prompt_token_count ?? null, outputTokens: payload.usage_metadata?.candidates_token_count ?? null };
 }
 
 async function runAnthropic(request: StructuredProviderRequest, apiKey: string, model: string): Promise<ProviderResponse> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: 1_200, system: request.systemInstruction, messages: [{ role: "user", content: JSON.stringify(request.payload) }], output_config: { format: { type: "json_schema", schema: request.responseSchema } } }), cache: "no-store" });
-  if (!response.ok) throw new Error(`Anthropic request failed (${response.status}).`);
+  let response: Response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 1_200, system: request.systemInstruction, messages: [{ role: "user", content: JSON.stringify(request.payload) }], output_config: { format: { type: "json_schema", schema: request.responseSchema } } }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(AIOS_PROVIDER_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new AiosProviderNetworkError("anthropic", error);
+  }
+  if (!response.ok) throw new AiosProviderHttpError("anthropic", response.status);
   const payload = await response.json() as { id?: string; content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
   const output = payload.content?.find((block) => block.type === "text")?.text;
   if (!output) throw new Error(`Anthropic returned no structured ${request.outputLabel} output.`);
   return { output, responseId: payload.id || crypto.randomUUID(), inputTokens: payload.usage?.input_tokens ?? null, outputTokens: payload.usage?.output_tokens ?? null };
 }
 
-async function runStructuredRequest(
+async function runProviderRequest(
   request: StructuredProviderRequest,
-  providerOverride?: ModelProvider,
+  provider: ModelProvider,
 ) {
-  const selection = selectedProvider(providerOverride);
+  const selection = selectedProvider(provider);
   if (!selection.configured) throw new AiosProviderNotConfiguredError(`Configure ${selection.provider} before running AIOS ${request.outputLabel}.`);
   const { env } = selection;
   let result: ProviderResponse;
@@ -205,18 +250,42 @@ async function runStructuredRequest(
     ...result,
     provider: selection.provider,
     model: selection.model,
-    promptVersion: request.promptVersion,
   };
 }
 
-export async function runLeadIntake(source: LeadIntakeSource, providerOverride?: ModelProvider): Promise<{ extraction: LeadExtraction; responseId: string; inputTokens: number | null; outputTokens: number | null; provider: ModelProvider; model: string; promptVersion: string }> {
-  const result = await runStructuredRequest({ systemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.leadIntake, payload: { lead: source }, responseSchema: leadIntakeResponseSchema, schemaName: "travel_lead_intake", outputLabel: "Lead Intake" }, providerOverride);
-  return { extraction: parseLeadOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion };
+async function runStructuredRequest(
+  request: StructuredProviderRequest,
+  providerOverride?: ModelProvider,
+  fallbackProviderOverride?: ModelProvider | null,
+) {
+  const primary = providerOverride ?? getAiosModelEnv().AIOS_MODEL_PROVIDER;
+  const fallback = fallbackProviderOverride
+    ? getAiosProviderStatus(fallbackProviderOverride).configured
+      ? fallbackProviderOverride
+      : null
+    : null;
+  const routed = await executeProviderRoute({
+    primary,
+    fallback,
+    execute: (provider) => runProviderRequest(request, provider),
+    isTransientFailure: isTransientProviderFailure,
+  });
+  return {
+    ...routed.value,
+    promptVersion: request.promptVersion,
+    attemptedProviders: routed.attemptedProviders,
+    fallbackUsed: routed.fallbackUsed,
+  };
 }
 
-export async function runItineraryDraft(source: ItineraryDraftSource, providerOverride?: ModelProvider): Promise<{ draft: ItineraryDraft; responseId: string; inputTokens: number | null; outputTokens: number | null; provider: ModelProvider; model: string; promptVersion: string }> {
-  const result = await runStructuredRequest({ systemInstruction: itinerarySystemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.itineraryDraft, payload: { trip: source }, responseSchema: itineraryDraftResponseSchema, schemaName: "travel_itinerary_draft", outputLabel: "Itinerary Draft" }, providerOverride);
-  return { draft: parseItineraryOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion };
+export async function runLeadIntake(source: LeadIntakeSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null) {
+  const result = await runStructuredRequest({ systemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.leadIntake, payload: { lead: source }, responseSchema: leadIntakeResponseSchema, schemaName: "travel_lead_intake", outputLabel: "Lead Intake" }, providerOverride, fallbackProviderOverride);
+  return { extraction: parseLeadOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion, attemptedProviders: result.attemptedProviders, fallbackUsed: result.fallbackUsed };
+}
+
+export async function runItineraryDraft(source: ItineraryDraftSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null) {
+  const result = await runStructuredRequest({ systemInstruction: itinerarySystemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.itineraryDraft, payload: { trip: source }, responseSchema: itineraryDraftResponseSchema, schemaName: "travel_itinerary_draft", outputLabel: "Itinerary Draft" }, providerOverride, fallbackProviderOverride);
+  return { draft: parseItineraryOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion, attemptedProviders: result.attemptedProviders, fallbackUsed: result.fallbackUsed };
 }
 
 export async function runKnowledgeAnswer(
@@ -225,6 +294,7 @@ export async function runKnowledgeAnswer(
     evidence: KnowledgeAnswerEvidence[];
   },
   providerOverride?: ModelProvider,
+  fallbackProviderOverride?: ModelProvider | null,
 ) {
   const result = await runStructuredRequest(
     {
@@ -243,6 +313,7 @@ export async function runKnowledgeAnswer(
       outputLabel: "Knowledge Answer",
     },
     providerOverride,
+    fallbackProviderOverride,
   );
   const parsed = JSON.parse(result.output) as unknown;
   return {
@@ -253,5 +324,7 @@ export async function runKnowledgeAnswer(
     provider: result.provider,
     model: result.model,
     promptVersion: result.promptVersion,
+    attemptedProviders: result.attemptedProviders,
+    fallbackUsed: result.fallbackUsed,
   };
 }

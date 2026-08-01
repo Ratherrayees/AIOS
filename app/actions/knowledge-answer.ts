@@ -330,6 +330,7 @@ export async function composeKnowledgeAnswer(input: {
         workflow: "knowledge_answer",
         prompt_version: AIOS_PROMPT_VERSIONS.knowledgeAnswer,
         provider: modelBudget.selectedModelProvider,
+        fallback_provider: modelBudget.fallbackModelProvider,
       },
     });
     const modelResult = await runKnowledgeAnswer(
@@ -338,6 +339,7 @@ export async function composeKnowledgeAnswer(input: {
         evidence: safeEvidence,
       },
       modelBudget.selectedModelProvider,
+      modelBudget.fallbackModelProvider,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -386,7 +388,10 @@ export async function composeKnowledgeAnswer(input: {
       result: {
         answer_state: state,
         answer,
+        primary_provider: modelBudget.selectedModelProvider,
         provider: modelResult.provider,
+        attempted_providers: modelResult.attemptedProviders,
+        fallback_used: modelResult.fallbackUsed,
         model: modelResult.model,
         prompt_version: modelResult.promptVersion,
         response_id: modelResult.responseId,

@@ -9,6 +9,7 @@ export const modelJobPayloadSchema = z.discriminatedUnion("workflow", [
       deal_id: z.uuid(),
       prompt_version: z.string().trim().min(3).max(120),
       provider: modelProviderSchema,
+      fallback_provider: modelProviderSchema.nullable().optional(),
     })
     .strict(),
   z
@@ -17,6 +18,7 @@ export const modelJobPayloadSchema = z.discriminatedUnion("workflow", [
       trip_id: z.uuid(),
       prompt_version: z.string().trim().min(3).max(120),
       provider: modelProviderSchema,
+      fallback_provider: modelProviderSchema.nullable().optional(),
     })
     .strict(),
   z
@@ -24,6 +26,7 @@ export const modelJobPayloadSchema = z.discriminatedUnion("workflow", [
       workflow: z.literal("knowledge_answer"),
       prompt_version: z.string().trim().min(3).max(120),
       provider: modelProviderSchema,
+      fallback_provider: modelProviderSchema.nullable().optional(),
     })
     .strict(),
 ]);

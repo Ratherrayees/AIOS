@@ -57,6 +57,7 @@ const budgetPolicyInputSchema = z.object({
   dailyModelRunLimit: z.number().int().min(1).max(1000),
   modelExecutionEnabled: z.boolean(),
   selectedModelProvider: modelProviderSchema,
+  fallbackModelProvider: modelProviderSchema.nullable(),
   allowedModelProviders: z
     .array(modelProviderSchema)
     .min(1)
@@ -71,6 +72,16 @@ const budgetPolicyInputSchema = z.object({
   {
     message: "The selected provider must be allowed.",
     path: ["selectedModelProvider"],
+  },
+).refine(
+  (policy) =>
+    policy.fallbackModelProvider === null ||
+    (policy.fallbackModelProvider !== policy.selectedModelProvider &&
+      policy.allowedModelProviders.includes(policy.fallbackModelProvider)),
+  {
+    message:
+      "The fallback must differ from the primary provider and be allowed.",
+    path: ["fallbackModelProvider"],
   },
 );
 
@@ -92,6 +103,7 @@ export async function setAiosBudgetPolicy(
         daily_model_run_limit: data.dailyModelRunLimit,
         model_execution_enabled: data.modelExecutionEnabled,
         selected_model_provider: data.selectedModelProvider,
+        fallback_model_provider: data.fallbackModelProvider,
         allowed_model_providers: data.allowedModelProviders,
         updated_by: actorId,
       },
@@ -112,6 +124,7 @@ export async function setAiosBudgetPolicy(
       daily_model_run_limit: policy.daily_model_run_limit,
       model_execution_enabled: policy.model_execution_enabled,
       selected_model_provider: policy.selected_model_provider,
+      fallback_model_provider: policy.fallback_model_provider,
       allowed_model_providers: policy.allowed_model_providers,
     },
   });

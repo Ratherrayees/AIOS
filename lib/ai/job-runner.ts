@@ -177,9 +177,11 @@ async function processRunnableJob(
     });
   }
   const payload = parsedPayload.data;
+  const payloadFallback = payload.fallback_provider ?? null;
   if (
     payload.workflow !== job.job_type ||
     payload.provider !== budget.selectedModelProvider ||
+    payloadFallback !== budget.fallbackModelProvider ||
     !budget.allowedModelProviders.includes(payload.provider)
   ) {
     return markPermanentFailure({
@@ -271,6 +273,7 @@ async function processRunnableJob(
       const modelResult = await runLeadIntake(
         inspected.source,
         payload.provider,
+        payloadFallback,
       );
       await settleModelJob({
         jobId: job.id,
@@ -291,7 +294,10 @@ async function processRunnableJob(
         status: "succeeded",
         result: {
           extraction: modelResult.extraction,
+          primary_provider: payload.provider,
           provider: modelResult.provider,
+          attempted_providers: modelResult.attemptedProviders,
+          fallback_used: modelResult.fallbackUsed,
           model: modelResult.model,
           prompt_version: modelResult.promptVersion,
           response_id: modelResult.responseId,
@@ -368,6 +374,7 @@ async function processRunnableJob(
           evidence: safeEvidence,
         },
         payload.provider,
+        payloadFallback,
       );
       await settleModelJob({
         jobId: job.id,
@@ -394,7 +401,10 @@ async function processRunnableJob(
             ? "needs_human_review"
             : "supported",
           answer: modelResult.answer,
+          primary_provider: payload.provider,
           provider: modelResult.provider,
+          attempted_providers: modelResult.attemptedProviders,
+          fallback_used: modelResult.fallbackUsed,
           model: modelResult.model,
           prompt_version: modelResult.promptVersion,
           response_id: modelResult.responseId,
@@ -463,6 +473,7 @@ async function processRunnableJob(
     const modelResult = await runItineraryDraft(
       inspected.source,
       payload.provider,
+      payloadFallback,
     );
     await settleModelJob({
       jobId: job.id,
@@ -483,7 +494,10 @@ async function processRunnableJob(
       status: "succeeded",
       result: {
         draft: modelResult.draft,
+        primary_provider: payload.provider,
         provider: modelResult.provider,
+        attempted_providers: modelResult.attemptedProviders,
+        fallback_used: modelResult.fallbackUsed,
         model: modelResult.model,
         prompt_version: modelResult.promptVersion,
         response_id: modelResult.responseId,

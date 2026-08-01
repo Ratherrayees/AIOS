@@ -44,6 +44,12 @@ export function parseModelProvider(
   return parsed.success ? parsed.data : fallback;
 }
 
+export function parseOptionalModelProvider(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = modelProviderSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 export function parseModelProviders(
   value: unknown,
   fallback: readonly ModelProvider[] = MODEL_PROVIDERS,

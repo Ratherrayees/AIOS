@@ -1513,6 +1513,18 @@ test.describe("authenticated owner workspace", () => {
     await tripLink.click();
     await expect(page).toHaveURL(/\/trips\/[0-9a-f-]+$/);
     operationalTripId = page.url().split("/").at(-1)!;
+    const { data: convertedTrip, error: convertedTripError } = await admin!
+      .from("trips")
+      .select("deal_id")
+      .eq("id", operationalTripId)
+      .single();
+    expect(convertedTripError).toBeNull();
+    expect(convertedTrip?.deal_id).toBeTruthy();
+    const { error: stableWonDateError } = await admin!
+      .from("deals")
+      .update({ won_at: "2026-07-25T12:00:00.000Z" })
+      .eq("id", convertedTrip!.deal_id!);
+    expect(stableWonDateError).toBeNull();
     await expect(
       page.getByRole("heading", { name: "Kyoto discovery journey" }),
     ).toBeVisible();
@@ -3244,6 +3256,7 @@ test.describe("authenticated owner workspace", () => {
 
     await page.getByLabel("Daily run ceiling").fill("7");
     await page.getByLabel("Selected provider").selectOption("glm");
+    await page.getByLabel("Transient fallback").selectOption("qwen");
     await page.getByLabel("Model execution").uncheck();
     await page.getByRole("button", { name: "Save budget policy" }).click();
     await expect(
@@ -3320,7 +3333,7 @@ test.describe("authenticated owner workspace", () => {
     const { data: budget, error: budgetError } = await admin!
       .from("ai_budget_policies")
       .select(
-        "daily_model_run_limit, model_execution_enabled, selected_model_provider, allowed_model_providers, updated_by",
+        "daily_model_run_limit, model_execution_enabled, selected_model_provider, fallback_model_provider, allowed_model_providers, updated_by",
       )
       .eq("organization_id", organizationIds[0])
       .single();
@@ -3329,9 +3342,11 @@ test.describe("authenticated owner workspace", () => {
       daily_model_run_limit: 7,
       model_execution_enabled: false,
       selected_model_provider: "glm",
+      fallback_model_provider: "qwen",
       updated_by: userId,
     });
     expect(budget?.allowed_model_providers).toContain("glm");
+    expect(budget?.allowed_model_providers).toContain("qwen");
     const { data: modelPrice, error: modelPriceError } = await admin!
       .from("ai_model_prices")
       .select(

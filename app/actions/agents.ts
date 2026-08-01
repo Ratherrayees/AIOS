@@ -291,11 +291,13 @@ export async function prepareItineraryDraft(
         trip_id: trip.id,
         prompt_version: AIOS_PROMPT_VERSIONS.itineraryDraft,
         provider: modelBudget.selectedModelProvider,
+        fallback_provider: modelBudget.fallbackModelProvider,
       },
     });
     modelResult = await runItineraryDraft(
       itineraryInput.source,
       modelBudget.selectedModelProvider,
+      modelBudget.fallbackModelProvider,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -359,7 +361,10 @@ export async function prepareItineraryDraft(
     status: "succeeded",
     result: {
       draft: modelResult.draft,
+      primary_provider: modelBudget.selectedModelProvider,
       provider: modelResult.provider,
+      attempted_providers: modelResult.attemptedProviders,
+      fallback_used: modelResult.fallbackUsed,
       model: modelResult.model,
       prompt_version: modelResult.promptVersion,
       response_id: modelResult.responseId,
@@ -1336,11 +1341,13 @@ export async function startLeadIntakeRun(
         deal_id: deal.id,
         prompt_version: AIOS_PROMPT_VERSIONS.leadIntake,
         provider: modelBudget.selectedModelProvider,
+        fallback_provider: modelBudget.fallbackModelProvider,
       },
     });
     modelResult = await runLeadIntake(
       leadInput.source,
       modelBudget.selectedModelProvider,
+      modelBudget.fallbackModelProvider,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -1411,7 +1418,10 @@ export async function startLeadIntakeRun(
     status: "succeeded",
     result: {
       extraction: modelResult.extraction,
+      primary_provider: modelBudget.selectedModelProvider,
       provider: modelResult.provider,
+      attempted_providers: modelResult.attemptedProviders,
+      fallback_used: modelResult.fallbackUsed,
       model: modelResult.model,
       prompt_version: modelResult.promptVersion,
       response_id: modelResult.responseId,
@@ -1583,11 +1593,13 @@ export async function resumeApprovedLeadIntakeRun(
         deal_id: deal.id,
         prompt_version: AIOS_PROMPT_VERSIONS.leadIntake,
         provider: modelBudget.selectedModelProvider,
+        fallback_provider: modelBudget.fallbackModelProvider,
       },
     });
     modelResult = await runLeadIntake(
       leadInput.source,
       modelBudget.selectedModelProvider,
+      modelBudget.fallbackModelProvider,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -1659,7 +1671,10 @@ export async function resumeApprovedLeadIntakeRun(
     status: "succeeded",
     result: {
       extraction: modelResult.extraction,
+      primary_provider: modelBudget.selectedModelProvider,
       provider: modelResult.provider,
+      attempted_providers: modelResult.attemptedProviders,
+      fallback_used: modelResult.fallbackUsed,
       model: modelResult.model,
       prompt_version: modelResult.promptVersion,
       response_id: modelResult.responseId,

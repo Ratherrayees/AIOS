@@ -45,9 +45,18 @@ model execution must be enabled, and the UTC daily ceiling must not be
 exceeded. An approved run rechecks these conditions when it resumes; approval
 does not freeze or bypass later safety-policy changes.
 
+One optional fallback provider may be configured per workspace. It must differ
+from the primary provider and remain inside the same explicit allow-list. AIOS
+uses it for at most one second attempt, and only after a network/timeout,
+408/409/425/429, or selected 5xx provider failure. Authentication,
+configuration, policy, approval, safety, budget, and invalid structured-output
+failures never trigger fallback. An unconfigured fallback is ignored rather
+than weakening the fail-closed primary-provider boundary.
+
 Provider execution is represented by a server-only, tenant-linked AI job before
 the model call begins. The job payload may contain only record IDs, workflow,
-prompt version, and provider selection—never raw customer text. Claims are
+prompt version, primary provider, and optional fallback selection—never raw
+customer text. Claims are
 atomic and leased, settlement requires the same worker identity, idempotency is
 enforced per run, and retry delays are bounded. Authenticated browser clients
 may inspect queue status through RLS but cannot enqueue, claim, update, cancel,
@@ -83,4 +92,4 @@ Audit records keep category counts only, never the original identifier.
 
 ## Required audit fields
 
-Every AI run must retain the organization, initiating user, agent version, prompt/version reference, source citations, tool-call decisions, approval reference, status, duration, and token/cost metadata. Do not store secrets in these records.
+Every AI run must retain the organization, initiating user, agent version, prompt/version reference, source citations, primary and actual provider, attempted-provider route, fallback-used state, tool-call decisions, approval reference, status, duration, and token/cost metadata. Do not store secrets in these records.
