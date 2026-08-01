@@ -537,6 +537,7 @@ export const quoteApprovalPolicyInputSchema = z.object({
 
 export const structuredQuoteLineInputSchema = z
   .object({
+    catalogRateId: z.uuid().nullable().optional(),
     category: z.enum(QUOTE_LINE_CATEGORIES),
     description: z.string().trim().min(1).max(180),
     quantity: z.number().finite().positive().max(100000),
@@ -570,6 +571,54 @@ export const structuredQuoteLineInputSchema = z
       });
     }
   });
+
+const quoteCatalogRateFields = {
+  unitSellAmount: z.number().finite().nonnegative().max(MAX_QUOTE_AMOUNT),
+  unitCostAmount: z.number().finite().nonnegative().max(MAX_QUOTE_AMOUNT),
+  taxPercent: z.number().finite().min(0).max(100),
+  validFrom: z.iso.date(),
+  validUntil: z.iso.date().nullable().optional(),
+};
+
+export const quoteCatalogProductInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    supplierId: z.uuid().nullable().optional(),
+    category: z.enum(QUOTE_LINE_CATEGORIES),
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(180),
+    unitLabel: z.string().trim().min(1).max(40),
+    currency: z.string().trim().regex(/^[A-Z]{3}$/),
+    ...quoteCatalogRateFields,
+  })
+  .refine(
+    (value) => !value.validUntil || value.validUntil >= value.validFrom,
+    {
+      path: ["validUntil"],
+      message: "The catalog rate cannot expire before it starts.",
+    },
+  );
+
+export const quoteCatalogRateInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    productId: z.uuid(),
+    ...quoteCatalogRateFields,
+  })
+  .refine(
+    (value) => !value.validUntil || value.validUntil >= value.validFrom,
+    {
+      path: ["validUntil"],
+      message: "The catalog rate cannot expire before it starts.",
+    },
+  );
+
+export const quoteCatalogProductStatusInputSchema = z.object({
+  organizationId: z.uuid(),
+  productId: z.uuid(),
+  status: z.enum(["active", "archived"]),
+  reason: z.string().trim().min(10).max(500),
+});
 
 export const structuredQuoteRevisionInputSchema = z
   .object({
@@ -1062,6 +1111,15 @@ export type QuoteApprovalPolicyInput = z.infer<
 >;
 export type StructuredQuoteRevisionInput = z.infer<
   typeof structuredQuoteRevisionInputSchema
+>;
+export type QuoteCatalogProductInput = z.infer<
+  typeof quoteCatalogProductInputSchema
+>;
+export type QuoteCatalogRateInput = z.infer<
+  typeof quoteCatalogRateInputSchema
+>;
+export type QuoteCatalogProductStatusInput = z.infer<
+  typeof quoteCatalogProductStatusInputSchema
 >;
 export type TripDraftInput = z.infer<typeof tripDraftInputSchema>;
 export type WonDealConversionInput = z.infer<typeof wonDealConversionSchema>;

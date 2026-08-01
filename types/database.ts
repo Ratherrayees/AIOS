@@ -3335,6 +3335,147 @@ export type Database = {
           },
         ]
       }
+      quote_catalog_products: {
+        Row: {
+          archived_at: string | null
+          archived_by: string | null
+          category: string
+          created_at: string
+          created_by: string
+          currency: string
+          description: string
+          id: string
+          name: string
+          organization_id: string
+          status: string
+          supplier_id: string | null
+          unit_label: string
+        }
+        Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
+          category: string
+          created_at?: string
+          created_by: string
+          currency: string
+          description: string
+          id?: string
+          name: string
+          organization_id: string
+          status?: string
+          supplier_id?: string | null
+          unit_label?: string
+        }
+        Update: {
+          archived_at?: string | null
+          archived_by?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string
+          currency?: string
+          description?: string
+          id?: string
+          name?: string
+          organization_id?: string
+          status?: string
+          supplier_id?: string | null
+          unit_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_catalog_products_archiver_same_organization_fkey"
+            columns: ["organization_id", "archived_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "quote_catalog_products_creator_same_organization_fkey"
+            columns: ["organization_id", "created_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "quote_catalog_products_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_catalog_products_supplier_same_organization_fkey"
+            columns: ["organization_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      quote_catalog_rates: {
+        Row: {
+          id: string
+          organization_id: string
+          product_id: string
+          published_at: string
+          published_by: string
+          tax_percent: number
+          unit_cost_amount: number
+          unit_sell_amount: number
+          valid_from: string
+          valid_until: string | null
+          version: number
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          product_id: string
+          published_at?: string
+          published_by: string
+          tax_percent?: number
+          unit_cost_amount: number
+          unit_sell_amount: number
+          valid_from: string
+          valid_until?: string | null
+          version: number
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          product_id?: string
+          published_at?: string
+          published_by?: string
+          tax_percent?: number
+          unit_cost_amount?: number
+          unit_sell_amount?: number
+          valid_from?: string
+          valid_until?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_catalog_rates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_catalog_rates_product_same_organization_fkey"
+            columns: ["organization_id", "product_id"]
+            isOneToOne: false
+            referencedRelation: "quote_catalog_products"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "quote_catalog_rates_publisher_same_organization_fkey"
+            columns: ["organization_id", "published_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+        ]
+      }
       quote_cost_estimates: {
         Row: {
           created_at: string
@@ -3425,6 +3566,8 @@ export type Database = {
       }
       quote_line_items: {
         Row: {
+          catalog_product_id: string | null
+          catalog_rate_id: string | null
           category: string
           created_at: string
           description: string
@@ -3435,12 +3578,15 @@ export type Database = {
           position: number
           quantity: number
           quote_version_id: string
+          supplier_id: string | null
           tax_amount: number
           tax_percent: number
           total_amount: number
           unit_price_amount: number
         }
         Insert: {
+          catalog_product_id?: string | null
+          catalog_rate_id?: string | null
           category: string
           created_at?: string
           description: string
@@ -3451,12 +3597,15 @@ export type Database = {
           position: number
           quantity: number
           quote_version_id: string
+          supplier_id?: string | null
           tax_amount: number
           tax_percent?: number
           total_amount: number
           unit_price_amount: number
         }
         Update: {
+          catalog_product_id?: string | null
+          catalog_rate_id?: string | null
           category?: string
           created_at?: string
           description?: string
@@ -3467,12 +3616,27 @@ export type Database = {
           position?: number
           quantity?: number
           quote_version_id?: string
+          supplier_id?: string | null
           tax_amount?: number
           tax_percent?: number
           total_amount?: number
           unit_price_amount?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "quote_line_items_catalog_product_same_organization_fkey"
+            columns: ["organization_id", "catalog_product_id"]
+            isOneToOne: false
+            referencedRelation: "quote_catalog_products"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "quote_line_items_catalog_rate_same_organization_fkey"
+            columns: ["organization_id", "catalog_rate_id"]
+            isOneToOne: false
+            referencedRelation: "quote_catalog_rates"
+            referencedColumns: ["organization_id", "id"]
+          },
           {
             foreignKeyName: "quote_line_items_organization_id_fkey"
             columns: ["organization_id"]
@@ -3486,6 +3650,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "quote_versions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_items_supplier_same_organization_fkey"
+            columns: ["organization_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["organization_id", "id"]
           },
           {
             foreignKeyName: "quote_line_items_version_same_organization_fkey"
@@ -4805,6 +4976,27 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      create_quote_catalog_product: {
+        Args: {
+          target_category: string
+          target_currency: string
+          target_description: string
+          target_name: string
+          target_organization_id: string
+          target_supplier_id: string
+          target_tax_percent: number
+          target_unit_cost_amount: number
+          target_unit_label: string
+          target_unit_sell_amount: number
+          target_valid_from: string
+          target_valid_until: string
+        }
+        Returns: {
+          product_id: string
+          rate_id: string
+          rate_version: number
+        }[]
+      }
       create_quote_draft: {
         Args: {
           quote_currency: string
@@ -4938,6 +5130,21 @@ export type Database = {
         Returns: {
           archived_contact_id: string
           surviving_contact_id: string
+        }[]
+      }
+      publish_quote_catalog_rate: {
+        Args: {
+          target_organization_id: string
+          target_product_id: string
+          target_tax_percent: number
+          target_unit_cost_amount: number
+          target_unit_sell_amount: number
+          target_valid_from: string
+          target_valid_until: string
+        }
+        Returns: {
+          rate_id: string
+          rate_version: number
         }[]
       }
       publish_traveler_portal: {
@@ -5351,6 +5558,35 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "operational_exceptions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      set_quote_catalog_product_status: {
+        Args: {
+          target_organization_id: string
+          target_product_id: string
+          target_reason: string
+          target_status: string
+        }
+        Returns: {
+          archived_at: string | null
+          archived_by: string | null
+          category: string
+          created_at: string
+          created_by: string
+          currency: string
+          description: string
+          id: string
+          name: string
+          organization_id: string
+          status: string
+          supplier_id: string | null
+          unit_label: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "quote_catalog_products"
           isOneToOne: false
           isSetofReturn: true
         }

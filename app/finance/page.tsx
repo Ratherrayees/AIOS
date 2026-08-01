@@ -22,6 +22,7 @@ import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import { QuoteCatalogPanel } from "./quote-catalog-panel";
 import "./finance.css";
 
 type Supplier = {
@@ -1094,6 +1095,12 @@ export default function FinancePage() {
           )}
         </aside>
       </section>
+
+      <QuoteCatalogPanel
+        organizationId={organizationId}
+        canManage={canManageSuppliers}
+        suppliers={suppliers.map(({ id, name }) => ({ id, name }))}
+      />
 
       <section className="payment-ledger" aria-labelledby="payment-ledger-title">
         <div className="finance-section-heading ledger-heading">

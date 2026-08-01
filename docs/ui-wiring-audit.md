@@ -6,14 +6,14 @@ Reviewed: 1 August 2026
 
 Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 141 cross-browser journeys: 47 each in Chromium, Firefox, and WebKit, comprising 23 public/authentication and security-boundary checks plus 24 authenticated browser-to-database workflows per engine.
 
-After adding the Inbox Sales Copilot control, exact-revision review ledger, source-linked Sales Priority Brief, aggregate Copilot review calibration, commercial quote guardrails, and itemized quote composition on 1 August, all 24 authenticated workflows were rerun together in Chromium. That current run includes the provider-free kill-switch path, change-request/revision/re-approval lifecycle, content-free first-pass/recovery/current-review metrics, live priority recalculation after qualification/stage changes, structured sell/tax/cost reconciliation, net-margin approval evidence and analytics, and the protected-route zero-console sweep; the 141-journey three-engine result remains the immediately preceding cross-browser checkpoint.
+After adding the Inbox Sales Copilot control, exact-revision review ledger, source-linked Sales Priority Brief, aggregate Copilot review calibration, commercial quote guardrails, itemized quote composition, and reusable effective-dated rate catalog on 1 August, all 24 authenticated workflows were rerun together in Chromium. That current run includes the provider-free kill-switch path, change-request/revision/re-approval lifecycle, content-free first-pass/recovery/current-review metrics, live priority recalculation after qualification/stage changes, catalog publication/versioning/archive/restore, exact catalog-to-quote snapshot provenance, structured sell/tax/cost reconciliation, net-margin approval evidence and analytics, and the protected-route zero-console sweep; the 141-journey three-engine result remains the immediately preceding cross-browser checkpoint.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
 - 141/141 browser journeys across Chromium, Firefox, and WebKit
-- 223/223 behavioral tests
+- 228/228 behavioral tests
 - 27/27 zero-provider AI safety evaluations
 - 8/8 local Resend signed-webhook contract checks
 - 400/400 bounded local production requests with zero transport failures and fail-closed AIOS boundaries
@@ -25,7 +25,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 66-table/43-RPC anonymous-access probes and 296 authenticated authorization assertions
+- all 68-table/46-RPC anonymous-access probes and 306 authenticated authorization assertions
 - scheduled-report failure-path probes covering wrong-worker settlement, abandoned-lease recovery, duplicate active leases, and disposal of partial report payloads
 
 ## Feature evidence

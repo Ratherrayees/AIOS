@@ -40,6 +40,9 @@ import {
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
   quoteApprovalPolicyInputSchema,
+  quoteCatalogProductInputSchema,
+  quoteCatalogProductStatusInputSchema,
+  quoteCatalogRateInputSchema,
   structuredQuoteRevisionInputSchema,
   savedViewDeleteSchema,
   savedViewInputSchema,
@@ -105,6 +108,9 @@ import {
   type QuoteRevisionInput,
   type QuoteShareApprovalInput,
   type QuoteApprovalPolicyInput,
+  type QuoteCatalogProductInput,
+  type QuoteCatalogProductStatusInput,
+  type QuoteCatalogRateInput,
   type StructuredQuoteRevisionInput,
   type SavedViewDeleteInput,
   type SavedViewInput,
@@ -1705,6 +1711,9 @@ export async function reviseQuoteDraftWithLines(
         unit_cost_amount: item.unitCostAmount,
         discount_amount: item.discountAmount,
         tax_percent: item.taxPercent,
+        ...(item.catalogRateId
+          ? { catalog_rate_id: item.catalogRateId }
+          : {}),
       })) as Json,
     })
     .single();
@@ -1721,7 +1730,7 @@ export async function reviseQuoteDraftWithLines(
       supabase
         .from("quote_line_items")
         .select(
-          "id, quote_version_id, position, category, description, quantity, unit_price_amount, discount_amount, tax_percent, net_amount, tax_amount, total_amount",
+          "id, quote_version_id, position, category, description, quantity, unit_price_amount, discount_amount, tax_percent, net_amount, tax_amount, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
         )
         .eq("organization_id", data.organizationId)
         .eq("quote_version_id", result.quote_version_id)
@@ -1731,6 +1740,75 @@ export async function reviseQuoteDraftWithLines(
     throw quoteError ?? new Error("The revised quote could not be loaded.");
   if (lineError) throw lineError;
   return { quote, summary: result, lines: lines ?? [] };
+}
+
+/** Creates one reusable product and its first human-published internal rate. */
+export async function createQuoteCatalogProduct(
+  input: QuoteCatalogProductInput,
+) {
+  const data = quoteCatalogProductInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: result, error } = await supabase
+    .rpc("create_quote_catalog_product", {
+      target_organization_id: data.organizationId,
+      target_supplier_id: data.supplierId ?? null,
+      target_category: data.category,
+      target_name: data.name,
+      target_description: data.description,
+      target_unit_label: data.unitLabel,
+      target_currency: data.currency,
+      target_unit_sell_amount: data.unitSellAmount,
+      target_unit_cost_amount: data.unitCostAmount,
+      target_tax_percent: data.taxPercent,
+      target_valid_from: data.validFrom,
+      target_valid_until: data.validUntil ?? null,
+    })
+    .single();
+  if (error || !result)
+    throw error ?? new Error("The quote catalog product was not created.");
+  return result;
+}
+
+/** Appends an immutable effective-dated rate; existing quote snapshots do not change. */
+export async function publishQuoteCatalogRate(input: QuoteCatalogRateInput) {
+  const data = quoteCatalogRateInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: result, error } = await supabase
+    .rpc("publish_quote_catalog_rate", {
+      target_organization_id: data.organizationId,
+      target_product_id: data.productId,
+      target_unit_sell_amount: data.unitSellAmount,
+      target_unit_cost_amount: data.unitCostAmount,
+      target_tax_percent: data.taxPercent,
+      target_valid_from: data.validFrom,
+      target_valid_until: data.validUntil ?? null,
+    })
+    .single();
+  if (error || !result)
+    throw error ?? new Error("The catalog rate was not published.");
+  return result;
+}
+
+/** Archives or restores a product without deleting rate or quote history. */
+export async function setQuoteCatalogProductStatus(
+  input: QuoteCatalogProductStatusInput,
+) {
+  const data = quoteCatalogProductStatusInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, SUPPLIER_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: product, error } = await supabase
+    .rpc("set_quote_catalog_product_status", {
+      target_organization_id: data.organizationId,
+      target_product_id: data.productId,
+      target_status: data.status,
+      target_reason: data.reason,
+    })
+    .single();
+  if (error || !product)
+    throw error ?? new Error("The catalog product status was not updated.");
+  return product;
 }
 
 /** Updates bounded tenant quote-review rules; it never shares or changes a quote. */

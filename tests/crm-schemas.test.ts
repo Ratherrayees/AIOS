@@ -18,6 +18,9 @@ import {
   dealStageUpdateSchema,
   quoteDraftInputSchema,
   quoteApprovalPolicyInputSchema,
+  quoteCatalogProductInputSchema,
+  quoteCatalogProductStatusInputSchema,
+  quoteCatalogRateInputSchema,
   quoteRevisionInputSchema,
   structuredQuoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
@@ -105,6 +108,63 @@ test("structured quote revisions require reconcilable bounded lines", () => {
           unitPriceAmount: 999_999_999_999.99,
         },
       ],
+    }).success,
+    false,
+  );
+});
+
+test("quote catalog products require bounded effective-dated pricing", () => {
+  const product = {
+    organizationId,
+    supplierId: null,
+    category: "accommodation" as const,
+    name: "Heritage room",
+    description: "Room and breakfast",
+    unitLabel: "room night",
+    currency: "INR",
+    unitSellAmount: 20_000,
+    unitCostAmount: 15_000,
+    taxPercent: 5,
+    validFrom: "2026-08-01",
+    validUntil: "2026-12-31",
+  };
+
+  assert.equal(quoteCatalogProductInputSchema.safeParse(product).success, true);
+  assert.equal(
+    quoteCatalogProductInputSchema.safeParse({
+      ...product,
+      validUntil: "2026-07-31",
+    }).success,
+    false,
+  );
+  assert.equal(
+    quoteCatalogProductInputSchema.safeParse({
+      ...product,
+      taxPercent: 101,
+    }).success,
+    false,
+  );
+});
+
+test("quote catalog rate and lifecycle inputs retain human evidence", () => {
+  assert.equal(
+    quoteCatalogRateInputSchema.safeParse({
+      organizationId,
+      productId: "22222222-2222-4222-8222-222222222222",
+      unitSellAmount: 22_000,
+      unitCostAmount: 16_000,
+      taxPercent: 5,
+      validFrom: "2026-09-01",
+      validUntil: null,
+    }).success,
+    true,
+  );
+  assert.equal(
+    quoteCatalogProductStatusInputSchema.safeParse({
+      organizationId,
+      productId: "22222222-2222-4222-8222-222222222222",
+      status: "archived",
+      reason: "short",
     }).success,
     false,
   );

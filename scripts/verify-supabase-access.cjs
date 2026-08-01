@@ -24,6 +24,8 @@ const protectedTables = [
   "quote_approval_policies",
   "quote_line_items",
   "quote_line_costs",
+  "quote_catalog_products",
+  "quote_catalog_rates",
   "conversations",
   "messages",
   "approval_requests",
@@ -545,7 +547,60 @@ async function verify() {
       ],
     },
   );
+  const { error: anonymousCatalogProductError } = await anonymous.rpc(
+    "create_quote_catalog_product",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_supplier_id: null,
+      target_category: "service",
+      target_name: "Blocked product",
+      target_description: "Blocked anonymous catalog product",
+      target_unit_label: "unit",
+      target_currency: "INR",
+      target_unit_sell_amount: 100,
+      target_unit_cost_amount: 75,
+      target_tax_percent: 0,
+      target_valid_from: "2026-08-01",
+      target_valid_until: null,
+    },
+  );
+  const { error: anonymousCatalogRateError } = await anonymous.rpc(
+    "publish_quote_catalog_rate",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_product_id: "22222222-2222-4222-8222-222222222222",
+      target_unit_sell_amount: 100,
+      target_unit_cost_amount: 75,
+      target_tax_percent: 0,
+      target_valid_from: "2026-08-01",
+      target_valid_until: null,
+    },
+  );
+  const { error: anonymousCatalogStatusError } = await anonymous.rpc(
+    "set_quote_catalog_product_status",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_product_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "archived",
+      target_reason: "Blocked anonymous lifecycle request",
+    },
+  );
   const rpcChecks = [
+    {
+      function: "create_quote_catalog_product",
+      anonymousExecutionBlocked: Boolean(anonymousCatalogProductError),
+      anonymousErrorCode: anonymousCatalogProductError?.code ?? null,
+    },
+    {
+      function: "publish_quote_catalog_rate",
+      anonymousExecutionBlocked: Boolean(anonymousCatalogRateError),
+      anonymousErrorCode: anonymousCatalogRateError?.code ?? null,
+    },
+    {
+      function: "set_quote_catalog_product_status",
+      anonymousExecutionBlocked: Boolean(anonymousCatalogStatusError),
+      anonymousErrorCode: anonymousCatalogStatusError?.code ?? null,
+    },
     {
       function: "append_structured_quote_version",
       anonymousExecutionBlocked: Boolean(anonymousStructuredQuoteError),

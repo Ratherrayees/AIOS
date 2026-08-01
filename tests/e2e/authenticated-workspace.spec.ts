@@ -1386,9 +1386,42 @@ test.describe("authenticated owner workspace", () => {
     page,
   }) => {
     const quoteTitle = `E2E reviewed proposal ${Date.now()}`;
+    const catalogProductName = `E2E two-room stay ${Date.now()}`;
     const validUntil = new Date(Date.now() + 30 * 86_400_000)
       .toISOString()
       .slice(0, 10);
+    const effectiveFrom = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const { data: catalogProduct, error: catalogProductError } = await admin!
+      .from("quote_catalog_products")
+      .insert({
+        organization_id: organizationIds[0],
+        category: "accommodation",
+        name: catalogProductName,
+        description: "Two rooms",
+        unit_label: "room night",
+        currency: "INR",
+        created_by: userId!,
+      })
+      .select("id")
+      .single();
+    expect(catalogProductError).toBeNull();
+    const { data: catalogRate, error: catalogRateError } = await admin!
+      .from("quote_catalog_rates")
+      .insert({
+        organization_id: organizationIds[0],
+        product_id: catalogProduct!.id,
+        version: 1,
+        unit_sell_amount: 200000,
+        unit_cost_amount: 150000,
+        tax_percent: 5,
+        valid_from: effectiveFrom,
+        published_by: userId!,
+      })
+      .select("id")
+      .single();
+    expect(catalogRateError).toBeNull();
     await signIn(page);
     await page.goto("/quotes");
 
@@ -1518,12 +1551,27 @@ test.describe("authenticated owner workspace", () => {
     expect(staleApproval?.resolved_at).toBeTruthy();
 
     await quoteCard.getByText("Build itemized pricing").click();
-    await quoteCard.getByLabel("Description 1").fill("Two rooms");
+    await quoteCard
+      .getByLabel("Add from current rate catalog")
+      .selectOption(catalogRate!.id);
+    await expect(
+      quoteCard.getByText(
+        `Catalog snapshot · ${catalogProductName} · rate v1`,
+      ),
+    ).toBeVisible();
+    await expect(quoteCard.getByLabel("Description 1")).toHaveValue(
+      "Two rooms",
+    );
     await quoteCard.getByLabel("Quantity 1").fill("2");
-    await quoteCard.getByLabel("Unit sell 1").fill("200000");
-    await quoteCard.getByLabel("Unit cost · internal 1").fill("150000");
+    await expect(quoteCard.getByLabel("Unit sell 1")).toHaveValue("200000");
+    await expect(quoteCard.getByLabel("Unit sell 1")).toHaveAttribute(
+      "readonly",
+    );
+    await expect(quoteCard.getByLabel("Unit cost · internal 1")).toHaveValue(
+      "150000",
+    );
     await quoteCard.getByLabel("Line discount 1").fill("20000");
-    await quoteCard.getByLabel("Tax % 1").fill("5");
+    await expect(quoteCard.getByLabel("Tax % 1")).toHaveValue("5");
     await quoteCard.getByRole("button", { name: "Add line item" }).click();
     await quoteCard.getByLabel("Category 2").selectOption("activity");
     await quoteCard.getByLabel("Description 2").fill("Private experiences");
@@ -1575,13 +1623,27 @@ test.describe("authenticated owner workspace", () => {
     expect(Number(structuredVersion?.margin_percent)).toBeCloseTo(22.9167, 4);
     const { data: customerLines, error: customerLinesError } = await admin!
       .from("quote_line_items")
-      .select("description, total_amount")
+      .select(
+        "description, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
+      )
       .eq("quote_version_id", structuredVersion!.id)
       .order("position");
     expect(customerLinesError).toBeNull();
     expect(customerLines).toMatchObject([
-      { description: "Two rooms", total_amount: 399000 },
-      { description: "Private experiences", total_amount: 105000 },
+      {
+        description: "Two rooms",
+        total_amount: 399000,
+        catalog_product_id: catalogProduct!.id,
+        catalog_rate_id: catalogRate!.id,
+        supplier_id: null,
+      },
+      {
+        description: "Private experiences",
+        total_amount: 105000,
+        catalog_product_id: null,
+        catalog_rate_id: null,
+        supplier_id: null,
+      },
     ]);
     expect(customerLines?.some((line) => "unit_cost_amount" in line)).toBe(
       false,
@@ -2144,6 +2206,7 @@ test.describe("authenticated owner workspace", () => {
     const contactName = `E2E Supplier Contact ${suffix}`;
     const contractTitle = `E2E 2027 rate agreement ${suffix}`;
     const paymentTitle = `E2E supplier deposit ${suffix}`;
+    const catalogProductName = `E2E airport transfer ${suffix}`;
     const invoiceNumber = `E2E-INV-${suffix}`;
     const settlementReference = `E2E-BANK-${suffix}`;
     const overdueDate = new Date(Date.now() - 86_400_000)
@@ -2173,6 +2236,105 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("heading", { name: supplierName, exact: true }),
     ).toBeVisible();
+
+    const createCatalogForm = page
+      .locator(".quote-catalog details")
+      .filter({ hasText: "Create product and first rate" });
+    await createCatalogForm.getByText("Create product and first rate").click();
+    await createCatalogForm.getByLabel("Product name").fill(catalogProductName);
+    await createCatalogForm.getByLabel("Category").selectOption("transport");
+    await createCatalogForm
+      .getByLabel("Quote description")
+      .fill("Private airport transfer");
+    await createCatalogForm.getByLabel("Unit label").fill("vehicle");
+    await createCatalogForm
+      .getByLabel("Supplier")
+      .selectOption({ label: supplierName });
+    await createCatalogForm.getByLabel("Currency").fill("INR");
+    await createCatalogForm.getByLabel("Unit sell").fill("12000");
+    await createCatalogForm
+      .getByLabel("Unit cost · protected")
+      .fill("8000");
+    await createCatalogForm.getByLabel("Tax %").fill("5");
+    await createCatalogForm
+      .getByRole("button", { name: "Create reusable product" })
+      .click();
+    await expect(
+      page.locator(".quote-catalog").getByRole("status"),
+    ).toContainText(
+      "Reusable product and rate published internally",
+    );
+
+    const catalogCard = page
+      .locator(".quote-catalog-grid article")
+      .filter({ hasText: catalogProductName });
+    await expect(catalogCard).toContainText(supplierName);
+    await expect(catalogCard).toContainText("₹12,000");
+    await expect(catalogCard).toContainText("₹8,000");
+    await expect(catalogCard).toContainText("v1");
+
+    const publishCatalogRateForm = page
+      .locator(".quote-catalog details")
+      .filter({ hasText: "Publish a new immutable rate" });
+    await publishCatalogRateForm
+      .getByText("Publish a new immutable rate")
+      .click();
+    await publishCatalogRateForm
+      .getByLabel("Product")
+      .selectOption({ label: `${catalogProductName} · INR` });
+    await publishCatalogRateForm.getByLabel("Unit sell").fill("13000");
+    await publishCatalogRateForm
+      .getByLabel("Unit cost · protected")
+      .fill("8500");
+    await publishCatalogRateForm.getByLabel("Tax %").fill("5");
+    await publishCatalogRateForm
+      .getByRole("button", { name: "Publish rate version" })
+      .click();
+    await expect(
+      page.locator(".quote-catalog").getByRole("status"),
+    ).toContainText(
+      "Published immutable rate version 2",
+    );
+    await expect(catalogCard).toContainText("₹13,000");
+    await expect(catalogCard).toContainText("₹8,500");
+    await expect(catalogCard).toContainText("v2");
+
+    const catalogLifecycleForm = page
+      .locator(".quote-catalog details")
+      .filter({ hasText: "Archive or restore a product" });
+    await catalogLifecycleForm
+      .getByText("Archive or restore a product")
+      .click();
+    await catalogLifecycleForm
+      .getByLabel("Product")
+      .selectOption({ label: catalogProductName });
+    await catalogLifecycleForm.getByLabel("Status").selectOption("archived");
+    await catalogLifecycleForm
+      .getByLabel("Accountable reason")
+      .fill("Temporarily remove this rate from new quote selection.");
+    await catalogLifecycleForm
+      .getByRole("button", { name: "Update lifecycle" })
+      .click();
+    await expect(
+      page.locator(".quote-catalog").getByRole("status"),
+    ).toContainText("is now archived");
+    await expect(catalogCard).toContainText("archived");
+
+    await catalogLifecycleForm
+      .getByLabel("Product")
+      .selectOption({ label: catalogProductName });
+    await catalogLifecycleForm.getByLabel("Status").selectOption("active");
+    await catalogLifecycleForm
+      .getByLabel("Accountable reason")
+      .fill("Human review confirmed this product can be quoted again.");
+    await catalogLifecycleForm
+      .getByRole("button", { name: "Update lifecycle" })
+      .click();
+    await expect(
+      page.locator(".quote-catalog").getByRole("status"),
+    ).toContainText("is now active");
+    await expect(catalogCard).toContainText("active");
+    await page.reload();
 
     await page.getByText("Add supplier contact", { exact: true }).click();
     await page
@@ -2205,19 +2367,22 @@ test.describe("authenticated owner workspace", () => {
       "No contract was signed or accepted",
     );
 
-    await page.getByLabel("Payment direction").selectOption("payable");
-    await page.getByLabel("Obligation title").fill(paymentTitle);
-    await page.getByLabel("Amount", { exact: true }).fill("125000");
-    await page.getByLabel("Currency", { exact: true }).fill("INR");
-    await page.getByLabel("Due date").fill(overdueDate);
-    await page
+    const ledgerCreate = page.locator(".ledger-create");
+    await ledgerCreate.getByLabel("Payment direction").selectOption("payable");
+    await ledgerCreate.getByLabel("Obligation title").fill(paymentTitle);
+    await ledgerCreate.getByLabel("Amount", { exact: true }).fill("125000");
+    await ledgerCreate.getByLabel("Currency", { exact: true }).fill("INR");
+    await ledgerCreate.getByLabel("Due date").fill(overdueDate);
+    await ledgerCreate
       .getByLabel("Related trip")
       .selectOption(operationalTripId);
-    await page
-      .locator('.ledger-create select[name="supplierId"]')
+    await ledgerCreate
+      .locator('select[name="supplierId"]')
       .selectOption({ label: supplierName });
-    await page.getByLabel("Invoice number").fill(invoiceNumber);
-    await page.getByRole("button", { name: "Create obligation" }).click();
+    await ledgerCreate.getByLabel("Invoice number").fill(invoiceNumber);
+    await ledgerCreate
+      .getByRole("button", { name: "Create obligation" })
+      .click();
     await expect(page.getByRole("status")).toContainText(
       "No charge, payout, or invoice was sent",
     );
@@ -2278,6 +2443,59 @@ test.describe("authenticated owner workspace", () => {
       .eq("name", supplierName)
       .single();
     expect(supplierError).toBeNull();
+    const { data: catalogProduct, error: catalogProductError } = await admin!
+      .from("quote_catalog_products")
+      .select("id, supplier_id, category, currency, status")
+      .eq("organization_id", organizationIds[0])
+      .eq("name", catalogProductName)
+      .single();
+    expect(catalogProductError).toBeNull();
+    expect(catalogProduct).toMatchObject({
+      supplier_id: supplier!.id,
+      category: "transport",
+      currency: "INR",
+      status: "active",
+    });
+    const { data: catalogRates, error: catalogRatesError } = await admin!
+      .from("quote_catalog_rates")
+      .select("version, unit_sell_amount, unit_cost_amount, tax_percent")
+      .eq("product_id", catalogProduct!.id)
+      .order("version");
+    expect(catalogRatesError).toBeNull();
+    expect(catalogRates).toMatchObject([
+      {
+        version: 1,
+        unit_sell_amount: 12000,
+        unit_cost_amount: 8000,
+        tax_percent: 5,
+      },
+      {
+        version: 2,
+        unit_sell_amount: 13000,
+        unit_cost_amount: 8500,
+        tax_percent: 5,
+      },
+    ]);
+    const { data: catalogAudits, error: catalogAuditError } = await admin!
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationIds[0])
+      .eq("entity_type", "quote_catalog_product")
+      .eq("entity_id", catalogProduct!.id);
+    expect(catalogAuditError).toBeNull();
+    expect(catalogAudits).toHaveLength(4);
+    expect(
+      catalogAudits?.every(
+        (entry) => {
+          const metadata = JSON.stringify(entry.metadata);
+          return (
+            metadata.includes('"external_action_performed":false') &&
+            !metadata.includes("13000") &&
+            !metadata.includes("8500")
+          );
+        },
+      ),
+    ).toBe(true);
     const { data: payment, error: paymentError } = await admin!
       .from("payments")
       .select("id, status, amount, paid_amount, trip_id, supplier_id, created_by")
@@ -2325,13 +2543,20 @@ test.describe("authenticated owner workspace", () => {
 
     await signIn(page);
     await page.goto("/finance");
-    await page.getByLabel("Payment direction").selectOption("receivable");
-    await page.getByLabel("Obligation title").fill(receivableTitle);
-    await page.getByLabel("Amount", { exact: true }).fill("480000");
-    await page.getByLabel("Currency", { exact: true }).fill("INR");
-    await page.getByLabel("Due date").fill("2026-09-15");
-    await page.getByLabel("Related trip").selectOption(operationalTripId);
-    await page.getByRole("button", { name: "Create obligation" }).click();
+    const ledgerCreate = page.locator(".ledger-create");
+    await ledgerCreate
+      .getByLabel("Payment direction")
+      .selectOption("receivable");
+    await ledgerCreate.getByLabel("Obligation title").fill(receivableTitle);
+    await ledgerCreate.getByLabel("Amount", { exact: true }).fill("480000");
+    await ledgerCreate.getByLabel("Currency", { exact: true }).fill("INR");
+    await ledgerCreate.getByLabel("Due date").fill("2026-09-15");
+    await ledgerCreate
+      .getByLabel("Related trip")
+      .selectOption(operationalTripId);
+    await ledgerCreate
+      .getByRole("button", { name: "Create obligation" })
+      .click();
     await expect(page.getByRole("status")).toContainText(
       "No charge, payout, or invoice was sent",
     );

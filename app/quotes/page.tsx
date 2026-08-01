@@ -20,6 +20,11 @@ import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import { StructuredQuoteComposer } from "./structured-quote-composer";
 import {
+  buildEffectiveQuoteCatalog,
+  type QuoteCatalogProduct,
+  type QuoteCatalogRate,
+} from "../../lib/crm/quote-catalog";
+import {
   assessQuoteGuardrails,
   DEFAULT_QUOTE_APPROVAL_POLICY,
   type QuoteApprovalPolicy,
@@ -60,6 +65,9 @@ type QuoteLineItem = {
   net_amount: number;
   tax_amount: number;
   total_amount: number;
+  catalog_product_id: string | null;
+  catalog_rate_id: string | null;
+  supplier_id: string | null;
 };
 type QuoteCostEstimate = {
   quote_version_id: string;
@@ -117,6 +125,8 @@ export default function QuotesPage() {
   const [versions, setVersions] = useState<QuoteVersion[]>([]);
   const [costEstimates, setCostEstimates] = useState<QuoteCostEstimate[]>([]);
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
+  const [catalogProducts, setCatalogProducts] = useState<QuoteCatalogProduct[]>([]);
+  const [catalogRates, setCatalogRates] = useState<QuoteCatalogRate[]>([]);
   const [shareApprovals, setShareApprovals] = useState<QuoteShareApproval[]>([]);
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -144,6 +154,8 @@ export default function QuotesPage() {
         { data: shareApprovalRows },
         { data: approvalPolicyRow },
         { data: lineItemRows },
+        { data: catalogProductRows },
+        { data: catalogRateRows },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -185,10 +197,22 @@ export default function QuotesPage() {
           supabase
             .from("quote_line_items")
             .select(
-              "id, quote_version_id, position, category, description, quantity, discount_amount, tax_percent, net_amount, tax_amount, total_amount",
+              "id, quote_version_id, position, category, description, quantity, discount_amount, tax_percent, net_amount, tax_amount, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
             )
             .eq("organization_id", membership.organization_id)
             .order("position"),
+          supabase
+            .from("quote_catalog_products")
+            .select(
+              "id, supplier_id, category, name, description, unit_label, currency, status",
+            )
+            .eq("organization_id", membership.organization_id),
+          supabase
+            .from("quote_catalog_rates")
+            .select(
+              "id, product_id, version, unit_sell_amount, unit_cost_amount, tax_percent, valid_from, valid_until",
+            )
+            .eq("organization_id", membership.organization_id),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
@@ -198,6 +222,10 @@ export default function QuotesPage() {
         (shareApprovalRows || []) as unknown as QuoteShareApproval[],
       );
       setLineItems((lineItemRows || []) as QuoteLineItem[]);
+      setCatalogProducts(
+        (catalogProductRows || []) as QuoteCatalogProduct[],
+      );
+      setCatalogRates((catalogRateRows || []) as QuoteCatalogRate[]);
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
@@ -262,6 +290,10 @@ export default function QuotesPage() {
     }
     return grouped;
   }, [lineItems]);
+  const effectiveCatalog = useMemo(
+    () => buildEffectiveQuoteCatalog(catalogProducts, catalogRates),
+    [catalogProducts, catalogRates],
+  );
   const latestShareApproval = useMemo(() => {
     const approvals = new Map<string, QuoteShareApproval>();
     const currentVersions = new Map(
@@ -779,6 +811,7 @@ export default function QuotesPage() {
                             {line.discount_amount > 0
                               ? ` · discount ${formatMoney(line.discount_amount, quote.currency)}`
                               : ""}
+                            {line.catalog_rate_id ? " · catalog snapshot" : ""}
                           </small>
                         </li>
                       ))}
@@ -816,6 +849,9 @@ export default function QuotesPage() {
                     organizationId={organizationId!}
                     quoteId={quote.id}
                     currency={quote.currency}
+                    catalogItems={effectiveCatalog.filter(
+                      (item) => item.currency === quote.currency,
+                    )}
                     onSaved={applyStructuredRevision}
                     onNotice={setNotice}
                   />

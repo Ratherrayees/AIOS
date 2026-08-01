@@ -9,6 +9,7 @@ import {
   QUOTE_LINE_CATEGORIES,
   type QuoteLineCategory,
 } from "../../lib/crm/quote-pricing";
+import type { EffectiveQuoteCatalogItem } from "../../lib/crm/quote-catalog";
 
 type DraftLine = {
   key: string;
@@ -19,6 +20,10 @@ type DraftLine = {
   unitCostAmount: string;
   discountAmount: string;
   taxPercent: string;
+  catalogRateId: string | null;
+  catalogName: string | null;
+  catalogVersion: number | null;
+  catalogUnitLabel: string | null;
 };
 
 type StructuredResult = Awaited<ReturnType<typeof reviseQuoteDraftWithLines>>;
@@ -33,6 +38,10 @@ function newLine(): DraftLine {
     unitCostAmount: "0",
     discountAmount: "0",
     taxPercent: "0",
+    catalogRateId: null,
+    catalogName: null,
+    catalogVersion: null,
+    catalogUnitLabel: null,
   };
 }
 
@@ -48,12 +57,14 @@ export function StructuredQuoteComposer({
   organizationId,
   quoteId,
   currency,
+  catalogItems,
   onSaved,
   onNotice,
 }: {
   organizationId: string;
   quoteId: string;
   currency: string;
+  catalogItems: EffectiveQuoteCatalogItem[];
   onSaved: (result: StructuredResult) => void;
   onNotice: (message: string) => void;
 }) {
@@ -69,6 +80,7 @@ export function StructuredQuoteComposer({
         unitCostAmount: Number(line.unitCostAmount),
         discountAmount: Number(line.discountAmount),
         taxPercent: Number(line.taxPercent),
+        catalogRateId: line.catalogRateId,
       })),
     [lines],
   );
@@ -104,6 +116,34 @@ export function StructuredQuoteComposer({
     );
   }
 
+  function addCatalogLine(rateId: string) {
+    const item = catalogItems.find((candidate) => candidate.rateId === rateId);
+    if (!item) return;
+    const catalogLine: DraftLine = {
+      key: crypto.randomUUID(),
+      category: item.category,
+      description: item.description,
+      quantity: "1",
+      unitPriceAmount: String(item.unitSellAmount),
+      unitCostAmount: String(item.unitCostAmount),
+      discountAmount: "0",
+      taxPercent: String(item.taxPercent),
+      catalogRateId: item.rateId,
+      catalogName: item.name,
+      catalogVersion: item.rateVersion,
+      catalogUnitLabel: item.unit_label,
+    };
+    setLines((current) => {
+      const only = current[0];
+      const replaceBlank =
+        current.length === 1 &&
+        only.description === "" &&
+        only.unitPriceAmount === "0" &&
+        only.unitCostAmount === "0";
+      return replaceBlank ? [catalogLine] : [...current, catalogLine];
+    });
+  }
+
   function submit() {
     if (pending || !valid) return;
     startTransition(async () => {
@@ -134,15 +174,43 @@ export function StructuredQuoteComposer({
         Customer sell lines and taxes are versioned separately from protected
         internal unit costs. Saving creates a new immutable version.
       </p>
+      {catalogItems.length > 0 && (
+        <label className="quote-composer-catalog">
+          Add from current rate catalog
+          <select
+            aria-label="Add from current rate catalog"
+            defaultValue=""
+            onChange={(event) => {
+              addCatalogLine(event.target.value);
+              event.target.value = "";
+            }}
+          >
+            <option value="" disabled>
+              Select a reusable product
+            </option>
+            {catalogItems.map((item) => (
+              <option value={item.rateId} key={item.rateId}>
+                {item.name} · {money(item.unitSellAmount, currency)} / {item.unit_label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="quote-composer-lines">
         {lines.map((line, index) => (
           <fieldset key={line.key}>
             <legend>Line {index + 1}</legend>
+            {line.catalogRateId && (
+              <span className="quote-composer-source">
+                Catalog snapshot · {line.catalogName} · rate v{line.catalogVersion}
+              </span>
+            )}
             <label>
               Category
               <select
                 aria-label={`Category ${index + 1}`}
                 value={line.category}
+                disabled={Boolean(line.catalogRateId)}
                 onChange={(event) =>
                   updateLine(line.key, {
                     category: event.target.value as QuoteLineCategory,
@@ -183,7 +251,22 @@ export function StructuredQuoteComposer({
                   min={field === "quantity" ? "0.01" : "0"}
                   max={field === "taxPercent" ? "100" : undefined}
                   step={step}
-                  value={line[field as keyof DraftLine]}
+                  value={String(
+                    line[
+                      field as
+                        | "quantity"
+                        | "unitPriceAmount"
+                        | "unitCostAmount"
+                        | "discountAmount"
+                        | "taxPercent"
+                    ],
+                  )}
+                  readOnly={
+                    Boolean(line.catalogRateId) &&
+                    ["unitPriceAmount", "unitCostAmount", "taxPercent"].includes(
+                      field,
+                    )
+                  }
                   onChange={(event) =>
                     updateLine(line.key, { [field]: event.target.value })
                   }

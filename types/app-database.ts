@@ -19,7 +19,9 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
       GeneratedFunctions,
       | "append_itinerary_item"
       | "capture_public_lead"
+      | "create_quote_catalog_product"
       | "create_quote_draft"
+      | "publish_quote_catalog_rate"
       | "settle_ai_job"
       | "transition_deal_stage"
     > & {
@@ -40,6 +42,25 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
           "quote_valid_until"
         > & {
           quote_valid_until: string | null;
+        }
+      >;
+      create_quote_catalog_product: WithArgs<
+        "create_quote_catalog_product",
+        Omit<
+          GeneratedFunctions["create_quote_catalog_product"]["Args"],
+          "target_supplier_id" | "target_valid_until"
+        > & {
+          target_supplier_id: string | null;
+          target_valid_until: string | null;
+        }
+      >;
+      publish_quote_catalog_rate: WithArgs<
+        "publish_quote_catalog_rate",
+        Omit<
+          GeneratedFunctions["publish_quote_catalog_rate"]["Args"],
+          "target_valid_until"
+        > & {
+          target_valid_until: string | null;
         }
       >;
       capture_public_lead: WithArgs<

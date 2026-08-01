@@ -618,26 +618,6 @@ async function verifyAuthorization() {
         cancellationAudit.data.metadata.current_quote_version === 3,
     );
 
-    const structuredItems = [
-      {
-        category: "accommodation",
-        description: "Two rooms",
-        quantity: 2,
-        unit_price_amount: 200000,
-        unit_cost_amount: 150000,
-        discount_amount: 20000,
-        tax_percent: 5,
-      },
-      {
-        category: "activity",
-        description: "Private experiences",
-        quantity: 1,
-        unit_price_amount: 100000,
-        unit_cost_amount: 70000,
-        discount_amount: 0,
-        tax_percent: 5,
-      },
-    ];
     const { data: temporaryViewerMembership, error: temporaryMembershipError } =
       await admin
         .from("memberships")
@@ -652,6 +632,215 @@ async function verifyAuthorization() {
     if (temporaryMembershipError || !temporaryViewerMembership)
       throw temporaryMembershipError ??
         new Error("Temporary same-tenant viewer membership was not created.");
+    const viewerCatalogCreate = await viewer.rpc(
+      "create_quote_catalog_product",
+      {
+        target_organization_id: organizationA.id,
+        target_supplier_id: null,
+        target_category: "accommodation",
+        target_name: "Blocked shared rate",
+        target_description: "Viewer should not create this rate",
+        target_unit_label: "room night",
+        target_currency: "INR",
+        target_unit_sell_amount: 190000,
+        target_unit_cost_amount: 140000,
+        target_tax_percent: 5,
+        target_valid_from: "2026-08-01",
+        target_valid_until: null,
+      },
+    );
+    record(
+      "same-tenant viewers cannot create shared quote catalog pricing",
+      Boolean(viewerCatalogCreate.error),
+    );
+    const createdCatalogProduct = await owner.rpc(
+      "create_quote_catalog_product",
+      {
+        target_organization_id: organizationA.id,
+        target_supplier_id: null,
+        target_category: "accommodation",
+        target_name: "Authorization room rate",
+        target_description: "Two rooms",
+        target_unit_label: "room night",
+        target_currency: "INR",
+        target_unit_sell_amount: 190000,
+        target_unit_cost_amount: 140000,
+        target_tax_percent: 5,
+        target_valid_from: "2026-08-01",
+        target_valid_until: null,
+      },
+    );
+    const catalogProduct = createdCatalogProduct.data?.[0];
+    if (createdCatalogProduct.error || !catalogProduct)
+      throw createdCatalogProduct.error ??
+        new Error("Quote catalog authorization fixture was not created.");
+    record(
+      "authorized catalog creation publishes immutable rate version one",
+      catalogProduct.rate_version === 1 &&
+        Boolean(catalogProduct.product_id) &&
+        Boolean(catalogProduct.rate_id),
+    );
+    const publishedCatalogRate = await owner.rpc(
+      "publish_quote_catalog_rate",
+      {
+        target_organization_id: organizationA.id,
+        target_product_id: catalogProduct.product_id,
+        target_unit_sell_amount: 200000,
+        target_unit_cost_amount: 150000,
+        target_tax_percent: 5,
+        target_valid_from: "2026-08-01",
+        target_valid_until: null,
+      },
+    );
+    const catalogRate = publishedCatalogRate.data?.[0];
+    if (publishedCatalogRate.error || !catalogRate)
+      throw publishedCatalogRate.error ??
+        new Error("Quote catalog rate version was not published.");
+    record(
+      "catalog rate changes append history instead of rewriting version one",
+      catalogRate.rate_version === 2 &&
+        catalogRate.rate_id !== catalogProduct.rate_id,
+    );
+    const [ownerCatalogRates, viewerCatalogProducts, viewerCatalogRates] =
+      await Promise.all([
+        owner
+          .from("quote_catalog_rates")
+          .select("id, version, unit_sell_amount, unit_cost_amount")
+          .eq("product_id", catalogProduct.product_id)
+          .order("version"),
+        viewer
+          .from("quote_catalog_products")
+          .select("id")
+          .eq("id", catalogProduct.product_id),
+        viewer
+          .from("quote_catalog_rates")
+          .select("id")
+          .eq("product_id", catalogProduct.product_id),
+      ]);
+    record(
+      "catalog rate history preserves every published sell and cost version",
+      !ownerCatalogRates.error &&
+        ownerCatalogRates.data?.length === 2 &&
+        Number(ownerCatalogRates.data[0]?.unit_sell_amount) === 190000 &&
+        Number(ownerCatalogRates.data[1]?.unit_sell_amount) === 200000,
+    );
+    record(
+      "same-tenant viewers see reusable products but never protected rates",
+      !viewerCatalogProducts.error &&
+        viewerCatalogProducts.data?.length === 1 &&
+        !viewerCatalogRates.error &&
+        viewerCatalogRates.data?.length === 0,
+    );
+    const directCatalogRewrite = await owner
+      .from("quote_catalog_rates")
+      .update({ unit_cost_amount: 1 })
+      .eq("id", catalogRate.rate_id)
+      .select("id");
+    record(
+      "browser sessions cannot rewrite immutable catalog rates",
+      Boolean(directCatalogRewrite.error),
+    );
+    const archivedCatalogProduct = await owner.rpc(
+      "set_quote_catalog_product_status",
+      {
+        target_organization_id: organizationA.id,
+        target_product_id: catalogProduct.product_id,
+        target_status: "archived",
+        target_reason: "Authorization lifecycle archive evidence",
+      },
+    );
+    const archivedRateUse = await owner.rpc(
+      "append_structured_quote_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: [
+          {
+            category: "accommodation",
+            description: "Archived rate attempt",
+            quantity: 1,
+            unit_price_amount: 200000,
+            unit_cost_amount: 150000,
+            discount_amount: 0,
+            tax_percent: 5,
+            catalog_rate_id: catalogRate.rate_id,
+          },
+        ],
+      },
+    );
+    record(
+      "archived catalog products cannot seed new quote versions",
+      !archivedCatalogProduct.error && Boolean(archivedRateUse.error),
+    );
+    const restoredCatalogProduct = await owner.rpc(
+      "set_quote_catalog_product_status",
+      {
+        target_organization_id: organizationA.id,
+        target_product_id: catalogProduct.product_id,
+        target_status: "active",
+        target_reason: "Authorization lifecycle restore evidence",
+      },
+    );
+    if (restoredCatalogProduct.error) throw restoredCatalogProduct.error;
+    const [staleCatalogRateUse, forgedCatalogRateUse] = await Promise.all([
+      owner.rpc("append_structured_quote_version", {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: [
+          {
+            category: "accommodation",
+            description: "Stale rate attempt",
+            quantity: 1,
+            unit_price_amount: 190000,
+            unit_cost_amount: 140000,
+            discount_amount: 0,
+            tax_percent: 5,
+            catalog_rate_id: catalogProduct.rate_id,
+          },
+        ],
+      }),
+      owner.rpc("append_structured_quote_version", {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: [
+          {
+            category: "accommodation",
+            description: "Forged rate attempt",
+            quantity: 1,
+            unit_price_amount: 1,
+            unit_cost_amount: 1,
+            discount_amount: 0,
+            tax_percent: 5,
+            catalog_rate_id: catalogRate.rate_id,
+          },
+        ],
+      }),
+    ]);
+    record(
+      "quote composition rejects stale and forged catalog rate values",
+      Boolean(staleCatalogRateUse.error) && Boolean(forgedCatalogRateUse.error),
+    );
+    const structuredItems = [
+      {
+        category: "accommodation",
+        description: "Two rooms",
+        quantity: 2,
+        unit_price_amount: 200000,
+        unit_cost_amount: 150000,
+        discount_amount: 20000,
+        tax_percent: 5,
+        catalog_rate_id: catalogRate.rate_id,
+      },
+      {
+        category: "activity",
+        description: "Private experiences",
+        quantity: 1,
+        unit_price_amount: 100000,
+        unit_cost_amount: 70000,
+        discount_amount: 0,
+        tax_percent: 5,
+      },
+    ];
     const viewerStructuredRevision = await viewer.rpc(
       "append_structured_quote_version",
       {
@@ -712,7 +901,9 @@ async function verifyAuthorization() {
     const [ownerLines, ownerCosts, viewerLines, viewerCosts] = await Promise.all([
       owner
         .from("quote_line_items")
-        .select("id, description, total_amount")
+        .select(
+          "id, description, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
+        )
         .eq("quote_version_id", structuredSummary.quote_version_id)
         .order("position"),
       owner
@@ -735,6 +926,13 @@ async function verifyAuthorization() {
         ownerLines.data.every((line) => !("unit_cost_amount" in line)),
     );
     record(
+      "catalog-backed quote lines preserve exact product and rate provenance",
+      ownerLines.data?.[0]?.catalog_product_id === catalogProduct.product_id &&
+        ownerLines.data?.[0]?.catalog_rate_id === catalogRate.rate_id &&
+        ownerLines.data?.[0]?.supplier_id === null &&
+        ownerLines.data?.[1]?.catalog_rate_id === null,
+    );
+    record(
       "commercial roles can read separately protected line costs",
       !ownerCosts.error &&
         ownerCosts.data?.length === 2 &&
@@ -755,7 +953,8 @@ async function verifyAuthorization() {
       .delete()
       .eq("id", temporaryViewerMembership.id);
     if (temporaryMembershipDeleteError) throw temporaryMembershipDeleteError;
-    const [foreignLines, foreignCosts] = await Promise.all([
+    const [foreignLines, foreignCosts, foreignProducts, foreignRates] =
+      await Promise.all([
       viewer
         .from("quote_line_items")
         .select("id")
@@ -764,13 +963,25 @@ async function verifyAuthorization() {
         .from("quote_line_costs")
         .select("quote_line_item_id")
         .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_catalog_products")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_catalog_rates")
+        .select("id")
+        .eq("organization_id", organizationA.id),
     ]);
     record(
       "foreign tenants cannot read structured quote sell or cost lines",
       !foreignLines.error &&
         foreignLines.data?.length === 0 &&
         !foreignCosts.error &&
-        foreignCosts.data?.length === 0,
+        foreignCosts.data?.length === 0 &&
+        !foreignProducts.error &&
+        foreignProducts.data?.length === 0 &&
+        !foreignRates.error &&
+        foreignRates.data?.length === 0,
     );
     const directLineWrite = await owner.from("quote_line_items").insert({
       organization_id: organizationA.id,
@@ -822,6 +1033,24 @@ async function verifyAuthorization() {
         structuredAudit.metadata.external_share_performed === false &&
         !JSON.stringify(structuredAudit.metadata).includes("480000") &&
         !JSON.stringify(structuredAudit.metadata).includes("370000"),
+    );
+    const { data: catalogAudit, error: catalogAuditError } = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("entity_type", "quote_catalog_product")
+      .eq("entity_id", catalogProduct.product_id);
+    record(
+      "catalog pricing audit preserves lifecycle evidence without amounts",
+      !catalogAuditError &&
+        catalogAudit?.length === 4 &&
+        catalogAudit.every(
+          (event) =>
+            event.metadata?.external_action_performed === false &&
+            !JSON.stringify(event.metadata).includes("190000") &&
+            !JSON.stringify(event.metadata).includes("200000") &&
+            !JSON.stringify(event.metadata).includes("150000"),
+        ),
     );
     activeVerificationPhase = "governed CRM authorization";
 
