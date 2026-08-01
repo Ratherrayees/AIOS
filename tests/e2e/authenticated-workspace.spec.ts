@@ -623,6 +623,21 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByText(sequenceName, { exact: true })).toBeVisible();
 
     await page.goto(`/leads/${dealId}`);
+    const priorityBrief = page.locator("#sales-priority-brief");
+    await expect(priorityBrief.getByText("AIOS SALES PRIORITY")).toBeVisible();
+    await expect(
+      priorityBrief.getByRole("heading", {
+        name: /Build the case|Recover momentum/,
+      }),
+    ).toBeVisible();
+    await expect(priorityBrief.getByText(/not conversion probability/i)).toBeVisible();
+    await priorityBrief
+      .getByText("Show the exact readiness calculation")
+      .click();
+    await expect(
+      priorityBrief.getByText("Qualification evidence", { exact: true }),
+    ).toBeVisible();
+    await expect(priorityBrief.getByText(/0 model calls/i)).toBeVisible();
     await page.getByLabel("Reusable checklist").selectOption({
       label: qualificationName,
     });
@@ -648,6 +663,20 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByRole("status")).toContainText(
       "Opportunity moved to decision",
     );
+    await expect(
+      priorityBrief.getByRole("heading", { name: "Recover momentum" }),
+    ).toBeVisible();
+    await expect(
+      priorityBrief.getByRole("link", {
+        name: "Advanced stage has no active quote",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      priorityBrief.getByRole("link", {
+        name: "Prepare or refresh the quote",
+      }),
+    ).toHaveAttribute("href", "/quotes");
 
     await page.getByLabel("Internal sequence").selectOption({
       label: sequenceName,

@@ -64,6 +64,18 @@ fingerprint, and whether feedback exists, but does not copy the draft or
 feedback text. Review is quality/accountability evidence only and confers no
 permission to send.
 
+The Sales Priority Brief is an explainable rules engine, not a model-generated
+conversion score. It assigns fixed, visible readiness points to traveller
+context, commercial planning, ownership/timing, required qualification, and
+quote evidence. Operational urgency is evaluated separately from missed SLAs,
+overdue work, stale activity, passed close dates, incomplete gates, and missing
+proposal evidence. Every displayed score component, risk, and proposed internal
+next step links to the source workspace. Building the brief makes no provider
+call, mutates no record, and takes no internal or external action. A later model
+may explain these fixed facts only if its output is bounded and cited; it may
+not change the deterministic score, suppress objective risks, or acquire a new
+tool permission.
+
 Provider-backed runs must pass the current workspace model policy immediately
 before execution. The selected provider must be in the workspace allow-list,
 model execution must be enabled, and the UTC daily ceiling must not be

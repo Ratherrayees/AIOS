@@ -25,6 +25,7 @@ import { LoadingState } from "../../../components/ui/empty-state";
 import { FeatureHeader } from "../../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
+import { buildSalesPriorityBrief, type PrioritySource } from "../../../lib/crm/sales-priority";
 import "./lead.css";
 
 type Stage = "new" | "qualified" | "proposal" | "decision" | "won" | "lost";
@@ -85,7 +86,27 @@ type FollowUpSequenceRun = {
   tasks_created: number;
   created_at: string;
 };
+type QuoteEvidence = {
+  status: "draft" | "shared" | "accepted" | "rejected" | "expired" | "superseded";
+  valid_until: string | null;
+};
+type TaskEvidence = {
+  id: string;
+  title: string;
+  status: "open" | "in_progress" | "completed" | "cancelled";
+  due_at: string | null;
+};
 type Member = { id: string; name: string; role: string };
+
+const prioritySourceHref: Record<PrioritySource, string> = {
+  commercial: "#commercial-signal",
+  owner: "#opportunity-owner",
+  traveller: "#traveller-context",
+  qualification: "#qualification-gate",
+  quotes: "/quotes",
+  tasks: "/tasks",
+  activity: "#activity-timeline",
+};
 
 const stages: { value: Stage; label: string }[] = [
   { value: "new", label: "New inquiry" },
@@ -145,6 +166,10 @@ export default function LeadDetailPage() {
     FollowUpSequence[]
   >([]);
   const [followUpRuns, setFollowUpRuns] = useState<FollowUpSequenceRun[]>([]);
+  const [quotes, setQuotes] = useState<QuoteEvidence[]>([]);
+  const [tasks, setTasks] = useState<TaskEvidence[]>([]);
+  const [priorityEvidenceAvailable, setPriorityEvidenceAvailable] =
+    useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -153,6 +178,8 @@ export default function LeadDetailPage() {
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setPriorityEvidenceAvailable(false);
       const supabase = createSupabaseBrowserClient();
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
@@ -175,14 +202,16 @@ export default function LeadDetailPage() {
         return;
       }
       const [
-        { data: contactRow },
+        { data: contactRow, error: contactError },
         { data: activityRows },
         { data: memberRows },
         { data: documentRows },
         { data: qualificationTemplateRows },
-        { data: qualificationCheckRows },
+        { data: qualificationCheckRows, error: qualificationCheckError },
         { data: followUpSequenceRows },
         { data: followUpRunRows },
+        { data: quoteRows, error: quoteError },
+        { data: taskRows, error: taskError },
       ] = await Promise.all([
         dealRow.contact_id
           ? supabase
@@ -191,7 +220,7 @@ export default function LeadDetailPage() {
               .eq("id", dealRow.contact_id)
               .eq("organization_id", membership.organization_id)
               .maybeSingle()
-          : Promise.resolve({ data: null }),
+          : Promise.resolve({ data: null, error: null }),
         supabase
           .from("activity_events")
           .select("id, activity_type, body, created_at")
@@ -240,6 +269,20 @@ export default function LeadDetailPage() {
           .eq("organization_id", membership.organization_id)
           .eq("deal_id", dealRow.id)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("quotes")
+          .select("status, valid_until")
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .order("updated_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("tasks")
+          .select("id, title, status, due_at")
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .order("created_at", { ascending: false })
+          .limit(50),
       ]);
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
@@ -272,6 +315,14 @@ export default function LeadDetailPage() {
         (followUpSequenceRows || []) as FollowUpSequence[],
       );
       setFollowUpRuns((followUpRunRows || []) as FollowUpSequenceRun[]);
+      setQuotes((quoteRows || []) as QuoteEvidence[]);
+      setTasks((taskRows || []) as TaskEvidence[]);
+      setPriorityEvidenceAvailable(
+        !contactError &&
+          !qualificationCheckError &&
+          !quoteError &&
+          !taskError,
+      );
       setLoadedAt(Date.now());
       setLoading(false);
     };
@@ -363,6 +414,7 @@ export default function LeadDetailPage() {
           assigneeId: assigneeId || null,
           dueAt: dueAt?.toISOString() || null,
         });
+        setTasks((current) => [task as TaskEvidence, ...current]);
         setActivities((current) => [
           {
             id: crypto.randomUUID(),
@@ -721,6 +773,16 @@ export default function LeadDetailPage() {
           },
           ...current,
         ]);
+        const supabase = createSupabaseBrowserClient();
+        const { data: taskRows, error: taskError } = await supabase
+          .from("tasks")
+          .select("id, title, status, due_at")
+          .eq("organization_id", organizationId)
+          .eq("deal_id", deal.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (taskError) throw taskError;
+        setTasks((taskRows || []) as TaskEvidence[]);
         setActivities((current) => [
           {
             id: crypto.randomUUID(),
@@ -770,6 +832,41 @@ export default function LeadDetailPage() {
   const completedRequiredChecks = requiredQualificationChecks.filter(
     (check) => check.is_complete,
   ).length;
+  const priorityBrief = priorityEvidenceAvailable
+    ? buildSalesPriorityBrief(
+        {
+          deal: {
+            stage: deal.stage,
+            createdAt: deal.created_at,
+            contactId: deal.contact_id,
+            ownerId: deal.owner_id,
+            destination: deal.destination,
+            valueAmount: deal.value_amount,
+            probability: deal.probability,
+            nextStep: deal.next_step,
+            expectedCloseAt: deal.expected_close_at,
+            lastActivityAt: deal.last_activity_at,
+            firstResponseDueAt: deal.first_response_due_at,
+            firstRespondedAt: deal.first_responded_at,
+            followUpDueAt: deal.follow_up_due_at,
+          },
+          contact,
+          qualifications: qualificationChecks.map((check) => ({
+            isRequired: check.is_required,
+            isComplete: check.is_complete,
+          })),
+          quotes: quotes.map((quote) => ({
+            status: quote.status,
+            validUntil: quote.valid_until,
+          })),
+          tasks: tasks.map((task) => ({
+            status: task.status,
+            dueAt: task.due_at,
+          })),
+        },
+        new Date(loadedAt),
+      )
+    : null;
   return (
     <main className="lead-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
@@ -799,7 +896,98 @@ export default function LeadDetailPage() {
       )}
       <section className="lead-layout">
         <section className="lead-main">
-          <article className="lead-panel qualification">
+          {priorityBrief ? (
+            <article
+              className={`lead-panel priority-brief ${priorityBrief.priority.tone}`}
+              id="sales-priority-brief"
+              aria-labelledby="sales-priority-title"
+            >
+            <header>
+              <div>
+                <p>AIOS SALES PRIORITY</p>
+                <h2 id="sales-priority-title">{priorityBrief.priority.label}</h2>
+              </div>
+              <b className="priority-score">
+                <span>{priorityBrief.readinessScore}</span>/100 readiness
+              </b>
+            </header>
+            <p className="priority-explainer">
+              AIOS ranked current operational urgency from CRM evidence. Readiness
+              measures evidence completeness—not conversion probability—and this
+              brief changes nothing automatically.
+            </p>
+            <div className="priority-grid">
+              <section aria-labelledby="priority-actions-title">
+                <h3 id="priority-actions-title">Do next</h3>
+                {priorityBrief.actions.length ? (
+                  <ol className="priority-actions">
+                    {priorityBrief.actions.map((action) => (
+                      <li key={action.code}>
+                        <a href={prioritySourceHref[action.source]}>{action.label}</a>
+                        <span>{action.reason}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="priority-empty">No open action is proposed for this closed record.</p>
+                )}
+              </section>
+              <section aria-labelledby="priority-risks-title">
+                <h3 id="priority-risks-title">Why it is prioritized</h3>
+                {priorityBrief.risks.length ? (
+                  <ul className="priority-risks">
+                    {priorityBrief.risks.map((risk) => (
+                      <li key={risk.code} className={risk.severity}>
+                        <a href={prioritySourceHref[risk.source]}>{risk.label}</a>
+                        <span>{risk.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="priority-empty">No current SLA, timing, or evidence risk was detected.</p>
+                )}
+              </section>
+            </div>
+            <details className="priority-evidence">
+              <summary>Show the exact readiness calculation</summary>
+              <div>
+                {priorityBrief.evidence.map((item) => (
+                  <a key={item.code} href={prioritySourceHref[item.source]}>
+                    <span><b>{item.label}</b><small>{item.detail}</small></span>
+                    <strong>{item.earned}/{item.possible}</strong>
+                  </a>
+                ))}
+              </div>
+            </details>
+            <footer>
+              <span>{priorityBrief.engine}</span>
+              <span>0 model calls · 0 record changes · 0 external actions</span>
+            </footer>
+            </article>
+          ) : (
+            <article
+              className="lead-panel priority-brief unavailable"
+              id="sales-priority-brief"
+              aria-labelledby="sales-priority-title"
+            >
+              <header>
+                <div>
+                  <p>AIOS SALES PRIORITY</p>
+                  <h2 id="sales-priority-title">Brief unavailable</h2>
+                </div>
+              </header>
+              <p className="priority-explainer">
+                AIOS could not verify every supporting record, so it has shown
+                no score or recommendation. Reload this opportunity to try
+                again.
+              </p>
+              <footer>
+                <span>Fail-closed evidence boundary</span>
+                <span>0 model calls · 0 record changes · 0 external actions</span>
+              </footer>
+            </article>
+          )}
+          <article className="lead-panel qualification" id="commercial-signal">
             <header>
               <p>COMMERCIAL SIGNAL</p>
               <h2>Move the opportunity with intent.</h2>
@@ -965,7 +1153,7 @@ export default function LeadDetailPage() {
               </button>
             </form>
           </article>
-          <article className="lead-panel qualification-workflow">
+          <article className="lead-panel qualification-workflow" id="qualification-gate">
             <header>
               <p>QUALIFICATION GATE</p>
               <h2>Evidence before commercial movement.</h2>
@@ -1049,7 +1237,7 @@ export default function LeadDetailPage() {
               )}
             </div>
           </article>
-          <article className="lead-panel">
+          <article className="lead-panel" id="activity-timeline">
             <header>
               <p>ACTIVITY TIMELINE</p>
               <h2>Context for every handoff.</h2>
@@ -1077,7 +1265,7 @@ export default function LeadDetailPage() {
           </article>
         </section>
         <aside className="lead-side">
-          <article className="lead-panel">
+          <article className="lead-panel" id="opportunity-owner">
             <p>OPPORTUNITY OWNER</p>
             <h2>
               {members.find((member) => member.id === deal.owner_id)?.name ||
@@ -1109,7 +1297,7 @@ export default function LeadDetailPage() {
               </button>
             )}
           </article>
-          <article className="lead-panel">
+          <article className="lead-panel" id="traveller-context">
             <p>TRAVELLER CONTEXT</p>
             <h2>{traveller}</h2>
             <dl>

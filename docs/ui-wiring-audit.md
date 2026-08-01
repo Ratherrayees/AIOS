@@ -6,14 +6,14 @@ Reviewed: 1 August 2026
 
 Every currently implemented workspace surface has been exercised against a disposable local Supabase instance through the real browser UI. The release suite now contains 141 cross-browser journeys: 47 each in Chromium, Firefox, and WebKit, comprising 23 public/authentication and security-boundary checks plus 24 authenticated browser-to-database workflows per engine.
 
-After adding the Inbox Sales Copilot control and exact-revision review ledger on 1 August, all 24 authenticated workflows were rerun together in Chromium. That current run includes the provider-free kill-switch path, change-request/revision/re-approval lifecycle, and protected-route zero-console sweep; the 141-journey three-engine result remains the immediately preceding cross-browser checkpoint.
+After adding the Inbox Sales Copilot control, exact-revision review ledger, and source-linked Sales Priority Brief on 1 August, all 24 authenticated workflows were rerun together in Chromium. That current run includes the provider-free kill-switch path, change-request/revision/re-approval lifecycle, live priority recalculation after qualification/stage changes, and protected-route zero-console sweep; the 141-journey three-engine result remains the immediately preceding cross-browser checkpoint.
 
 The July clarity pass also verifies the shared customer-journey rail, owner setup checklist, global AIOS field guide, contextual purpose/next-action/AIOS explanations across every protected feature, direct Lead-pipeline routing, and the simplified five-destination mobile command bar.
 
 The audited build passed with:
 
 - 141/141 browser journeys across Chromium, Firefox, and WebKit
-- 203/203 behavioral tests
+- 207/207 behavioral tests
 - 27/27 zero-provider AI safety evaluations
 - 8/8 local Resend signed-webhook contract checks
 - 400/400 bounded local production requests with zero transport failures and fail-closed AIOS boundaries
@@ -34,7 +34,7 @@ The audited build passed with:
 | --- | --- | --- | --- |
 | Public and authentication routes | Health, sign-in, sign-up, recovery, recovery-session guard, invitation return path, MFA challenge path, anonymous 404 behavior | Private/no-store responses, security headers, protected redirects, guarded worker endpoint | Pass |
 | Command center | Dynamic signed-in identity/role, tenant switching, route navigation, command search, lead creation, private pipeline views, mobile layout | Only the verified profile and RLS-visible organizations can be presented; created lead and view are persisted | Pass |
-| Lead pipeline and detail | Public capture, attribution, response acknowledgement, commercial planning, qualification evidence, governed stage selector and drag/drop, follow-up playbook, direct follow-up, approvals, analytics linkage | Server and database rules block illegal movement; history, tasks, approvals, activity and audit evidence are persisted | Pass |
+| Lead pipeline and detail | Public capture, attribution, response acknowledgement, commercial planning, qualification evidence, governed stage selector and drag/drop, follow-up playbook, direct follow-up, approvals, analytics linkage, and a deterministic AIOS priority brief with readiness, urgency, next actions, and exact source links | Server and database rules block illegal movement; history, tasks, approvals, activity and audit evidence are persisted. The brief recomputes from tenant-scoped lead/contact/qualification/quote/task evidence, keeps urgency separate from evidence readiness, states its zero-model/zero-mutation boundary, and is exercised before and after live qualification/stage changes | Pass |
 | Contacts and companies | Company/contact creation, optional company linkage, ownership, communication consent/preferences, internal notes, CSV-style import, search and private saved views | Tenant-scoped rows, ownership, consent evidence, imported records, timeline events and views are persisted | Pass |
 | Duplicate review | Same-name/company candidate review, clearly differentiated older/newer records, explicit confirmation and merge | One record remains live, the other is archived, dependent data is re-linked and the merge is audited | Pass |
 | Inbox | Conversation creation, linked contact/opportunity, status lifecycle, ownership, priority/deadline, reply-template creation/application/retirement, review draft/revision, internal note, private view, governed Sales Copilot control with evidence-summary space, and exact-revision approve/change/reject review controls | Conversation, SLA, draft, message, template and view state are persisted without sending externally; the browser run proves the workspace kill switch blocks Copilot before provider transit, then exercises an AI fixture through change-request, human revision, stale-review indication, and re-approval. Database probes enforce service-only immutable AI provenance, one draft per successful run, immutable revision-bound review history, required feedback, and zero delivery | Pass |
