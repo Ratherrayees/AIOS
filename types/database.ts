@@ -3287,6 +3287,54 @@ export type Database = {
           },
         ]
       }
+      quote_approval_policies: {
+        Row: {
+          created_at: string
+          maximum_validity_days: number
+          minimum_margin_percent: number
+          organization_id: string
+          require_cost_estimate: boolean
+          require_valid_until: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          maximum_validity_days?: number
+          minimum_margin_percent?: number
+          organization_id: string
+          require_cost_estimate?: boolean
+          require_valid_until?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          maximum_validity_days?: number
+          minimum_margin_percent?: number
+          organization_id?: string
+          require_cost_estimate?: boolean
+          require_valid_until?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_approval_policies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_approval_policies_updater_same_organization_fkey"
+            columns: ["organization_id", "updated_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+        ]
+      }
       quote_cost_estimates: {
         Row: {
           created_at: string
@@ -5585,6 +5633,31 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "operations_radar_policies"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_quote_approval_policy: {
+        Args: {
+          target_maximum_validity_days: number
+          target_minimum_margin_percent: number
+          target_organization_id: string
+          target_require_cost_estimate: boolean
+          target_require_valid_until: boolean
+        }
+        Returns: {
+          created_at: string
+          maximum_validity_days: number
+          minimum_margin_percent: number
+          organization_id: string
+          require_cost_estimate: boolean
+          require_valid_until: boolean
+          updated_at: string
+          updated_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "quote_approval_policies"
           isOneToOne: false
           isSetofReturn: true
         }

@@ -227,6 +227,101 @@ async function verifyAuthorization() {
       !ownerForeignContact.error && ownerForeignContact.data?.length === 0,
     );
 
+    const [ownerQuotePolicy, viewerForeignQuotePolicy] = await Promise.all([
+      owner
+        .from("quote_approval_policies")
+        .select("minimum_margin_percent, maximum_validity_days")
+        .eq("organization_id", organizationA.id)
+        .single(),
+      viewer
+        .from("quote_approval_policies")
+        .select("organization_id")
+        .eq("organization_id", organizationA.id),
+    ]);
+    record(
+      "new workspaces receive bounded default quote guardrails",
+      !ownerQuotePolicy.error &&
+        Number(ownerQuotePolicy.data?.minimum_margin_percent) === 15 &&
+        ownerQuotePolicy.data?.maximum_validity_days === 45,
+    );
+    record(
+      "quote guardrail policies remain tenant isolated",
+      !viewerForeignQuotePolicy.error &&
+        viewerForeignQuotePolicy.data?.length === 0,
+    );
+
+    const directQuotePolicyUpdate = await owner
+      .from("quote_approval_policies")
+      .update({ minimum_margin_percent: 0 })
+      .eq("organization_id", organizationA.id)
+      .select("organization_id");
+    record(
+      "browser writes cannot bypass the quote policy RPC",
+      Boolean(directQuotePolicyUpdate.error) ||
+        directQuotePolicyUpdate.data?.length === 0,
+    );
+
+    const viewerQuotePolicyUpdate = await viewer.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationB.id,
+        target_minimum_margin_percent: 0,
+        target_require_cost_estimate: false,
+        target_require_valid_until: false,
+        target_maximum_validity_days: 365,
+      },
+    );
+    record(
+      "viewers cannot weaken quote approval policy",
+      Boolean(viewerQuotePolicyUpdate.error),
+    );
+
+    const foreignQuotePolicyUpdate = await owner.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationB.id,
+        target_minimum_margin_percent: 0,
+        target_require_cost_estimate: false,
+        target_require_valid_until: false,
+        target_maximum_validity_days: 365,
+      },
+    );
+    record(
+      "owners cannot configure another tenant's quote policy",
+      Boolean(foreignQuotePolicyUpdate.error),
+    );
+
+    const updatedQuotePolicy = await owner.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_minimum_margin_percent: 20,
+        target_require_cost_estimate: true,
+        target_require_valid_until: true,
+        target_maximum_validity_days: 60,
+      },
+    );
+    record(
+      "authorized owners can configure bounded quote guardrails",
+      !updatedQuotePolicy.error &&
+        updatedQuotePolicy.data?.length === 1 &&
+        Number(updatedQuotePolicy.data[0].minimum_margin_percent) === 20 &&
+        updatedQuotePolicy.data[0].maximum_validity_days === 60,
+    );
+    const { data: quotePolicyAudit } = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("event_type", "quote.guardrail_policy_updated")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    record(
+      "quote policy changes preserve content-free audit evidence",
+      quotePolicyAudit?.metadata?.minimum_margin_percent === 20 &&
+        quotePolicyAudit.metadata.maximum_validity_days === 60,
+    );
+
     const ownerCrossTenantInsert = await owner.from("contacts").insert({
       organization_id: organizationB.id,
       first_name: "Blocked cross-tenant write",
@@ -323,6 +418,206 @@ async function verifyAuthorization() {
     if (governedDealError || !governedDeal)
       throw governedDealError ??
         new Error("Governed opportunity fixture was not created.");
+
+    activeVerificationPhase = "quote commercial guardrail authorization";
+    const quoteValidUntil = new Date(Date.now() + 30 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const quoteDraft = await owner.rpc("create_quote_draft", {
+      target_organization_id: organizationA.id,
+      target_deal_id: governedDeal.id,
+      quote_title: "Guardrail authorization fixture",
+      quote_currency: "INR",
+      quote_valid_until: quoteValidUntil,
+      quote_total_amount: 545000,
+    });
+    const guardedQuoteId = quoteDraft.data?.[0]?.quote_id;
+    if (quoteDraft.error || !guardedQuoteId)
+      throw quoteDraft.error ??
+        new Error("Guardrail quote fixture was not created.");
+
+    const incompleteQuoteApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+        payload: { quote_version: 1, guardrail_status: "ready" },
+      });
+    record(
+      "database blocks quote review without required current cost evidence",
+      Boolean(incompleteQuoteApproval.error),
+    );
+
+    const costedQuoteRevision = await owner.rpc(
+      "append_quote_version_with_cost",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        quote_total_amount: 545000,
+        quote_estimated_cost_amount: 410000,
+      },
+    );
+    if (
+      costedQuoteRevision.error ||
+      costedQuoteRevision.data?.[0]?.quote_version !== 2
+    )
+      throw costedQuoteRevision.error ??
+        new Error("Costed quote revision fixture was not created.");
+
+    const guardedQuoteApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+        payload: {
+          quote_version: 999,
+          guardrail_status: "forged",
+          total_amount: 545000,
+          estimated_cost_amount: 410000,
+        },
+      })
+      .select("id, status, payload")
+      .single();
+    if (guardedQuoteApproval.error || !guardedQuoteApproval.data)
+      throw guardedQuoteApproval.error ??
+        new Error("Guarded quote approval fixture was not created.");
+    const canonicalQuotePayload = guardedQuoteApproval.data.payload;
+    record(
+      "database canonicalizes approval evidence to the exact quote revision",
+      canonicalQuotePayload?.quote_version === 2 &&
+        canonicalQuotePayload?.guardrail_status === "ready" &&
+        canonicalQuotePayload?.external_share_performed === false &&
+        Array.isArray(canonicalQuotePayload?.risk_codes) &&
+        canonicalQuotePayload.risk_codes.length === 0,
+    );
+    record(
+      "quote approval evidence never exposes cost, total, or margin amounts",
+      !Object.keys(canonicalQuotePayload ?? {}).some((key) =>
+        [
+          "total_amount",
+          "estimated_cost_amount",
+          "cost_amount",
+          "margin_amount",
+          "margin_percent",
+        ].includes(key),
+      ),
+    );
+
+    const tightenedQuotePolicy = await owner.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_minimum_margin_percent: 21,
+        target_require_cost_estimate: true,
+        target_require_valid_until: true,
+        target_maximum_validity_days: 60,
+      },
+    );
+    if (tightenedQuotePolicy.error)
+      throw tightenedQuotePolicy.error;
+    const [policyCancelledApproval, policyCancellationAudit] =
+      await Promise.all([
+        owner
+          .from("approval_requests")
+          .select("status, resolved_at")
+          .eq("id", guardedQuoteApproval.data.id)
+          .single(),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("organization_id", organizationA.id)
+          .eq("event_type", "approval.cancelled")
+          .eq("entity_id", guardedQuoteApproval.data.id)
+          .maybeSingle(),
+      ]);
+    record(
+      "a quote policy change atomically cancels stale pending review",
+      !policyCancelledApproval.error &&
+        policyCancelledApproval.data?.status === "cancelled" &&
+        Boolean(policyCancelledApproval.data?.resolved_at),
+    );
+    record(
+      "quote policy cancellation preserves the authority-change reason",
+      !policyCancellationAudit.error &&
+        policyCancellationAudit.data?.metadata?.reason ===
+          "quote_policy_changed",
+    );
+
+    const revisionBoundApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+      })
+      .select("id, payload")
+      .single();
+    if (revisionBoundApproval.error || !revisionBoundApproval.data)
+      throw revisionBoundApproval.error ??
+        new Error("Revision-bound approval fixture was not created.");
+    record(
+      "a fresh quote review uses the tightened policy snapshot",
+      revisionBoundApproval.data.payload?.quote_version === 2 &&
+        Number(
+          revisionBoundApproval.data.payload?.guardrail_policy
+            ?.minimum_margin_percent,
+        ) === 21,
+    );
+
+    const supersedingQuoteRevision = await owner.rpc(
+      "append_quote_version_with_cost",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        quote_total_amount: 550000,
+        quote_estimated_cost_amount: 412000,
+      },
+    );
+    if (
+      supersedingQuoteRevision.error ||
+      supersedingQuoteRevision.data?.[0]?.quote_version !== 3
+    )
+      throw supersedingQuoteRevision.error ??
+        new Error("Superseding quote revision fixture was not created.");
+    const [cancelledQuoteApproval, cancellationAudit] = await Promise.all([
+      owner
+        .from("approval_requests")
+        .select("status, resolved_at")
+        .eq("id", revisionBoundApproval.data.id)
+        .single(),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("organization_id", organizationA.id)
+        .eq("event_type", "approval.cancelled")
+        .eq("entity_id", revisionBoundApproval.data.id)
+        .maybeSingle(),
+    ]);
+    record(
+      "a new quote revision atomically cancels stale pending review",
+      !cancelledQuoteApproval.error &&
+        cancelledQuoteApproval.data?.status === "cancelled" &&
+        Boolean(cancelledQuoteApproval.data?.resolved_at),
+    );
+    record(
+      "stale quote review cancellation preserves version-change evidence",
+      !cancellationAudit.error &&
+        cancellationAudit.data?.metadata?.reason ===
+          "quote_version_changed" &&
+        cancellationAudit.data.metadata.current_quote_version === 3,
+    );
+    activeVerificationPhase = "governed CRM authorization";
 
     const directStageMutation = await owner
       .from("deals")

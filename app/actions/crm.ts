@@ -39,6 +39,7 @@ import {
   quoteDraftInputSchema,
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
+  quoteApprovalPolicyInputSchema,
   savedViewDeleteSchema,
   savedViewInputSchema,
   tripBookingInputSchema,
@@ -102,6 +103,7 @@ import {
   type QuoteDraftInput,
   type QuoteRevisionInput,
   type QuoteShareApprovalInput,
+  type QuoteApprovalPolicyInput,
   type SavedViewDeleteInput,
   type SavedViewInput,
   type TripBookingInput,
@@ -145,6 +147,11 @@ import {
 } from "../../lib/crm/travel-documents";
 import { safeDealStageError } from "../../lib/crm/deal-stage-errors";
 import { safeSalesWorkflowError } from "../../lib/crm/sales-workflow-errors";
+import {
+  assessQuoteGuardrails,
+  DEFAULT_QUOTE_APPROVAL_POLICY,
+  type QuoteApprovalPolicy,
+} from "../../lib/crm/quote-guardrails";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import type { Json } from "../../types/database";
@@ -209,6 +216,12 @@ const SUPPLIER_WRITE_ROLES = [
   "finance",
 ] as const;
 const FINANCE_WRITE_ROLES = ["owner", "admin", "finance"] as const;
+const QUOTE_COMMERCIAL_ROLES = [
+  "owner",
+  "admin",
+  "sales",
+  "trip_designer",
+] as const;
 
 async function assertActiveOrganizationMember(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -1637,12 +1650,7 @@ export async function createQuoteDraft(input: QuoteDraftInput) {
 /** Appends an internal price and protected cost estimate; drafts are never overwritten. */
 export async function reviseQuoteDraft(input: QuoteRevisionInput) {
   const data = quoteRevisionInputSchema.parse(input);
-  await requireOrganizationRole(data.organizationId, [
-    "owner",
-    "admin",
-    "sales",
-    "trip_designer",
-  ]);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
   const supabase = await createSupabaseServerClient();
   const { data: result, error } = await supabase
     .rpc("append_quote_version_with_cost", {
@@ -1676,17 +1684,38 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
   return { quote, version: result.quote_version };
 }
 
+/** Updates bounded tenant quote-review rules; it never shares or changes a quote. */
+export async function updateQuoteApprovalPolicy(
+  input: QuoteApprovalPolicyInput,
+) {
+  const data = quoteApprovalPolicyInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, ["owner", "admin"]);
+  const supabase = await createSupabaseServerClient();
+  const { data: policy, error } = await supabase
+    .rpc("upsert_quote_approval_policy", {
+      target_organization_id: data.organizationId,
+      target_minimum_margin_percent: data.minimumMarginPercent,
+      target_require_cost_estimate: data.requireCostEstimate,
+      target_require_valid_until: data.requireValidUntil,
+      target_maximum_validity_days: data.maximumValidityDays,
+    })
+    .single();
+  if (error || !policy)
+    throw error ?? new Error("Quote guardrails were not updated.");
+  return policy;
+}
+
 /**
  * Opens or returns the human gate for quote delivery. It intentionally creates
  * no outbound message, share link, or customer-visible state change.
  */
 export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) {
   const data = quoteShareApprovalInputSchema.parse(input);
-  await requireActiveMembership(data.organizationId);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
   const supabase = await createSupabaseServerClient();
   const { data: quote, error: quoteError } = await supabase
     .from("quotes")
-    .select("id, title, status, current_version")
+    .select("id, status, current_version, valid_until")
     .eq("id", data.quoteId)
     .eq("organization_id", data.organizationId)
     .maybeSingle();
@@ -1695,9 +1724,65 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
   if (quote.status !== "draft")
     throw new Error("Only an internal draft can be submitted for sharing review.");
 
+  const [versionResult, policyResult] = await Promise.all([
+    supabase
+      .from("quote_versions")
+      .select("id, total_amount")
+      .eq("organization_id", data.organizationId)
+      .eq("quote_id", quote.id)
+      .eq("version", quote.current_version)
+      .maybeSingle(),
+    supabase
+      .from("quote_approval_policies")
+      .select(
+        "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days",
+      )
+      .eq("organization_id", data.organizationId)
+      .maybeSingle(),
+  ]);
+  if (versionResult.error) throw versionResult.error;
+  if (policyResult.error) throw policyResult.error;
+
+  const { data: cost, error: costError } = versionResult.data
+    ? await supabase
+        .from("quote_cost_estimates")
+        .select("estimated_cost_amount")
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", versionResult.data.id)
+        .maybeSingle()
+    : { data: null, error: null };
+  if (costError) throw costError;
+
+  const policy: QuoteApprovalPolicy = policyResult.data
+    ? {
+        minimumMarginPercent: Number(
+          policyResult.data.minimum_margin_percent,
+        ),
+        requireCostEstimate: policyResult.data.require_cost_estimate,
+        requireValidUntil: policyResult.data.require_valid_until,
+        maximumValidityDays: policyResult.data.maximum_validity_days,
+      }
+    : DEFAULT_QUOTE_APPROVAL_POLICY;
+  const guardrails = assessQuoteGuardrails(
+    {
+      status: quote.status,
+      totalAmount: versionResult.data?.total_amount ?? null,
+      estimatedCostAmount: cost?.estimated_cost_amount ?? null,
+      validUntil: quote.valid_until,
+    },
+    policy,
+  );
+  if (!guardrails.canRequestReview) {
+    throw new Error(
+      `Complete quote guardrails before review: ${guardrails.blockers
+        .map((blocker) => blocker.label)
+        .join("; ")}.`,
+    );
+  }
+
   const { data: pendingApproval, error: pendingError } = await supabase
     .from("approval_requests")
-    .select("id, approver_id, expires_at")
+    .select("id, approver_id, expires_at, payload")
     .eq("organization_id", data.organizationId)
     .eq("action", "quote.share")
     .eq("entity_type", "quote")
@@ -1707,8 +1792,16 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     .limit(1)
     .maybeSingle();
   if (pendingError) throw pendingError;
+  const pendingPayload = pendingApproval?.payload;
+  const pendingVersion =
+    pendingPayload &&
+    typeof pendingPayload === "object" &&
+    !Array.isArray(pendingPayload)
+      ? pendingPayload.quote_version
+      : null;
   const pendingIsCurrent =
     pendingApproval &&
+    pendingVersion === quote.current_version &&
     (!pendingApproval.expires_at ||
       new Date(pendingApproval.expires_at).getTime() > Date.now());
   if (pendingIsCurrent) {
@@ -1717,6 +1810,8 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
       approverId: pendingApproval.approver_id,
       expiresAt: pendingApproval.expires_at,
       alreadyPending: true,
+      guardrailStatus: guardrails.status.code,
+      riskCodes: guardrails.riskCodes,
     };
   }
 
@@ -1728,8 +1823,12 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     payload: {
       quote_id: quote.id,
       quote_version: quote.current_version,
+      guardrail_status: guardrails.status.code,
+      risk_codes: guardrails.riskCodes,
+      guardrail_policy: guardrails.policySnapshot,
+      external_share_performed: false,
     },
-    rationale: `Review requested before sharing quote: ${quote.title}`,
+    rationale: `Quote version ${quote.current_version} passed deterministic readiness checks and requires human sharing review.`,
   });
   if (gate.decision !== "approval_required" || !gate.approvalId)
     throw new Error("AIOS could not open the required human sharing review.");
@@ -1738,6 +1837,8 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     approverId: gate.approverId,
     expiresAt: gate.expiresAt,
     alreadyPending: false,
+    guardrailStatus: guardrails.status.code,
+    riskCodes: guardrails.riskCodes,
   };
 }
 

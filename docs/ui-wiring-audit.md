@@ -13,11 +13,11 @@ The July clarity pass also verifies the shared customer-journey rail, owner setu
 The audited build passed with:
 
 - 141/141 browser journeys across Chromium, Firefox, and WebKit
-- 211/211 behavioral tests
+- 217/217 behavioral tests
 - 27/27 zero-provider AI safety evaluations
 - 8/8 local Resend signed-webhook contract checks
 - 400/400 bounded local production requests with zero transport failures and fail-closed AIOS boundaries
-- one native backup/restore drill with exact 63-table/172-policy/326-index/63-function/74-migration parity and complete cleanup
+- one native backup/restore drill with exact 64-table/173-policy/328-index/64-function/75-migration parity and complete cleanup
 - zero TypeScript errors
 - zero ESLint errors or warnings
 - zero browser console errors or warnings across the protected-route sweep
@@ -25,7 +25,7 @@ The audited build passed with:
 - zero source-secret findings
 - zero known npm vulnerabilities
 - zero local Supabase schema-lint findings
-- all 63-table/41-RPC anonymous-access probes and 271 authenticated authorization assertions
+- all 64-table/42-RPC anonymous-access probes and 286 authenticated authorization assertions
 - scheduled-report failure-path probes covering wrong-worker settlement, abandoned-lease recovery, duplicate active leases, and disposal of partial report payloads
 
 ## Feature evidence
@@ -39,7 +39,7 @@ The audited build passed with:
 | Duplicate review | Same-name/company candidate review, clearly differentiated older/newer records, explicit confirmation and merge | One record remains live, the other is archived, dependent data is re-linked and the merge is audited | Pass |
 | Inbox | Conversation creation, linked contact/opportunity, status lifecycle, ownership, priority/deadline, reply-template creation/application/retirement, review draft/revision, internal note, private view, governed Sales Copilot control with evidence-summary space, and exact-revision approve/change/reject review controls | Conversation, SLA, draft, message, template and view state are persisted without sending externally; the browser run proves the workspace kill switch blocks Copilot before provider transit, then exercises an AI fixture through change-request, human revision, stale-review indication, and re-approval. Database probes enforce service-only immutable AI provenance, one draft per successful run, immutable revision-bound review history, required feedback, and zero delivery | Pass |
 | Tasks | Creation, due date, ownership, open/in-progress/completed/reopened lifecycle, unassignment, filters, private views and deletion | Task state and ownership changes persist within the tenant | Pass |
-| Quotes | Draft creation, immutable revision, internal cost/margin signal and quote-sharing approval request | Version history and internal cost persist; sharing remains approval-gated and unsent | Pass |
+| Quotes | Draft creation, immutable revision, owner/admin margin/cost/validity policy, blocker versus exception readiness, current-version total/cost/margin signal, and quote-sharing approval request | The server and database independently evaluate the exact current revision; incomplete evidence is blocked, direct inserts are canonicalized to content-free policy/risk/version evidence, a new revision or policy change cancels stale review, protected costs never enter approval metadata, and sharing remains approval-gated and unsent | Pass |
 | Itinerary Studio | Trip drafts, day items, comments, conflict/readiness checks, reusable template creation and application | Trips, items, comments, readiness tasks and copied template items persist; no booking or external share occurs | Pass |
 | Trip Operations | Won-deal handoff, operating details, lead/additional travellers, human-reviewed passport/visa checkpoints, internal booking request/confirmation states, trip-linked task completion, private expiry-aware upload and signed download, governed trip movement, and Operations Radar scan/clear behavior | Conversion is idempotent, direct trip/traveler-entry/booking/exception status writes are blocked, lifecycle history and actor/audit evidence persist, twelve objective risk types are deduplicated and routed, and no immigration decision, supplier message, inventory reservation, or money movement occurs | Pass |
 | Traveler entry readiness | Per-traveler/destination citizenship and issuer codes, passport expiry/buffer, visa requirement/workflow, action deadline, evidence source, clear/attention presentation, and edit/upsert behavior | The guarded RPC records reviewer/audit evidence, requires a named source for non-unknown visa requirements, stores no passport number, rejects viewers/direct writes/foreign relationships, and feeds passport/visa/itinerary risks into Radar | Pass |

@@ -17,6 +17,7 @@ import {
   dealOwnerUpdateSchema,
   dealStageUpdateSchema,
   quoteDraftInputSchema,
+  quoteApprovalPolicyInputSchema,
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
   operationalExceptionStatusSchema,
@@ -769,6 +770,29 @@ test("quote sharing review requires a tenant-scoped quote identifier", () => {
     quoteId: "not-a-quote-id",
   });
   assert.equal(result.success, false);
+});
+
+test("quote approval policies enforce bounded commercial controls", () => {
+  assert.equal(
+    quoteApprovalPolicyInputSchema.safeParse({
+      organizationId,
+      minimumMarginPercent: 101,
+      requireCostEstimate: true,
+      requireValidUntil: true,
+      maximumValidityDays: 0,
+    }).success,
+    false,
+  );
+  assert.equal(
+    quoteApprovalPolicyInputSchema.safeParse({
+      organizationId,
+      minimumMarginPercent: 20,
+      requireCostEstimate: true,
+      requireValidUntil: true,
+      maximumValidityDays: 60,
+    }).success,
+    true,
+  );
 });
 
 test("trip drafts reject an inverted travel date range", () => {

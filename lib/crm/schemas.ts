@@ -525,6 +525,14 @@ export const quoteShareApprovalInputSchema = z.object({
   quoteId: z.uuid(),
 });
 
+export const quoteApprovalPolicyInputSchema = z.object({
+  organizationId: z.uuid(),
+  minimumMarginPercent: z.number().finite().min(0).max(100),
+  requireCostEstimate: z.boolean(),
+  requireValidUntil: z.boolean(),
+  maximumValidityDays: z.number().int().min(1).max(365),
+});
+
 export const tripDraftInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -980,6 +988,9 @@ export type QuoteDraftInput = z.infer<typeof quoteDraftInputSchema>;
 export type QuoteRevisionInput = z.infer<typeof quoteRevisionInputSchema>;
 export type QuoteShareApprovalInput = z.infer<
   typeof quoteShareApprovalInputSchema
+>;
+export type QuoteApprovalPolicyInput = z.infer<
+  typeof quoteApprovalPolicyInputSchema
 >;
 export type TripDraftInput = z.infer<typeof tripDraftInputSchema>;
 export type WonDealConversionInput = z.infer<typeof wonDealConversionSchema>;

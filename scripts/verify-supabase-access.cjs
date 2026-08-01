@@ -21,6 +21,7 @@ const protectedTables = [
   "quotes",
   "quote_versions",
   "quote_cost_estimates",
+  "quote_approval_policies",
   "conversations",
   "messages",
   "approval_requests",
@@ -514,7 +515,22 @@ async function verify() {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
     },
   );
+  const { error: anonymousQuotePolicyError } = await anonymous.rpc(
+    "upsert_quote_approval_policy",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_minimum_margin_percent: 20,
+      target_require_cost_estimate: true,
+      target_require_valid_until: true,
+      target_maximum_validity_days: 45,
+    },
+  );
   const rpcChecks = [
+    {
+      function: "upsert_quote_approval_policy",
+      anonymousExecutionBlocked: Boolean(anonymousQuotePolicyError),
+      anonymousErrorCode: anonymousQuotePolicyError?.code ?? null,
+    },
     {
       function: "get_sales_copilot_quality_summary",
       anonymousExecutionBlocked: Boolean(anonymousCopilotQualityError),

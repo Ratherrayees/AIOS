@@ -12,11 +12,17 @@ import {
   createQuoteDraft,
   requestQuoteShareApproval,
   reviseQuoteDraft,
+  updateQuoteApprovalPolicy,
 } from "../actions/crm";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import {
+  assessQuoteGuardrails,
+  DEFAULT_QUOTE_APPROVAL_POLICY,
+  type QuoteApprovalPolicy,
+} from "../../lib/crm/quote-guardrails";
 import "./quotes.css";
 
 type Deal = { id: string; title: string; stage: string; currency: string };
@@ -45,6 +51,13 @@ type QuoteShareApproval = {
   entity_id: string | null;
   status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
   created_at: string;
+  payload: { quote_version?: number } | null;
+};
+type QuoteApprovalPolicyRow = {
+  minimum_margin_percent: number;
+  require_cost_estimate: boolean;
+  require_valid_until: boolean;
+  maximum_validity_days: number;
 };
 
 const commercialRoles = new Set(["owner", "admin", "sales", "trip_designer"]);
@@ -78,6 +91,9 @@ export default function QuotesPage() {
   const [versions, setVersions] = useState<QuoteVersion[]>([]);
   const [costEstimates, setCostEstimates] = useState<QuoteCostEstimate[]>([]);
   const [shareApprovals, setShareApprovals] = useState<QuoteShareApproval[]>([]);
+  const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
+    DEFAULT_QUOTE_APPROVAL_POLICY,
+  );
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
@@ -99,6 +115,7 @@ export default function QuotesPage() {
         { data: versionRows },
         { data: costRows },
         { data: shareApprovalRows },
+        { data: approvalPolicyRow },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -123,17 +140,35 @@ export default function QuotesPage() {
             .eq("organization_id", membership.organization_id),
           supabase
             .from("approval_requests")
-            .select("entity_id, status, created_at")
+            .select("entity_id, status, created_at, payload")
             .eq("organization_id", membership.organization_id)
             .eq("action", "quote.share")
             .eq("entity_type", "quote")
             .order("created_at", { ascending: false }),
+          supabase
+            .from("quote_approval_policies")
+            .select(
+              "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days",
+            )
+            .eq("organization_id", membership.organization_id)
+            .maybeSingle(),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
       setVersions((versionRows || []) as QuoteVersion[]);
       setCostEstimates((costRows || []) as QuoteCostEstimate[]);
-      setShareApprovals((shareApprovalRows || []) as QuoteShareApproval[]);
+      setShareApprovals(
+        (shareApprovalRows || []) as unknown as QuoteShareApproval[],
+      );
+      if (approvalPolicyRow) {
+        const row = approvalPolicyRow as QuoteApprovalPolicyRow;
+        setApprovalPolicy({
+          minimumMarginPercent: Number(row.minimum_margin_percent),
+          requireCostEstimate: row.require_cost_estimate,
+          requireValidUntil: row.require_valid_until,
+          maximumValidityDays: row.maximum_validity_days,
+        });
+      }
       setLoading(false);
     };
     void load().catch(() => {
@@ -146,10 +181,13 @@ export default function QuotesPage() {
     () => deals.filter((deal) => !["won", "lost"].includes(deal.stage)),
     [deals],
   );
-  const totals = useMemo(
+  const versionAmounts = useMemo(
     () =>
       new Map(
-        versions.map((version) => [version.quote_id, version.total_amount]),
+        versions.map((version) => [
+          `${version.quote_id}:${version.version}`,
+          version.total_amount,
+        ]),
       ),
     [versions],
   );
@@ -169,18 +207,50 @@ export default function QuotesPage() {
   );
   const latestShareApproval = useMemo(() => {
     const approvals = new Map<string, QuoteShareApproval>();
+    const currentVersions = new Map(
+      quotes.map((quote) => [quote.id, quote.current_version]),
+    );
     for (const approval of shareApprovals) {
-      if (approval.entity_id && !approvals.has(approval.entity_id))
+      if (
+        approval.entity_id &&
+        approval.payload?.quote_version ===
+          currentVersions.get(approval.entity_id) &&
+        !approvals.has(approval.entity_id)
+      )
         approvals.set(approval.entity_id, approval);
     }
     return approvals;
-  }, [shareApprovals]);
+  }, [quotes, shareApprovals]);
   const dealTitles = useMemo(
     () => new Map(deals.map((deal) => [deal.id, deal.title])),
     [deals],
   );
   const canCreate = role ? commercialRoles.has(role) : false;
   const canViewCosts = role ? costRoles.has(role) : false;
+  const canManagePolicy = role === "owner" || role === "admin";
+  const guardrailsByQuote = useMemo(() => {
+    if (!canViewCosts) return new Map();
+    return new Map<string, ReturnType<typeof assessQuoteGuardrails>>(
+      quotes.map((quote) => {
+        const key = `${quote.id}:${quote.current_version}`;
+        const versionId = versionIds.get(key);
+        return [
+          quote.id,
+          assessQuoteGuardrails(
+            {
+              status: quote.status,
+              totalAmount: versionAmounts.get(key) ?? null,
+              estimatedCostAmount: versionId
+                ? (costs.get(versionId) ?? null)
+                : null,
+              validUntil: quote.valid_until,
+            },
+            approvalPolicy,
+          ),
+        ] as const;
+      }),
+    );
+  }, [approvalPolicy, canViewCosts, costs, quotes, versionAmounts, versionIds]);
 
   function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -290,6 +360,7 @@ export default function QuotesPage() {
             entity_id: quote.id,
             status: "pending",
             created_at: new Date().toISOString(),
+            payload: { quote_version: quote.current_version },
           },
           ...current.filter((item) => item.entity_id !== quote.id),
         ]);
@@ -303,6 +374,47 @@ export default function QuotesPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not request the human sharing review.",
+        );
+      }
+    });
+  }
+
+  function saveApprovalPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || pending || !canManagePolicy) return;
+    const form = new FormData(event.currentTarget);
+    const minimumMarginPercent = Number(form.get("minimumMarginPercent"));
+    const maximumValidityDays = Number(form.get("maximumValidityDays"));
+    startTransition(async () => {
+      try {
+        const policy = await updateQuoteApprovalPolicy({
+          organizationId,
+          minimumMarginPercent,
+          maximumValidityDays,
+          requireCostEstimate: form.get("requireCostEstimate") === "on",
+          requireValidUntil: form.get("requireValidUntil") === "on",
+        });
+        setApprovalPolicy({
+          minimumMarginPercent: Number(policy.minimum_margin_percent),
+          requireCostEstimate: policy.require_cost_estimate,
+          requireValidUntil: policy.require_valid_until,
+          maximumValidityDays: policy.maximum_validity_days,
+        });
+        setShareApprovals((current) =>
+          current.map((approval) =>
+            approval.status === "pending"
+              ? { ...approval, status: "cancelled" }
+              : approval,
+          ),
+        );
+        setNotice(
+          "Quote guardrails updated. Existing drafts were re-evaluated and stale pending reviews were cancelled; nothing was shared.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not update quote guardrails.",
         );
       }
     });
@@ -347,6 +459,73 @@ export default function QuotesPage() {
           internal drafts only. Quote sharing stays behind the AIOS approval
           catalog.
         </p>
+      </section>
+      <section className="quote-policy" aria-labelledby="quote-policy-title">
+        <div>
+          <p>REVIEW POLICY</p>
+          <h2 id="quote-policy-title">Commercial guardrails</h2>
+          <span>
+            AIOS checks the exact current version before it can enter human
+            sharing review. Exceptions remain visible to the approver; blockers
+            must be completed first.
+          </span>
+        </div>
+        {canManagePolicy ? (
+          <form
+            key={JSON.stringify(approvalPolicy)}
+            onSubmit={saveApprovalPolicy}
+          >
+            <label>
+              Minimum gross margin %
+              <input
+                name="minimumMarginPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue={approvalPolicy.minimumMarginPercent}
+                required
+              />
+            </label>
+            <label>
+              Maximum validity days
+              <input
+                name="maximumValidityDays"
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                defaultValue={approvalPolicy.maximumValidityDays}
+                required
+              />
+            </label>
+            <label className="quote-policy-check">
+              <input
+                name="requireCostEstimate"
+                type="checkbox"
+                defaultChecked={approvalPolicy.requireCostEstimate}
+              />
+              Require current cost estimate
+            </label>
+            <label className="quote-policy-check">
+              <input
+                name="requireValidUntil"
+                type="checkbox"
+                defaultChecked={approvalPolicy.requireValidUntil}
+              />
+              Require validity date
+            </label>
+            <button type="submit" disabled={pending || !organizationId}>
+              {pending ? "Saving…" : "Save quote guardrails"}
+            </button>
+          </form>
+        ) : (
+          <p className="quote-policy-summary">
+            {approvalPolicy.minimumMarginPercent}% margin floor · up to{" "}
+            {approvalPolicy.maximumValidityDays} validity days · owners and
+            admins configure
+          </p>
+        )}
       </section>
       {canCreate ? (
         <section className="quotes-create">
@@ -431,8 +610,11 @@ export default function QuotesPage() {
             />
           </div>
         ) : (
-          quotes.map((quote) => (
-            <article key={quote.id}>
+          quotes.map((quote) => {
+            const quoteKey = `${quote.id}:${quote.current_version}`;
+            const guardrails = guardrailsByQuote.get(quote.id);
+            return (
+              <article key={quote.id}>
               <div>
                 <span className="quote-status">{quote.status}</span>
                 {latestShareApproval.get(quote.id)?.status === "pending" && (
@@ -450,11 +632,11 @@ export default function QuotesPage() {
                 </p>
               </div>
               <div className="quote-amount">
-                <b>{formatMoney(totals.get(quote.id), quote.currency)}</b>
+                <b>{formatMoney(versionAmounts.get(quoteKey), quote.currency)}</b>
                 {canViewCosts && (
                   <small className="quote-profitability">
                     {(() => {
-                      const total = totals.get(quote.id);
+                      const total = versionAmounts.get(quoteKey);
                       const cost = costs.get(
                         versionIds.get(`${quote.id}:${quote.current_version}`) || "",
                       );
@@ -471,6 +653,32 @@ export default function QuotesPage() {
                     ? `Valid through ${new Date(`${quote.valid_until}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                     : "No expiry date"}
                 </small>
+                {guardrails ? (
+                  <section
+                    className={`quote-guardrails quote-guardrails-${guardrails.status.tone}`}
+                    aria-label={`Commercial readiness: ${guardrails.status.label}`}
+                  >
+                    <strong>{guardrails.status.label}</strong>
+                    {guardrails.marginPercent !== null && (
+                      <span>{guardrails.marginPercent.toFixed(1)}% evidenced margin</span>
+                    )}
+                    {[...guardrails.blockers, ...guardrails.exceptions].map(
+                      (signal) => (
+                        <span key={signal.code} title={signal.detail}>
+                          {signal.label}
+                        </span>
+                      ),
+                    )}
+                    {guardrails.riskCodes.length === 0 && (
+                      <span>Current version is inside configured policy</span>
+                    )}
+                  </section>
+                ) : (
+                  <small className="quote-guardrails-restricted">
+                    Commercial readiness evidence is restricted to authorized
+                    roles.
+                  </small>
+                )}
                 {canCreate && quote.status === "draft" && (
                   <form
                     className="quote-revise"
@@ -483,7 +691,7 @@ export default function QuotesPage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        defaultValue={totals.get(quote.id) ?? 0}
+                        defaultValue={versionAmounts.get(quoteKey) ?? 0}
                         required
                       />
                     </label>
@@ -507,7 +715,7 @@ export default function QuotesPage() {
                     </button>
                   </form>
                 )}
-                {role &&
+                {canCreate &&
                   quote.status === "draft" &&
                   !["pending", "approved"].includes(
                     latestShareApproval.get(quote.id)?.status || "",
@@ -516,14 +724,20 @@ export default function QuotesPage() {
                     type="button"
                     className="quote-share-review"
                     onClick={() => requestSharingReview(quote)}
-                    disabled={pending}
+                    disabled={pending || !guardrails?.canRequestReview}
+                    title={
+                      guardrails?.canRequestReview
+                        ? "Open the required human review; no quote is sent"
+                        : "Complete the listed commercial guardrails first"
+                    }
                   >
                     {pending ? "Requesting…" : "Request human sharing review"}
                   </button>
                 )}
               </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         )}
       </section>
     </main>

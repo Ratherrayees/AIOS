@@ -1386,14 +1386,24 @@ test.describe("authenticated owner workspace", () => {
     page,
   }) => {
     const quoteTitle = `E2E reviewed proposal ${Date.now()}`;
+    const validUntil = new Date(Date.now() + 30 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
     await signIn(page);
     await page.goto("/quotes");
+
+    await page.getByLabel("Minimum gross margin %").fill("20");
+    await page.getByLabel("Maximum validity days").fill("60");
+    await page.getByRole("button", { name: "Save quote guardrails" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Quote guardrails updated",
+    );
 
     await page.getByLabel("Opportunity").selectOption(dealId);
     await page.getByLabel("Quote title").fill(quoteTitle);
     await page.getByLabel("Currency").selectOption("INR");
     await page.getByLabel("Quoted total").fill("520000");
-    await page.getByLabel("Valid until").fill("2026-09-15");
+    await page.getByLabel("Valid until").fill(validUntil);
     await page
       .getByRole("button", { name: "Create internal draft" })
       .click();
@@ -1405,12 +1415,24 @@ test.describe("authenticated owner workspace", () => {
       .locator(".quotes-list article")
       .filter({ hasText: quoteTitle });
     await expect(quoteCard).toBeVisible();
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Incomplete"),
+    ).toContainText("Current cost estimate required");
+    await expect(
+      quoteCard.getByRole("button", {
+        name: "Request human sharing review",
+      }),
+    ).toBeDisabled();
     await quoteCard.getByLabel("Revise total").fill("545000");
     await quoteCard.getByLabel("Internal estimated cost").fill("410000");
     await quoteCard.getByRole("button", { name: "New version" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Created internal version 2",
     );
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Ready for human review"),
+    ).toContainText("24.8% evidenced margin");
+    await expect(quoteCard.getByText(/₹5,45,000/)).toBeVisible();
     await quoteCard
       .getByRole("button", { name: "Request human sharing review" })
       .click();
@@ -1429,7 +1451,7 @@ test.describe("authenticated owner workspace", () => {
     expect(quote).toMatchObject({
       current_version: 2,
       status: "draft",
-      valid_until: "2026-09-15",
+      valid_until: validUntil,
     });
     const { data: versions, error: versionError } = await admin!
       .from("quote_versions")
@@ -1452,13 +1474,48 @@ test.describe("authenticated owner workspace", () => {
     expect(cost?.estimated_cost_amount).toBe(410000);
     const { data: shareApproval, error: shareApprovalError } = await admin!
       .from("approval_requests")
-      .select("status, action, entity_id")
+      .select("id, status, action, entity_id, payload")
       .eq("organization_id", organizationIds[0])
       .eq("action", "quote.share")
       .eq("entity_id", quote!.id)
       .single();
     expect(shareApprovalError).toBeNull();
     expect(shareApproval?.status).toBe("pending");
+    expect(shareApproval?.payload).toMatchObject({
+      quote_version: 2,
+      guardrail_status: "ready",
+      risk_codes: [],
+      external_share_performed: false,
+      guardrail_policy: {
+        minimum_margin_percent: 20,
+        require_cost_estimate: true,
+        require_valid_until: true,
+        maximum_validity_days: 60,
+      },
+    });
+    expect(JSON.stringify(shareApproval?.payload)).not.toContain("410000");
+    expect(JSON.stringify(shareApproval?.payload)).not.toContain("545000");
+
+    await quoteCard.getByLabel("Revise total").fill("550000");
+    await quoteCard.getByLabel("Internal estimated cost").fill("412000");
+    await quoteCard.getByRole("button", { name: "New version" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Created internal version 3",
+    );
+    await expect(quoteCard.getByText("Sharing review pending")).toHaveCount(0);
+    await expect(
+      quoteCard.getByRole("button", {
+        name: "Request human sharing review",
+      }),
+    ).toBeEnabled();
+    const { data: staleApproval, error: staleApprovalError } = await admin!
+      .from("approval_requests")
+      .select("status, resolved_at")
+      .eq("id", shareApproval!.id)
+      .single();
+    expect(staleApprovalError).toBeNull();
+    expect(staleApproval?.status).toBe("cancelled");
+    expect(staleApproval?.resolved_at).toBeTruthy();
   });
 
   test("wires trip drafts, day items, comments, readiness tasks, and reusable templates", async ({
@@ -3106,10 +3163,10 @@ test.describe("authenticated owner workspace", () => {
     const inrProfitability = profitabilityTable.getByRole("row", {
       name: /INR/,
     });
-    await expect(inrProfitability).toContainText("₹5,45,000");
-    await expect(inrProfitability).toContainText("₹4,10,000");
-    await expect(inrProfitability).toContainText("₹1,35,000");
-    await expect(inrProfitability).toContainText("24.8%");
+    await expect(inrProfitability).toContainText("₹5,50,000");
+    await expect(inrProfitability).toContainText("₹4,12,000");
+    await expect(inrProfitability).toContainText("₹1,38,000");
+    await expect(inrProfitability).toContainText("25.1%");
     await expect(
       page.getByRole("link", { name: "Open quote evidence →" }),
     ).toHaveAttribute("href", "/quotes");
