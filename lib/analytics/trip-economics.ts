@@ -16,6 +16,7 @@ export type EconomicsQuoteVersion = {
   quote_id: string;
   version: number;
   total_amount: number;
+  net_amount?: number | null;
 };
 
 export type EconomicsBooking = {
@@ -46,6 +47,7 @@ type CurrencyEconomics = {
   currency: string;
   trips: number;
   contractedRevenue: number;
+  netSellRevenue: number;
   confirmedBookingCost: number;
   operatingMargin: number;
   operatingMarginPercent: number;
@@ -158,7 +160,11 @@ export function buildCompletedTripEconomics({
     }
 
     evidenceReadyTrips += 1;
+    // Taxes collected from the traveler are not operating revenue.
     const contractedRevenue = safeMoney(version.total_amount);
+    const netSellRevenue = safeMoney(
+      version.net_amount ?? version.total_amount,
+    );
     const confirmedBookingCost = confirmedBookings.reduce(
       (sum, booking) => sum + safeMoney(booking.cost_amount!),
       0,
@@ -196,6 +202,7 @@ export function buildCompletedTripEconomics({
       currency: quoteCurrency,
       trips: 0,
       contractedRevenue: 0,
+      netSellRevenue: 0,
       confirmedBookingCost: 0,
       operatingMargin: 0,
       operatingMarginPercent: 0,
@@ -208,6 +215,7 @@ export function buildCompletedTripEconomics({
     };
     current.trips += 1;
     current.contractedRevenue += contractedRevenue;
+    current.netSellRevenue += netSellRevenue;
     current.confirmedBookingCost += confirmedBookingCost;
     current.customerReceivables += customerReceivables;
     current.customerCollected += customerCollected;
@@ -219,12 +227,12 @@ export function buildCompletedTripEconomics({
   const currencies = [...byCurrency.values()]
     .map((value) => {
       const operatingMargin =
-        value.contractedRevenue - value.confirmedBookingCost;
+        value.netSellRevenue - value.confirmedBookingCost;
       return {
         ...value,
         operatingMargin,
-        operatingMarginPercent: value.contractedRevenue
-          ? (operatingMargin / value.contractedRevenue) * 100
+        operatingMarginPercent: value.netSellRevenue
+          ? (operatingMargin / value.netSellRevenue) * 100
           : 0,
         receivableCoveragePercent: value.contractedRevenue
           ? (value.customerReceivables / value.contractedRevenue) * 100

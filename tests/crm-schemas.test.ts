@@ -19,6 +19,7 @@ import {
   quoteDraftInputSchema,
   quoteApprovalPolicyInputSchema,
   quoteRevisionInputSchema,
+  structuredQuoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
@@ -64,6 +65,50 @@ import {
 } from "../lib/crm/schemas";
 
 const organizationId = "11111111-1111-4111-8111-111111111111";
+
+test("structured quote revisions require reconcilable bounded lines", () => {
+  const base = {
+    organizationId,
+    quoteId: "22222222-2222-4222-8222-222222222222",
+    items: [
+      {
+        category: "accommodation" as const,
+        description: "Two rooms",
+        quantity: 2,
+        unitPriceAmount: 200_000,
+        unitCostAmount: 150_000,
+        discountAmount: 20_000,
+        taxPercent: 5,
+      },
+    ],
+  };
+
+  assert.equal(structuredQuoteRevisionInputSchema.safeParse(base).success, true);
+  assert.equal(
+    structuredQuoteRevisionInputSchema.safeParse({
+      ...base,
+      items: [{ ...base.items[0], discountAmount: 500_000 }],
+    }).success,
+    false,
+  );
+  assert.equal(
+    structuredQuoteRevisionInputSchema.safeParse({ ...base, items: [] }).success,
+    false,
+  );
+  assert.equal(
+    structuredQuoteRevisionInputSchema.safeParse({
+      ...base,
+      items: [
+        {
+          ...base.items[0],
+          quantity: 100_000,
+          unitPriceAmount: 999_999_999_999.99,
+        },
+      ],
+    }).success,
+    false,
+  );
+});
 
 test("contact email identity is trimmed and normalized", () => {
   const result = contactInputSchema.parse({

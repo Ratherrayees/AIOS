@@ -519,6 +519,14 @@ export function buildManagementExportRows({
       ),
       row(
         "Completed-trip economics",
+        "Net sell value",
+        economics.netSellRevenue,
+        "money",
+        "Accepted current quote value excluding customer tax; the denominator for operating-margin evidence.",
+        economics.currency,
+      ),
+      row(
+        "Completed-trip economics",
         "Confirmed booking cost",
         economics.confirmedBookingCost,
         "money",
@@ -530,7 +538,7 @@ export function buildManagementExportRows({
         "Operating margin evidence",
         economics.operatingMargin,
         "money",
-        "Accepted quote value less Confirmed booking costs; not realized accounting profit.",
+        "Net sell value excluding customer tax less Confirmed booking costs; not realized accounting profit.",
         economics.currency,
       ),
       row(
@@ -538,7 +546,7 @@ export function buildManagementExportRows({
         "Operating margin rate",
         Number(economics.operatingMarginPercent.toFixed(2)),
         "percent",
-        "Operating margin evidence divided by Accepted quote value.",
+        "Operating margin evidence divided by net sell value excluding customer tax.",
         economics.currency,
       ),
       row(

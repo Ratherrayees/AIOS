@@ -8,6 +8,7 @@ export type QuoteApprovalPolicy = {
 export type QuoteCommercialEvidence = {
   status: "draft" | "shared" | "accepted" | "rejected" | "expired" | "superseded";
   totalAmount: number | null;
+  netAmount?: number | null;
   estimatedCostAmount: number | null;
   validUntil: string | null;
 };
@@ -41,6 +42,7 @@ export function assessQuoteGuardrails(
   const blockers: QuoteGuardrailSignal[] = [];
   const exceptions: QuoteGuardrailSignal[] = [];
   const total = evidence.totalAmount;
+  const marginBase = evidence.netAmount ?? total;
   const cost = evidence.estimatedCostAmount;
   const validUntil = dateStart(evidence.validUntil);
   const today = Date.UTC(
@@ -49,8 +51,8 @@ export function assessQuoteGuardrails(
     now.getUTCDate(),
   );
   const marginPercent =
-    total !== null && total > 0 && cost !== null && cost >= 0
-      ? Math.round((((total - cost) / total) * 100) * 10) / 10
+    marginBase !== null && marginBase > 0 && cost !== null && cost >= 0
+      ? Math.round((((marginBase - cost) / marginBase) * 100) * 10) / 10
       : null;
 
   if (evidence.status !== "draft") {

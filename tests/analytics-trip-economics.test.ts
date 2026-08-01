@@ -88,6 +88,7 @@ test("completed trip economics uses accepted current revenue and confirmed costs
       currency: "INR",
       trips: 1,
       contractedRevenue: 545_000,
+      netSellRevenue: 545_000,
       confirmedBookingCost: 410_000,
       operatingMargin: 135_000,
       operatingMarginPercent: 24.770642201834864,
@@ -99,6 +100,17 @@ test("completed trip economics uses accepted current revenue and confirmed costs
       payableCoveragePercent: 100,
     },
   ]);
+});
+
+test("completed trip economics separates tax-inclusive contract value from net sell margin", () => {
+  const fixture = readyFixture();
+  fixture.quoteVersions[1].total_amount = 590_000;
+  fixture.quoteVersions[1].net_amount = 545_000;
+  const result = buildCompletedTripEconomics(fixture);
+
+  assert.equal(result.currencies[0]?.contractedRevenue, 590_000);
+  assert.equal(result.currencies[0]?.netSellRevenue, 545_000);
+  assert.equal(result.currencies[0]?.operatingMargin, 135_000);
 });
 
 test("incomplete completed trips fail closed instead of inflating margin", () => {

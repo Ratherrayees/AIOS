@@ -3384,6 +3384,118 @@ export type Database = {
           },
         ]
       }
+      quote_line_costs: {
+        Row: {
+          cost_amount: number
+          created_at: string
+          organization_id: string
+          quote_line_item_id: string
+          unit_cost_amount: number
+        }
+        Insert: {
+          cost_amount: number
+          created_at?: string
+          organization_id: string
+          quote_line_item_id: string
+          unit_cost_amount: number
+        }
+        Update: {
+          cost_amount?: number
+          created_at?: string
+          organization_id?: string
+          quote_line_item_id?: string
+          unit_cost_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_line_costs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_costs_same_organization_fkey"
+            columns: ["organization_id", "quote_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "quote_line_items"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      quote_line_items: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          discount_amount: number
+          id: string
+          net_amount: number
+          organization_id: string
+          position: number
+          quantity: number
+          quote_version_id: string
+          tax_amount: number
+          tax_percent: number
+          total_amount: number
+          unit_price_amount: number
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description: string
+          discount_amount?: number
+          id?: string
+          net_amount: number
+          organization_id: string
+          position: number
+          quantity: number
+          quote_version_id: string
+          tax_amount: number
+          tax_percent?: number
+          total_amount: number
+          unit_price_amount: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          discount_amount?: number
+          id?: string
+          net_amount?: number
+          organization_id?: string
+          position?: number
+          quantity?: number
+          quote_version_id?: string
+          tax_amount?: number
+          tax_percent?: number
+          total_amount?: number
+          unit_price_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_line_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_items_quote_version_id_fkey"
+            columns: ["quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_line_items_version_same_organization_fkey"
+            columns: ["organization_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       quote_versions: {
         Row: {
           cost_lines: Json
@@ -3393,8 +3505,10 @@ export type Database = {
           itinerary_snapshot: Json
           margin_amount: number | null
           margin_percent: number | null
+          net_amount: number
           organization_id: string
           quote_id: string
+          tax_amount: number
           terms_snapshot: Json
           total_amount: number
           version: number
@@ -3407,8 +3521,10 @@ export type Database = {
           itinerary_snapshot?: Json
           margin_amount?: number | null
           margin_percent?: number | null
+          net_amount?: number
           organization_id: string
           quote_id: string
+          tax_amount?: number
           terms_snapshot?: Json
           total_amount?: number
           version: number
@@ -3421,8 +3537,10 @@ export type Database = {
           itinerary_snapshot?: Json
           margin_amount?: number | null
           margin_percent?: number | null
+          net_amount?: number
           organization_id?: string
           quote_id?: string
+          tax_amount?: number
           terms_snapshot?: Json
           total_amount?: number
           version?: number
@@ -4425,6 +4543,23 @@ export type Database = {
         }
         Returns: {
           quote_version: number
+        }[]
+      }
+      append_structured_quote_version: {
+        Args: {
+          target_items: Json
+          target_organization_id: string
+          target_quote_id: string
+        }
+        Returns: {
+          customer_total_amount: number
+          estimated_cost_amount: number
+          gross_margin_amount: number
+          gross_margin_percent: number
+          net_sell_amount: number
+          quote_version: number
+          quote_version_id: string
+          tax_total_amount: number
         }[]
       }
       apply_follow_up_sequence: {

@@ -316,9 +316,11 @@ export default function AnalyticsPage() {
           .select("id, currency, status, current_version, accepted_at")
           .eq("organization_id", active.organization_id)
           .limit(5000),
-        supabase
-          .from("quote_versions")
-          .select("id, quote_id, version, total_amount")
+          supabase
+            .from("quote_versions")
+            .select(
+              "id, quote_id, version, total_amount, net_amount, margin_amount, margin_percent",
+            )
           .eq("organization_id", active.organization_id)
           .limit(10000),
         supabase
@@ -1466,6 +1468,9 @@ export default function AnalyticsPage() {
                             <td>{row.trips}</td>
                             <td>
                               {currency(row.contractedRevenue, row.currency)}
+                              <span>
+                                Net sell {currency(row.netSellRevenue, row.currency)}
+                              </span>
                             </td>
                             <td>
                               {currency(

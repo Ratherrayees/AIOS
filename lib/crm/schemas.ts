@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUOTE_AMOUNT, QUOTE_LINE_CATEGORIES } from "./quote-pricing";
+
 export const contactInputSchema = z.object({
   organizationId: z.uuid(),
   firstName: z.string().trim().min(1).max(100),
@@ -533,6 +535,72 @@ export const quoteApprovalPolicyInputSchema = z.object({
   maximumValidityDays: z.number().int().min(1).max(365),
 });
 
+export const structuredQuoteLineInputSchema = z
+  .object({
+    category: z.enum(QUOTE_LINE_CATEGORIES),
+    description: z.string().trim().min(1).max(180),
+    quantity: z.number().finite().positive().max(100000),
+    unitPriceAmount: z.number().finite().nonnegative().max(MAX_QUOTE_AMOUNT),
+    unitCostAmount: z.number().finite().nonnegative().max(MAX_QUOTE_AMOUNT),
+    discountAmount: z.number().finite().nonnegative().default(0),
+    taxPercent: z.number().finite().min(0).max(100).default(0),
+  })
+  .superRefine((line, context) => {
+    const baseAmount = Math.round(line.quantity * line.unitPriceAmount * 100) / 100;
+    if (line.discountAmount > baseAmount) {
+      context.addIssue({
+        code: "custom",
+        path: ["discountAmount"],
+        message: "A line discount cannot exceed its sell amount.",
+      });
+    }
+    const costAmount = Math.round(line.quantity * line.unitCostAmount * 100) / 100;
+    const netAmount = baseAmount - line.discountAmount;
+    const totalAmount =
+      netAmount + Math.round((netAmount * line.taxPercent) / 100 * 100) / 100;
+    if (
+      baseAmount > MAX_QUOTE_AMOUNT ||
+      costAmount > MAX_QUOTE_AMOUNT ||
+      totalAmount > MAX_QUOTE_AMOUNT
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["quantity"],
+        message: "The calculated line amount exceeds the supported limit.",
+      });
+    }
+  });
+
+export const structuredQuoteRevisionInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    quoteId: z.uuid(),
+    items: z.array(structuredQuoteLineInputSchema).min(1).max(50),
+  })
+  .superRefine((revision, context) => {
+    let netTotal = 0;
+    let taxTotal = 0;
+    let costTotal = 0;
+    for (const line of revision.items) {
+      const base = Math.round(line.quantity * line.unitPriceAmount * 100) / 100;
+      const net = base - line.discountAmount;
+      netTotal += net;
+      taxTotal += Math.round((net * line.taxPercent) / 100 * 100) / 100;
+      costTotal += Math.round(line.quantity * line.unitCostAmount * 100) / 100;
+    }
+    if (
+      netTotal > MAX_QUOTE_AMOUNT ||
+      netTotal + taxTotal > MAX_QUOTE_AMOUNT ||
+      costTotal > MAX_QUOTE_AMOUNT
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["items"],
+        message: "The quote aggregate exceeds the supported currency limit.",
+      });
+    }
+  });
+
 export const tripDraftInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -991,6 +1059,9 @@ export type QuoteShareApprovalInput = z.infer<
 >;
 export type QuoteApprovalPolicyInput = z.infer<
   typeof quoteApprovalPolicyInputSchema
+>;
+export type StructuredQuoteRevisionInput = z.infer<
+  typeof structuredQuoteRevisionInputSchema
 >;
 export type TripDraftInput = z.infer<typeof tripDraftInputSchema>;
 export type WonDealConversionInput = z.infer<typeof wonDealConversionSchema>;

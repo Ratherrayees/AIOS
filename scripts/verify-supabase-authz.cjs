@@ -617,6 +617,212 @@ async function verifyAuthorization() {
           "quote_version_changed" &&
         cancellationAudit.data.metadata.current_quote_version === 3,
     );
+
+    const structuredItems = [
+      {
+        category: "accommodation",
+        description: "Two rooms",
+        quantity: 2,
+        unit_price_amount: 200000,
+        unit_cost_amount: 150000,
+        discount_amount: 20000,
+        tax_percent: 5,
+      },
+      {
+        category: "activity",
+        description: "Private experiences",
+        quantity: 1,
+        unit_price_amount: 100000,
+        unit_cost_amount: 70000,
+        discount_amount: 0,
+        tax_percent: 5,
+      },
+    ];
+    const { data: temporaryViewerMembership, error: temporaryMembershipError } =
+      await admin
+        .from("memberships")
+        .insert({
+          organization_id: organizationA.id,
+          user_id: viewerUser.id,
+          role: "viewer",
+          status: "active",
+        })
+        .select("id")
+        .single();
+    if (temporaryMembershipError || !temporaryViewerMembership)
+      throw temporaryMembershipError ??
+        new Error("Temporary same-tenant viewer membership was not created.");
+    const viewerStructuredRevision = await viewer.rpc(
+      "append_structured_quote_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: structuredItems,
+      },
+    );
+    record(
+      "same-tenant viewers cannot compose protected quote pricing",
+      Boolean(viewerStructuredRevision.error),
+    );
+    const [coercedStructuredRevision, oversizedStructuredRevision] =
+      await Promise.all([
+        owner.rpc("append_structured_quote_version", {
+          target_organization_id: organizationA.id,
+          target_quote_id: guardedQuoteId,
+          target_items: [{ ...structuredItems[0], quantity: "2" }],
+        }),
+        owner.rpc("append_structured_quote_version", {
+          target_organization_id: organizationA.id,
+          target_quote_id: guardedQuoteId,
+          target_items: [
+            {
+              ...structuredItems[0],
+              quantity: 100000,
+              unit_price_amount: 999999999999.99,
+            },
+          ],
+        }),
+      ]);
+    record(
+      "database rejects type-coerced and overflowing structured quote lines",
+      Boolean(coercedStructuredRevision.error) &&
+        Boolean(oversizedStructuredRevision.error),
+    );
+    const structuredRevision = await owner.rpc(
+      "append_structured_quote_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: structuredItems,
+      },
+    );
+    const structuredSummary = structuredRevision.data?.[0];
+    if (structuredRevision.error || !structuredSummary)
+      throw structuredRevision.error ??
+        new Error("Structured quote authorization fixture was not created.");
+    record(
+      "authorized composition reconciles net sell tax cost and margin",
+      structuredSummary.quote_version === 4 &&
+        Number(structuredSummary.customer_total_amount) === 504000 &&
+        Number(structuredSummary.net_sell_amount) === 480000 &&
+        Number(structuredSummary.tax_total_amount) === 24000 &&
+        Number(structuredSummary.estimated_cost_amount) === 370000 &&
+        Number(structuredSummary.gross_margin_amount) === 110000,
+    );
+    const [ownerLines, ownerCosts, viewerLines, viewerCosts] = await Promise.all([
+      owner
+        .from("quote_line_items")
+        .select("id, description, total_amount")
+        .eq("quote_version_id", structuredSummary.quote_version_id)
+        .order("position"),
+      owner
+        .from("quote_line_costs")
+        .select("quote_line_item_id, unit_cost_amount, cost_amount")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_line_items")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_line_costs")
+        .select("quote_line_item_id")
+        .eq("organization_id", organizationA.id),
+    ]);
+    record(
+      "customer quote lines omit protected unit costs by construction",
+      !ownerLines.error &&
+        ownerLines.data?.length === 2 &&
+        ownerLines.data.every((line) => !("unit_cost_amount" in line)),
+    );
+    record(
+      "commercial roles can read separately protected line costs",
+      !ownerCosts.error &&
+        ownerCosts.data?.length === 2 &&
+        ownerCosts.data.reduce(
+          (sum, cost) => sum + Number(cost.cost_amount),
+          0,
+        ) === 370000,
+    );
+    record(
+      "same-tenant viewers read sell lines but never protected costs",
+      !viewerLines.error &&
+        viewerLines.data?.length === 2 &&
+        !viewerCosts.error &&
+        viewerCosts.data?.length === 0,
+    );
+    const { error: temporaryMembershipDeleteError } = await admin
+      .from("memberships")
+      .delete()
+      .eq("id", temporaryViewerMembership.id);
+    if (temporaryMembershipDeleteError) throw temporaryMembershipDeleteError;
+    const [foreignLines, foreignCosts] = await Promise.all([
+      viewer
+        .from("quote_line_items")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_line_costs")
+        .select("quote_line_item_id")
+        .eq("organization_id", organizationA.id),
+    ]);
+    record(
+      "foreign tenants cannot read structured quote sell or cost lines",
+      !foreignLines.error &&
+        foreignLines.data?.length === 0 &&
+        !foreignCosts.error &&
+        foreignCosts.data?.length === 0,
+    );
+    const directLineWrite = await owner.from("quote_line_items").insert({
+      organization_id: organizationA.id,
+      quote_version_id: structuredSummary.quote_version_id,
+      position: 2,
+      category: "fee",
+      description: "Forged browser line",
+      quantity: 1,
+      unit_price_amount: 1,
+      net_amount: 1,
+      tax_amount: 0,
+      total_amount: 1,
+    });
+    record(
+      "browser sessions cannot forge immutable structured quote lines",
+      Boolean(directLineWrite.error),
+    );
+    const structuredApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+      })
+      .select("payload")
+      .single();
+    record(
+      "sharing guardrails evaluate structured margin on net sell not tax",
+      !structuredApproval.error &&
+        structuredApproval.data?.payload?.quote_version === 4 &&
+        structuredApproval.data.payload.guardrail_status === "ready" &&
+        structuredApproval.data.payload.risk_codes?.length === 0,
+    );
+    const { data: structuredAudit, error: structuredAuditError } = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("event_type", "pricing.changed")
+      .eq("entity_id", guardedQuoteId)
+      .eq("metadata->>event", "quote.structured_version_created")
+      .single();
+    record(
+      "structured quote audit evidence is content-free and side-effect explicit",
+      !structuredAuditError &&
+        structuredAudit?.metadata?.line_count === 2 &&
+        structuredAudit.metadata.external_share_performed === false &&
+        !JSON.stringify(structuredAudit.metadata).includes("480000") &&
+        !JSON.stringify(structuredAudit.metadata).includes("370000"),
+    );
     activeVerificationPhase = "governed CRM authorization";
 
     const directStageMutation = await owner

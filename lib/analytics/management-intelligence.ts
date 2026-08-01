@@ -73,6 +73,8 @@ export type PortfolioQuoteVersion = {
   quote_id: string;
   version: number;
   total_amount: number;
+  net_amount?: number | null;
+  margin_amount?: number | null;
 };
 
 export type PortfolioCostEstimate = {
@@ -334,8 +336,12 @@ export function buildPortfolioIntelligence({
     }
     const currency = quote.currency.trim().toUpperCase();
     if (!currency) continue;
-    const quotedRevenue = safeMoney(version.total_amount);
+    // Customer totals may include tax. Revenue and margin stay net of tax.
+    const quotedRevenue = safeMoney(version.net_amount ?? version.total_amount);
     const estimatedCost = safeMoney(estimate);
+    const grossMargin = Number.isFinite(version.margin_amount)
+      ? Number(version.margin_amount)
+      : quotedRevenue - estimatedCost;
     const current = profitabilityByCurrency.get(currency) ?? {
       currency,
       quotedRevenue: 0,
@@ -346,7 +352,7 @@ export function buildPortfolioIntelligence({
     };
     current.quotedRevenue += quotedRevenue;
     current.estimatedCost += estimatedCost;
-    current.grossMargin += quotedRevenue - estimatedCost;
+    current.grossMargin += grossMargin;
     current.costedQuotes += 1;
     profitabilityByCurrency.set(currency, current);
   }

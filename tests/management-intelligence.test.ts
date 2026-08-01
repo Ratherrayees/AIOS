@@ -255,6 +255,43 @@ test("portfolio profitability uses only current quote versions with matching cos
   });
 });
 
+test("portfolio profitability excludes customer tax from revenue and margin", () => {
+  const result = buildPortfolioIntelligence({
+    quotes: [
+      { id: "q1", currency: "INR", status: "draft", current_version: 1 },
+    ],
+    versions: [
+      {
+        id: "q1-v1",
+        quote_id: "q1",
+        version: 1,
+        total_amount: 118,
+        net_amount: 100,
+        margin_amount: 25,
+      },
+    ],
+    costEstimates: [
+      { quote_version_id: "q1-v1", estimated_cost_amount: 75 },
+    ],
+    deals: [],
+    conversations: [],
+    trips: [],
+    bookings: [],
+    suppliers: [],
+  });
+
+  assert.deepEqual(result.profitability.currencies, [
+    {
+      currency: "INR",
+      quotedRevenue: 100,
+      estimatedCost: 75,
+      grossMargin: 25,
+      grossMarginPercent: 25,
+      costedQuotes: 1,
+    },
+  ]);
+});
+
 test("portfolio quality identifies incomplete work without double-counting records", () => {
   const result = buildPortfolioIntelligence({
     quotes: [],

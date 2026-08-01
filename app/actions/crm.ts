@@ -40,6 +40,7 @@ import {
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
   quoteApprovalPolicyInputSchema,
+  structuredQuoteRevisionInputSchema,
   savedViewDeleteSchema,
   savedViewInputSchema,
   tripBookingInputSchema,
@@ -104,6 +105,7 @@ import {
   type QuoteRevisionInput,
   type QuoteShareApprovalInput,
   type QuoteApprovalPolicyInput,
+  type StructuredQuoteRevisionInput,
   type SavedViewDeleteInput,
   type SavedViewInput,
   type TripBookingInput,
@@ -1684,6 +1686,53 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
   return { quote, version: result.quote_version };
 }
 
+/** Appends one immutable, reconciled sell/tax/cost breakdown; it performs no external action. */
+export async function reviseQuoteDraftWithLines(
+  input: StructuredQuoteRevisionInput,
+) {
+  const data = structuredQuoteRevisionInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: result, error } = await supabase
+    .rpc("append_structured_quote_version", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+      target_items: data.items.map((item) => ({
+        category: item.category,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price_amount: item.unitPriceAmount,
+        unit_cost_amount: item.unitCostAmount,
+        discount_amount: item.discountAmount,
+        tax_percent: item.taxPercent,
+      })) as Json,
+    })
+    .single();
+  if (error || !result)
+    throw error ?? new Error("Structured quote pricing was not saved.");
+  const [{ data: quote, error: quoteError }, { data: lines, error: lineError }] =
+    await Promise.all([
+      supabase
+        .from("quotes")
+        .select()
+        .eq("organization_id", data.organizationId)
+        .eq("id", data.quoteId)
+        .single(),
+      supabase
+        .from("quote_line_items")
+        .select(
+          "id, quote_version_id, position, category, description, quantity, unit_price_amount, discount_amount, tax_percent, net_amount, tax_amount, total_amount",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", result.quote_version_id)
+        .order("position"),
+    ]);
+  if (quoteError || !quote)
+    throw quoteError ?? new Error("The revised quote could not be loaded.");
+  if (lineError) throw lineError;
+  return { quote, summary: result, lines: lines ?? [] };
+}
+
 /** Updates bounded tenant quote-review rules; it never shares or changes a quote. */
 export async function updateQuoteApprovalPolicy(
   input: QuoteApprovalPolicyInput,
@@ -1727,7 +1776,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
   const [versionResult, policyResult] = await Promise.all([
     supabase
       .from("quote_versions")
-      .select("id, total_amount")
+      .select("id, total_amount, net_amount")
       .eq("organization_id", data.organizationId)
       .eq("quote_id", quote.id)
       .eq("version", quote.current_version)
@@ -1767,6 +1816,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     {
       status: quote.status,
       totalAmount: versionResult.data?.total_amount ?? null,
+      netAmount: versionResult.data?.net_amount ?? null,
       estimatedCostAmount: cost?.estimated_cost_amount ?? null,
       validUntil: quote.valid_until,
     },

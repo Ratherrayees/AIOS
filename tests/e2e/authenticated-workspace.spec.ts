@@ -1516,6 +1516,94 @@ test.describe("authenticated owner workspace", () => {
     expect(staleApprovalError).toBeNull();
     expect(staleApproval?.status).toBe("cancelled");
     expect(staleApproval?.resolved_at).toBeTruthy();
+
+    await quoteCard.getByText("Build itemized pricing").click();
+    await quoteCard.getByLabel("Description 1").fill("Two rooms");
+    await quoteCard.getByLabel("Quantity 1").fill("2");
+    await quoteCard.getByLabel("Unit sell 1").fill("200000");
+    await quoteCard.getByLabel("Unit cost · internal 1").fill("150000");
+    await quoteCard.getByLabel("Line discount 1").fill("20000");
+    await quoteCard.getByLabel("Tax % 1").fill("5");
+    await quoteCard.getByRole("button", { name: "Add line item" }).click();
+    await quoteCard.getByLabel("Category 2").selectOption("activity");
+    await quoteCard.getByLabel("Description 2").fill("Private experiences");
+    await quoteCard.getByLabel("Quantity 2").fill("1");
+    await quoteCard.getByLabel("Unit sell 2").fill("100000");
+    await quoteCard.getByLabel("Unit cost · internal 2").fill("70000");
+    await quoteCard.getByLabel("Line discount 2").fill("0");
+    await quoteCard.getByLabel("Tax % 2").fill("5");
+    await expect(
+      quoteCard.getByLabel("Structured quote preview"),
+    ).toContainText(/Customer total.*5,04,000/);
+    await expect(
+      quoteCard.getByLabel("Structured quote preview"),
+    ).toContainText(/Margin.*1,10,000.*22\.9%/);
+    await quoteCard
+      .getByRole("button", { name: "Save structured version" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Created structured internal version 4",
+    );
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Ready for human review"),
+    ).toContainText("22.9% evidenced margin");
+    await expect(quoteCard.getByText("2 customer line items")).toBeVisible();
+
+    const { data: structuredQuote, error: structuredQuoteError } = await admin!
+      .from("quotes")
+      .select("current_version")
+      .eq("id", quote!.id)
+      .single();
+    expect(structuredQuoteError).toBeNull();
+    expect(structuredQuote?.current_version).toBe(4);
+    const { data: structuredVersion, error: structuredVersionError } =
+      await admin!
+        .from("quote_versions")
+        .select(
+          "id, total_amount, net_amount, tax_amount, margin_amount, margin_percent",
+        )
+        .eq("quote_id", quote!.id)
+        .eq("version", 4)
+        .single();
+    expect(structuredVersionError).toBeNull();
+    expect(structuredVersion).toMatchObject({
+      total_amount: 504000,
+      net_amount: 480000,
+      tax_amount: 24000,
+      margin_amount: 110000,
+    });
+    expect(Number(structuredVersion?.margin_percent)).toBeCloseTo(22.9167, 4);
+    const { data: customerLines, error: customerLinesError } = await admin!
+      .from("quote_line_items")
+      .select("description, total_amount")
+      .eq("quote_version_id", structuredVersion!.id)
+      .order("position");
+    expect(customerLinesError).toBeNull();
+    expect(customerLines).toMatchObject([
+      { description: "Two rooms", total_amount: 399000 },
+      { description: "Private experiences", total_amount: 105000 },
+    ]);
+    expect(customerLines?.some((line) => "unit_cost_amount" in line)).toBe(
+      false,
+    );
+    const { data: protectedCosts, error: protectedCostsError } = await admin!
+      .from("quote_line_costs")
+      .select("unit_cost_amount, cost_amount")
+      .eq("organization_id", organizationIds[0]);
+    expect(protectedCostsError).toBeNull();
+    expect(protectedCosts).toEqual(
+      expect.arrayContaining([
+        { unit_cost_amount: 150000, cost_amount: 300000 },
+        { unit_cost_amount: 70000, cost_amount: 70000 },
+      ]),
+    );
+    const { data: structuredCost, error: structuredCostError } = await admin!
+      .from("quote_cost_estimates")
+      .select("estimated_cost_amount")
+      .eq("quote_version_id", structuredVersion!.id)
+      .single();
+    expect(structuredCostError).toBeNull();
+    expect(structuredCost?.estimated_cost_amount).toBe(370000);
   });
 
   test("wires trip drafts, day items, comments, readiness tasks, and reusable templates", async ({
@@ -3010,6 +3098,8 @@ test.describe("authenticated owner workspace", () => {
         quote_id: economicsQuote!.id,
         version: 1,
         total_amount: 760000,
+        net_amount: 760000,
+        tax_amount: 0,
         created_by: userId,
       });
     expect(economicsVersionError).toBeNull();
@@ -3163,10 +3253,10 @@ test.describe("authenticated owner workspace", () => {
     const inrProfitability = profitabilityTable.getByRole("row", {
       name: /INR/,
     });
-    await expect(inrProfitability).toContainText("₹5,50,000");
-    await expect(inrProfitability).toContainText("₹4,12,000");
-    await expect(inrProfitability).toContainText("₹1,38,000");
-    await expect(inrProfitability).toContainText("25.1%");
+    await expect(inrProfitability).toContainText("₹4,80,000");
+    await expect(inrProfitability).toContainText("₹3,70,000");
+    await expect(inrProfitability).toContainText("₹1,10,000");
+    await expect(inrProfitability).toContainText("22.9%");
     await expect(
       page.getByRole("link", { name: "Open quote evidence →" }),
     ).toHaveAttribute("href", "/quotes");

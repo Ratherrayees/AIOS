@@ -22,6 +22,8 @@ const protectedTables = [
   "quote_versions",
   "quote_cost_estimates",
   "quote_approval_policies",
+  "quote_line_items",
+  "quote_line_costs",
   "conversations",
   "messages",
   "approval_requests",
@@ -525,7 +527,30 @@ async function verify() {
       target_maximum_validity_days: 45,
     },
   );
+  const { error: anonymousStructuredQuoteError } = await anonymous.rpc(
+    "append_structured_quote_version",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
+      target_items: [
+        {
+          category: "service",
+          description: "Blocked anonymous line",
+          quantity: 1,
+          unit_price_amount: 100,
+          unit_cost_amount: 75,
+          discount_amount: 0,
+          tax_percent: 0,
+        },
+      ],
+    },
+  );
   const rpcChecks = [
+    {
+      function: "append_structured_quote_version",
+      anonymousExecutionBlocked: Boolean(anonymousStructuredQuoteError),
+      anonymousErrorCode: anonymousStructuredQuoteError?.code ?? null,
+    },
     {
       function: "upsert_quote_approval_policy",
       anonymousExecutionBlocked: Boolean(anonymousQuotePolicyError),

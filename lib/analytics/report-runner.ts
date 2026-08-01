@@ -142,7 +142,9 @@ async function buildScheduledReport(
       .limit(10000),
     admin
       .from("quote_versions")
-      .select("id, quote_id, version, total_amount")
+      .select(
+        "id, quote_id, version, total_amount, net_amount, margin_amount, margin_percent",
+      )
       .eq("organization_id", organizationId)
       .limit(20000),
     admin

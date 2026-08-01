@@ -18,6 +18,7 @@ import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import { StructuredQuoteComposer } from "./structured-quote-composer";
 import {
   assessQuoteGuardrails,
   DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -41,6 +42,23 @@ type QuoteVersion = {
   id: string;
   quote_id: string;
   version: number;
+  total_amount: number;
+  net_amount: number;
+  tax_amount: number;
+  margin_amount: number | null;
+  margin_percent: number | null;
+};
+type QuoteLineItem = {
+  id: string;
+  quote_version_id: string;
+  position: number;
+  category: string;
+  description: string;
+  quantity: number;
+  discount_amount: number;
+  tax_percent: number;
+  net_amount: number;
+  tax_amount: number;
   total_amount: number;
 };
 type QuoteCostEstimate = {
@@ -78,9 +96,17 @@ function formatMoney(amount: number | undefined, currency: string) {
   }).format(amount);
 }
 
-function formatMargin(total: number | undefined, cost: number | undefined) {
-  if (total === undefined || cost === undefined || total === 0) return null;
-  return `${(((total - cost) / total) * 100).toFixed(1)}% gross margin`;
+function formatMargin(
+  version: QuoteVersion | undefined,
+  cost: number | undefined,
+) {
+  if (!version || cost === undefined) return null;
+  if (version.margin_percent !== null) {
+    return `${version.margin_percent.toFixed(1)}% gross margin`;
+  }
+  const net = version.net_amount ?? version.total_amount;
+  if (!net) return null;
+  return `${(((net - cost) / net) * 100).toFixed(1)}% gross margin`;
 }
 
 export default function QuotesPage() {
@@ -90,6 +116,7 @@ export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [versions, setVersions] = useState<QuoteVersion[]>([]);
   const [costEstimates, setCostEstimates] = useState<QuoteCostEstimate[]>([]);
+  const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
   const [shareApprovals, setShareApprovals] = useState<QuoteShareApproval[]>([]);
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -116,6 +143,7 @@ export default function QuotesPage() {
         { data: costRows },
         { data: shareApprovalRows },
         { data: approvalPolicyRow },
+        { data: lineItemRows },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -131,7 +159,9 @@ export default function QuotesPage() {
             .order("created_at", { ascending: false }),
           supabase
             .from("quote_versions")
-            .select("id, quote_id, version, total_amount")
+            .select(
+              "id, quote_id, version, total_amount, net_amount, tax_amount, margin_amount, margin_percent",
+            )
             .eq("organization_id", membership.organization_id)
             .order("version", { ascending: false }),
           supabase
@@ -152,6 +182,13 @@ export default function QuotesPage() {
             )
             .eq("organization_id", membership.organization_id)
             .maybeSingle(),
+          supabase
+            .from("quote_line_items")
+            .select(
+              "id, quote_version_id, position, category, description, quantity, discount_amount, tax_percent, net_amount, tax_amount, total_amount",
+            )
+            .eq("organization_id", membership.organization_id)
+            .order("position"),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
@@ -160,6 +197,7 @@ export default function QuotesPage() {
       setShareApprovals(
         (shareApprovalRows || []) as unknown as QuoteShareApproval[],
       );
+      setLineItems((lineItemRows || []) as QuoteLineItem[]);
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
@@ -195,6 +233,16 @@ export default function QuotesPage() {
     () => new Map(versions.map((version) => [`${version.quote_id}:${version.version}`, version.id])),
     [versions],
   );
+  const versionsByKey = useMemo(
+    () =>
+      new Map(
+        versions.map((version) => [
+          `${version.quote_id}:${version.version}`,
+          version,
+        ]),
+      ),
+    [versions],
+  );
   const costs = useMemo(
     () =>
       new Map(
@@ -205,6 +253,15 @@ export default function QuotesPage() {
       ),
     [costEstimates],
   );
+  const linesByVersion = useMemo(() => {
+    const grouped = new Map<string, QuoteLineItem[]>();
+    for (const line of lineItems) {
+      const current = grouped.get(line.quote_version_id) ?? [];
+      current.push(line);
+      grouped.set(line.quote_version_id, current);
+    }
+    return grouped;
+  }, [lineItems]);
   const latestShareApproval = useMemo(() => {
     const approvals = new Map<string, QuoteShareApproval>();
     const currentVersions = new Map(
@@ -233,13 +290,15 @@ export default function QuotesPage() {
     return new Map<string, ReturnType<typeof assessQuoteGuardrails>>(
       quotes.map((quote) => {
         const key = `${quote.id}:${quote.current_version}`;
-        const versionId = versionIds.get(key);
+        const currentVersion = versionsByKey.get(key);
+        const versionId = currentVersion?.id;
         return [
           quote.id,
           assessQuoteGuardrails(
             {
               status: quote.status,
-              totalAmount: versionAmounts.get(key) ?? null,
+              totalAmount: currentVersion?.total_amount ?? null,
+              netAmount: currentVersion?.net_amount ?? null,
               estimatedCostAmount: versionId
                 ? (costs.get(versionId) ?? null)
                 : null,
@@ -250,7 +309,7 @@ export default function QuotesPage() {
         ] as const;
       }),
     );
-  }, [approvalPolicy, canViewCosts, costs, quotes, versionAmounts, versionIds]);
+  }, [approvalPolicy, canViewCosts, costs, quotes, versionsByKey]);
 
   function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -280,6 +339,10 @@ export default function QuotesPage() {
             quote_id: quote.id,
             version: quote.current_version,
             total_amount: totalAmount,
+            net_amount: totalAmount,
+            tax_amount: 0,
+            margin_amount: null,
+            margin_percent: null,
           },
           ...current,
         ]);
@@ -324,6 +387,13 @@ export default function QuotesPage() {
             quote_id: quote.id,
             version: updated.version,
             total_amount: totalAmount,
+            net_amount: totalAmount,
+            tax_amount: 0,
+            margin_amount: totalAmount - estimatedCostAmount,
+            margin_percent:
+              totalAmount > 0
+                ? ((totalAmount - estimatedCostAmount) / totalAmount) * 100
+                : null,
           },
           ...current,
         ]);
@@ -377,6 +447,41 @@ export default function QuotesPage() {
         );
       }
     });
+  }
+
+  function applyStructuredRevision(
+    result: Awaited<ReturnType<typeof import("../actions/crm").reviseQuoteDraftWithLines>>,
+  ) {
+    const summary = result.summary;
+    setQuotes((current) =>
+      current.map((quote) =>
+        quote.id === result.quote.id ? (result.quote as Quote) : quote,
+      ),
+    );
+    setVersions((current) => [
+      {
+        id: summary.quote_version_id,
+        quote_id: result.quote.id,
+        version: summary.quote_version,
+        total_amount: summary.customer_total_amount,
+        net_amount: summary.net_sell_amount,
+        tax_amount: summary.tax_total_amount,
+        margin_amount: summary.gross_margin_amount,
+        margin_percent: summary.gross_margin_percent,
+      },
+      ...current,
+    ]);
+    setCostEstimates((current) => [
+      {
+        quote_version_id: summary.quote_version_id,
+        estimated_cost_amount: summary.estimated_cost_amount,
+      },
+      ...current,
+    ]);
+    setLineItems((current) => [
+      ...(result.lines as QuoteLineItem[]),
+      ...current,
+    ]);
   }
 
   function saveApprovalPolicy(event: FormEvent<HTMLFormElement>) {
@@ -613,6 +718,10 @@ export default function QuotesPage() {
           quotes.map((quote) => {
             const quoteKey = `${quote.id}:${quote.current_version}`;
             const guardrails = guardrailsByQuote.get(quote.id);
+            const currentVersionId = versionIds.get(quoteKey);
+            const currentLines = currentVersionId
+              ? (linesByVersion.get(currentVersionId) ?? [])
+              : [];
             return (
               <article key={quote.id}>
               <div>
@@ -636,12 +745,12 @@ export default function QuotesPage() {
                 {canViewCosts && (
                   <small className="quote-profitability">
                     {(() => {
-                      const total = versionAmounts.get(quoteKey);
+                      const version = versionsByKey.get(quoteKey);
                       const cost = costs.get(
                         versionIds.get(`${quote.id}:${quote.current_version}`) || "",
                       );
                       if (cost === undefined) return "Internal cost not captured";
-                      const margin = formatMargin(total, cost);
+                      const margin = formatMargin(version, cost);
                       return margin
                         ? `${formatMoney(cost, quote.currency)} estimated cost · ${margin}`
                         : `${formatMoney(cost, quote.currency)} estimated cost`;
@@ -653,6 +762,29 @@ export default function QuotesPage() {
                     ? `Valid through ${new Date(`${quote.valid_until}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                     : "No expiry date"}
                 </small>
+                {currentLines.length > 0 && (
+                  <details className="quote-breakdown">
+                    <summary>{currentLines.length} customer line items</summary>
+                    <ul>
+                      {currentLines.map((line) => (
+                        <li key={line.id}>
+                          <span>
+                            {line.description} · {line.quantity} ×{" "}
+                            {line.category}
+                          </span>
+                          <b>{formatMoney(line.total_amount, quote.currency)}</b>
+                          <small>
+                            Net {formatMoney(line.net_amount, quote.currency)} ·
+                            tax {line.tax_percent}%
+                            {line.discount_amount > 0
+                              ? ` · discount ${formatMoney(line.discount_amount, quote.currency)}`
+                              : ""}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {guardrails ? (
                   <section
                     className={`quote-guardrails quote-guardrails-${guardrails.status.tone}`}
@@ -678,6 +810,15 @@ export default function QuotesPage() {
                     Commercial readiness evidence is restricted to authorized
                     roles.
                   </small>
+                )}
+                {canCreate && quote.status === "draft" && (
+                  <StructuredQuoteComposer
+                    organizationId={organizationId!}
+                    quoteId={quote.id}
+                    currency={quote.currency}
+                    onSaved={applyStructuredRevision}
+                    onNotice={setNotice}
+                  />
                 )}
                 {canCreate && quote.status === "draft" && (
                   <form
