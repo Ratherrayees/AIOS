@@ -4655,6 +4655,24 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_sales_copilot_quality_summary: {
+        Args: { target_organization_id: string }
+        Returns: {
+          active_ai_drafts: number
+          approved_decisions: number
+          change_requested_decisions: number
+          current_revision_approved: number
+          current_revision_attention: number
+          first_pass_approved: number
+          initial_feedback_drafts: number
+          latest_reviewed_at: string
+          recovered_after_feedback: number
+          rejected_decisions: number
+          review_decisions: number
+          reviewed_drafts: number
+          total_ai_drafts: number
+        }[]
+      }
       get_traveler_portal_document: {
         Args: { target_document_id: string; target_token_hash: string }
         Returns: {

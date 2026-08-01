@@ -3412,6 +3412,30 @@ test.describe("authenticated owner workspace", () => {
     await signIn(page);
     await page.goto("/aios");
 
+    const qualityPanel = page.getByRole("region", {
+      name: "Sales Copilot review calibration",
+    });
+    await expect(
+      qualityPanel.getByRole("heading", {
+        name: "Review feedback, not guesswork",
+      }),
+    ).toBeVisible();
+    await expect(qualityPanel.getByLabel("Reviewed AI drafts")).toContainText(
+      "1",
+    );
+    await expect(
+      qualityPanel.getByLabel("First-pass approval rate"),
+    ).toContainText("0%");
+    await expect(qualityPanel.getByLabel("Feedback recovery")).toContainText(
+      "1 / 1",
+    );
+    await expect(
+      qualityPanel.getByLabel("Current revision approval"),
+    ).toContainText("1 / 1");
+    await expect(qualityPanel).toContainText(
+      "No conversion claim · no draft or feedback content",
+    );
+
     await page.getByLabel("Daily run ceiling").fill("7");
     await page.getByLabel("Selected provider").selectOption("glm");
     await page.getByLabel("Transient fallback").selectOption("qwen");

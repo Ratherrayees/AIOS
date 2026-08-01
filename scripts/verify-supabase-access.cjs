@@ -508,7 +508,18 @@ async function verify() {
       target_decision: "approved",
     },
   );
+  const { error: anonymousCopilotQualityError } = await anonymous.rpc(
+    "get_sales_copilot_quality_summary",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
   const rpcChecks = [
+    {
+      function: "get_sales_copilot_quality_summary",
+      anonymousExecutionBlocked: Boolean(anonymousCopilotQualityError),
+      anonymousErrorCode: anonymousCopilotQualityError?.code ?? null,
+    },
     {
       function: "review_ai_message_draft",
       anonymousExecutionBlocked: Boolean(anonymousDraftReviewError),

@@ -64,6 +64,16 @@ fingerprint, and whether feedback exists, but does not copy the draft or
 feedback text. Review is quality/accountability evidence only and confers no
 permission to send.
 
+Sales Copilot calibration reads only immutable decision metadata. A
+tenant-RLS security-invoker database function returns aggregate counts for
+reviewed drafts, first-pass approval, feedback recovery, exact-current-revision
+approval, and decision mix plus the latest review time. It returns no draft or
+feedback text, recipient, reviewer, conversation, AI-run, draft identifier, or
+free-text field. Anonymous callers cannot execute it and foreign tenants receive
+zero evidence. The UI labels samples below 10 reviewed drafts as emerging and
+below 30 as directional; review acceptance is never presented as conversion,
+revenue, factual-correctness, or causal model-quality evidence.
+
 The Sales Priority Brief is an explainable rules engine, not a model-generated
 conversion score. It assigns fixed, visible readiness points to traveller
 context, commercial planning, ownership/timing, required qualification, and

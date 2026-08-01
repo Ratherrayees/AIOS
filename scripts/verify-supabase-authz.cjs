@@ -3473,6 +3473,52 @@ async function verifyAuthorization() {
           revisedCopilotDraft.data.updated_at,
     );
 
+    const ownerCopilotQuality = await owner.rpc(
+      "get_sales_copilot_quality_summary",
+      { target_organization_id: organizationA.id },
+    );
+    const ownerCopilotQualityRow = ownerCopilotQuality.data?.[0];
+    record(
+      "Sales Copilot quality summary aggregates exact-revision outcomes",
+      !ownerCopilotQuality.error &&
+        ownerCopilotQualityRow?.total_ai_drafts === 1 &&
+        ownerCopilotQualityRow.active_ai_drafts === 1 &&
+        ownerCopilotQualityRow.reviewed_drafts === 1 &&
+        ownerCopilotQualityRow.review_decisions === 2 &&
+        ownerCopilotQualityRow.first_pass_approved === 1 &&
+        ownerCopilotQualityRow.initial_feedback_drafts === 0 &&
+        ownerCopilotQualityRow.current_revision_approved === 0 &&
+        ownerCopilotQualityRow.current_revision_attention === 1,
+    );
+    record(
+      "Sales Copilot quality summary exposes aggregate metadata only",
+      Boolean(ownerCopilotQualityRow) &&
+        !Object.keys(ownerCopilotQualityRow).some((key) =>
+          [
+            "body",
+            "subject",
+            "note",
+            "recipient",
+            "reviewed_by",
+            "message_draft_id",
+            "ai_run_id",
+          ].includes(key),
+        ),
+    );
+
+    const foreignCopilotQuality = await viewer.rpc(
+      "get_sales_copilot_quality_summary",
+      { target_organization_id: organizationA.id },
+    );
+    record(
+      "foreign tenants receive no Sales Copilot quality evidence",
+      !foreignCopilotQuality.error &&
+        foreignCopilotQuality.data?.length === 1 &&
+        foreignCopilotQuality.data[0].total_ai_drafts === 0 &&
+        foreignCopilotQuality.data[0].review_decisions === 0 &&
+        foreignCopilotQuality.data[0].latest_reviewed_at === null,
+    );
+
     const foreignDraftReview = await viewer.rpc("review_ai_message_draft", {
       target_organization_id: organizationA.id,
       target_message_draft_id: copilotDraft.id,

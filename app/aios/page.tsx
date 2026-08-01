@@ -29,6 +29,10 @@ import {
   leadExtractionSchema,
   type LeadExtraction,
 } from "../../lib/ai/contracts";
+import {
+  summarizeSalesCopilotQuality,
+  type SalesCopilotQualityRow,
+} from "../../lib/ai/sales-copilot-quality";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
@@ -156,6 +160,9 @@ export default function AiosControlPage() {
   const [inputTokenPrice, setInputTokenPrice] = useState("");
   const [outputTokenPrice, setOutputTokenPrice] = useState("");
   const [aiJobs, setAiJobs] = useState<AiJobTelemetry[]>([]);
+  const [copilotQualityRow, setCopilotQualityRow] =
+    useState<SalesCopilotQualityRow | null>(null);
+  const [copilotQualityAvailable, setCopilotQualityAvailable] = useState(false);
   const [reviewSelections, setReviewSelections] = useState<
     Record<string, ReviewField[]>
   >({});
@@ -204,6 +211,7 @@ export default function AiosControlPage() {
         { data: usageRows },
         { data: jobRows },
         { data: priceRows },
+        { data: qualityRow, error: qualityError },
       ] = await Promise.all([
         supabase
           .from("organizations")
@@ -284,6 +292,11 @@ export default function AiosControlPage() {
           .is("effective_to", null)
           .order("effective_from", { ascending: false })
           .limit(20),
+        supabase
+          .rpc("get_sales_copilot_quality_summary", {
+            target_organization_id: membership.organization_id,
+          })
+          .single(),
       ]);
       if (workspace?.name) setWorkspaceName(workspace.name);
       setOverrides(
@@ -312,6 +325,10 @@ export default function AiosControlPage() {
       setTodayModelUsage((usageRows || []) as ModelUsageRun[]);
       setAiJobs((jobRows || []) as AiJobTelemetry[]);
       setModelPrices((priceRows || []) as ModelPrice[]);
+      setCopilotQualityRow(
+        qualityError ? null : (qualityRow as SalesCopilotQualityRow),
+      );
+      setCopilotQualityAvailable(!qualityError && Boolean(qualityRow));
       if (budgetPolicy) {
         const selectedProvider = parseModelProvider(
           budgetPolicy.selected_model_provider,
@@ -743,6 +760,7 @@ export default function AiosControlPage() {
     .filter((job) => job.status === "failed")
     .map((job) => job.available_at)
     .sort()[0];
+  const copilotQuality = summarizeSalesCopilotQuality(copilotQualityRow);
 
   return (
     <main className="aios-page" id="main-content" tabIndex={-1}>
@@ -1143,6 +1161,106 @@ export default function AiosControlPage() {
             Triage Inbox SLAs
           </button>
         </div>
+      </section>
+      <section
+        className="aios-copilot-quality"
+        aria-label="Sales Copilot review calibration"
+      >
+        <header>
+          <div>
+            <p>QUALITY FEEDBACK LOOP</p>
+            <h2>Review feedback, not guesswork</h2>
+            <span>
+              Immutable review decisions show how often AIOS drafts are
+              accepted, revised, and recovered. Draft text, feedback text,
+              recipients, and reviewer identities never enter this aggregate.
+            </span>
+          </div>
+          <b>{copilotQuality?.sample.label || "Evidence unavailable"}</b>
+        </header>
+        {copilotQualityAvailable && copilotQuality ? (
+          <>
+            <div className="copilot-quality-stats">
+              <div aria-label="Reviewed AI drafts">
+                <small>REVIEWED AI DRAFTS</small>
+                <strong>{copilotQuality.reviewedDrafts}</strong>
+                <span>
+                  {copilotQuality.totalDrafts} generated in retained history
+                </span>
+              </div>
+              <div aria-label="First-pass approval rate">
+                <small>FIRST-PASS APPROVAL</small>
+                <strong>
+                  {copilotQuality.firstPassApprovalRate === null
+                    ? "—"
+                    : `${copilotQuality.firstPassApprovalRate}%`}
+                </strong>
+                <span>Earliest immutable decision per draft</span>
+              </div>
+              <div aria-label="Feedback recovery">
+                <small>RECOVERED AFTER FEEDBACK</small>
+                <strong>
+                  {copilotQuality.recoveredAfterFeedback} /{" "}
+                  {copilotQuality.initialFeedbackDrafts}
+                </strong>
+                <span>Later exact revision approved</span>
+              </div>
+              <div aria-label="Current revision approval">
+                <small>CURRENT REVISION APPROVED</small>
+                <strong>
+                  {copilotQuality.currentRevisionApproved} /{" "}
+                  {copilotQuality.activeDrafts}
+                </strong>
+                <span>
+                  {copilotQuality.currentRevisionAttention}{" "}
+                  {copilotQuality.currentRevisionAttention === 1
+                    ? "current revision needs"
+                    : "current revisions need"}{" "}
+                  review attention
+                </span>
+              </div>
+            </div>
+            <div className="copilot-quality-decisions">
+              <div>
+                <span>
+                  <i className="approved" /> Approved{" "}
+                  {copilotQuality.decisions.approved}
+                </span>
+                <span>
+                  <i className="changes" /> Changes requested{" "}
+                  {copilotQuality.decisions.changesRequested}
+                </span>
+                <span>
+                  <i className="rejected" /> Rejected{" "}
+                  {copilotQuality.decisions.rejected}
+                </span>
+              </div>
+              <p>
+                {copilotQuality.sample.code === "none"
+                  ? "Review AI-generated Inbox drafts to start this feedback loop."
+                  : copilotQuality.sample.code === "emerging"
+                    ? `Collect at least ${copilotQuality.sample.target} reviewed drafts before treating rates as directional.`
+                    : "Use these outcomes to tune prompts and workflow—not to claim conversion impact or causal model quality."}
+              </p>
+              <a href="/inbox">Review Sales Copilot drafts</a>
+            </div>
+          </>
+        ) : (
+          <p className="aios-empty">
+            AIOS could not verify the aggregate review ledger, so no quality
+            rate is shown.
+          </p>
+        )}
+        <footer>
+          <span>Aggregate decision metadata only</span>
+          <span>No conversion claim · no draft or feedback content</span>
+          {copilotQuality?.latestReviewedAt ? (
+            <time dateTime={copilotQuality.latestReviewedAt}>
+              Latest review{" "}
+              {new Date(copilotQuality.latestReviewedAt).toLocaleString()}
+            </time>
+          ) : null}
+        </footer>
       </section>
       {runNotice && (
         <p className="aios-notice" role="status">
