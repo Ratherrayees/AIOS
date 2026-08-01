@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { MAX_QUOTE_AMOUNT, QUOTE_LINE_CATEGORIES } from "./quote-pricing";
+import {
+  MAX_QUOTE_PROPOSAL_ITEM_LENGTH,
+  MAX_QUOTE_PROPOSAL_ITEMS,
+} from "./quote-proposal";
 
 export const contactInputSchema = z.object({
   organizationId: z.uuid(),
@@ -620,6 +624,32 @@ export const quoteCatalogProductStatusInputSchema = z.object({
   reason: z.string().trim().min(10).max(500),
 });
 
+const quoteProposalItemsSchema = z
+  .array(z.string().trim().min(1).max(MAX_QUOTE_PROPOSAL_ITEM_LENGTH))
+  .max(MAX_QUOTE_PROPOSAL_ITEMS)
+  .superRefine((items, context) => {
+    const identities = new Set<string>();
+    items.forEach((item, index) => {
+      const identity = item.toLocaleLowerCase("en");
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: "Proposal items must be unique within their section.",
+        });
+      }
+      identities.add(identity);
+    });
+  });
+
+export const quoteProposalContentInputSchema = z.object({
+  organizationId: z.uuid(),
+  quoteId: z.uuid(),
+  inclusions: quoteProposalItemsSchema.min(1),
+  exclusions: quoteProposalItemsSchema,
+  terms: quoteProposalItemsSchema.min(1),
+});
+
 export const structuredQuoteRevisionInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1120,6 +1150,9 @@ export type QuoteCatalogRateInput = z.infer<
 >;
 export type QuoteCatalogProductStatusInput = z.infer<
   typeof quoteCatalogProductStatusInputSchema
+>;
+export type QuoteProposalContentInput = z.infer<
+  typeof quoteProposalContentInputSchema
 >;
 export type TripDraftInput = z.infer<typeof tripDraftInputSchema>;
 export type WonDealConversionInput = z.infer<typeof wonDealConversionSchema>;

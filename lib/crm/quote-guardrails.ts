@@ -11,6 +11,7 @@ export type QuoteCommercialEvidence = {
   netAmount?: number | null;
   estimatedCostAmount: number | null;
   validUntil: string | null;
+  proposalContentReady: boolean;
 };
 
 export const DEFAULT_QUOTE_APPROVAL_POLICY: QuoteApprovalPolicy = {
@@ -81,6 +82,14 @@ export function assessQuoteGuardrails(
       code: "validity_missing",
       label: "Validity date required",
       detail: "Set when this commercial offer expires.",
+    });
+  }
+  if (!evidence.proposalContentReady) {
+    blockers.push({
+      code: "proposal_content_missing",
+      label: "Proposal inclusions and terms required",
+      detail:
+        "Add at least one customer-facing inclusion and one term to the exact current version.",
     });
   }
   if (validUntil !== null && validUntil < today) {

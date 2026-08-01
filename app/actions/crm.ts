@@ -43,6 +43,7 @@ import {
   quoteCatalogProductInputSchema,
   quoteCatalogProductStatusInputSchema,
   quoteCatalogRateInputSchema,
+  quoteProposalContentInputSchema,
   structuredQuoteRevisionInputSchema,
   savedViewDeleteSchema,
   savedViewInputSchema,
@@ -111,6 +112,7 @@ import {
   type QuoteCatalogProductInput,
   type QuoteCatalogProductStatusInput,
   type QuoteCatalogRateInput,
+  type QuoteProposalContentInput,
   type StructuredQuoteRevisionInput,
   type SavedViewDeleteInput,
   type SavedViewInput,
@@ -160,6 +162,10 @@ import {
   DEFAULT_QUOTE_APPROVAL_POLICY,
   type QuoteApprovalPolicy,
 } from "../../lib/crm/quote-guardrails";
+import {
+  isQuoteProposalContentReady,
+  QUOTE_PROPOSAL_SCHEMA_VERSION,
+} from "../../lib/crm/quote-proposal";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import type { Json } from "../../types/database";
@@ -1742,6 +1748,76 @@ export async function reviseQuoteDraftWithLines(
   return { quote, summary: result, lines: lines ?? [] };
 }
 
+/**
+ * Appends customer-facing inclusions, exclusions, and terms as a new exact
+ * quote revision. Pricing and protected costs are copied; nothing is shared.
+ */
+export async function reviseQuoteProposalContent(
+  input: QuoteProposalContentInput,
+) {
+  const data = quoteProposalContentInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: result, error } = await supabase
+    .rpc("append_quote_proposal_content_version", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+      target_content: {
+        schema_version: QUOTE_PROPOSAL_SCHEMA_VERSION,
+        inclusions: data.inclusions,
+        exclusions: data.exclusions,
+        terms: data.terms,
+      },
+    })
+    .single();
+  if (error || !result)
+    throw error ?? new Error("Proposal content was not saved.");
+
+  const [quoteResult, versionResult, costResult, lineResult] =
+    await Promise.all([
+      supabase
+        .from("quotes")
+        .select()
+        .eq("organization_id", data.organizationId)
+        .eq("id", data.quoteId)
+        .single(),
+      supabase
+        .from("quote_versions")
+        .select(
+          "id, quote_id, version, total_amount, net_amount, tax_amount, margin_amount, margin_percent, terms_snapshot",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("id", result.quote_version_id)
+        .single(),
+      supabase
+        .from("quote_cost_estimates")
+        .select("quote_version_id, estimated_cost_amount")
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", result.quote_version_id)
+        .maybeSingle(),
+      supabase
+        .from("quote_line_items")
+        .select(
+          "id, quote_version_id, position, category, description, quantity, unit_price_amount, discount_amount, tax_percent, net_amount, tax_amount, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", result.quote_version_id)
+        .order("position"),
+    ]);
+  if (quoteResult.error || !quoteResult.data)
+    throw quoteResult.error ?? new Error("The revised quote could not be loaded.");
+  if (versionResult.error || !versionResult.data)
+    throw versionResult.error ?? new Error("The proposal revision could not be loaded.");
+  if (costResult.error) throw costResult.error;
+  if (lineResult.error) throw lineResult.error;
+  return {
+    quote: quoteResult.data,
+    version: versionResult.data,
+    cost: costResult.data,
+    lines: lineResult.data ?? [],
+  };
+}
+
 /** Creates one reusable product and its first human-published internal rate. */
 export async function createQuoteCatalogProduct(
   input: QuoteCatalogProductInput,
@@ -1854,7 +1930,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
   const [versionResult, policyResult] = await Promise.all([
     supabase
       .from("quote_versions")
-      .select("id, total_amount, net_amount")
+      .select("id, total_amount, net_amount, terms_snapshot")
       .eq("organization_id", data.organizationId)
       .eq("quote_id", quote.id)
       .eq("version", quote.current_version)
@@ -1897,6 +1973,9 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
       netAmount: versionResult.data?.net_amount ?? null,
       estimatedCostAmount: cost?.estimated_cost_amount ?? null,
       validUntil: quote.valid_until,
+      proposalContentReady: isQuoteProposalContentReady(
+        versionResult.data?.terms_snapshot,
+      ),
     },
     policy,
   );

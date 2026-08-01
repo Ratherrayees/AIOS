@@ -21,6 +21,7 @@ import {
   quoteCatalogProductInputSchema,
   quoteCatalogProductStatusInputSchema,
   quoteCatalogRateInputSchema,
+  quoteProposalContentInputSchema,
   quoteRevisionInputSchema,
   structuredQuoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
@@ -165,6 +166,34 @@ test("quote catalog rate and lifecycle inputs retain human evidence", () => {
       productId: "22222222-2222-4222-8222-222222222222",
       status: "archived",
       reason: "short",
+    }).success,
+    false,
+  );
+});
+
+test("quote proposal content requires unique bounded customer evidence", () => {
+  const proposal = {
+    organizationId,
+    quoteId: "22222222-2222-4222-8222-222222222222",
+    inclusions: ["Airport transfers", "Daily breakfast"],
+    exclusions: ["International flights"],
+    terms: ["Subject to availability"],
+  };
+  assert.equal(
+    quoteProposalContentInputSchema.safeParse(proposal).success,
+    true,
+  );
+  assert.equal(
+    quoteProposalContentInputSchema.safeParse({
+      ...proposal,
+      inclusions: ["Daily breakfast", "daily breakfast"],
+    }).success,
+    false,
+  );
+  assert.equal(
+    quoteProposalContentInputSchema.safeParse({
+      ...proposal,
+      terms: [],
     }).success,
     false,
   );

@@ -435,8 +435,14 @@ async function verifyAuthorization() {
     if (quoteDraft.error || !guardedQuoteId)
       throw quoteDraft.error ??
         new Error("Guardrail quote fixture was not created.");
+    const readyProposalContent = {
+      schema_version: 1,
+      inclusions: ["Private airport transfers", "Daily breakfast"],
+      exclusions: ["International flights"],
+      terms: ["Subject to availability"],
+    };
 
-    const incompleteQuoteApproval = await owner
+    const missingProposalApproval = await owner
       .from("approval_requests")
       .insert({
         organization_id: organizationA.id,
@@ -446,6 +452,27 @@ async function verifyAuthorization() {
         entity_type: "quote",
         entity_id: guardedQuoteId,
         payload: { quote_version: 1, guardrail_status: "ready" },
+      });
+    record(
+      "database blocks quote review without current proposal content",
+      Boolean(missingProposalApproval.error),
+    );
+    const { error: proposalFixtureError } = await admin
+      .from("quote_versions")
+      .update({ terms_snapshot: readyProposalContent })
+      .eq("organization_id", organizationA.id)
+      .eq("quote_id", guardedQuoteId)
+      .eq("version", 1);
+    if (proposalFixtureError) throw proposalFixtureError;
+    const incompleteQuoteApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
       });
     record(
       "database blocks quote review without required current cost evidence",
@@ -493,8 +520,13 @@ async function verifyAuthorization() {
     record(
       "database canonicalizes approval evidence to the exact quote revision",
       canonicalQuotePayload?.quote_version === 2 &&
-        canonicalQuotePayload?.guardrail_status === "ready" &&
+      canonicalQuotePayload?.guardrail_status === "ready" &&
         canonicalQuotePayload?.external_share_performed === false &&
+        canonicalQuotePayload?.proposal_content?.inclusion_count === 2 &&
+        canonicalQuotePayload?.proposal_content?.exclusion_count === 1 &&
+        canonicalQuotePayload?.proposal_content?.term_count === 1 &&
+        typeof canonicalQuotePayload?.proposal_content?.sha256 === "string" &&
+        canonicalQuotePayload.proposal_content.sha256.length === 64 &&
         Array.isArray(canonicalQuotePayload?.risk_codes) &&
         canonicalQuotePayload.risk_codes.length === 0,
     );
@@ -509,6 +541,11 @@ async function verifyAuthorization() {
           "margin_percent",
         ].includes(key),
       ),
+    );
+    record(
+      "quote approval evidence hashes proposal content instead of copying it",
+      !JSON.stringify(canonicalQuotePayload).includes("Private airport") &&
+        !JSON.stringify(canonicalQuotePayload).includes("availability"),
     );
 
     const tightenedQuotePolicy = await owner.rpc(
@@ -853,6 +890,33 @@ async function verifyAuthorization() {
       "same-tenant viewers cannot compose protected quote pricing",
       Boolean(viewerStructuredRevision.error),
     );
+    const viewerProposalRevision = await viewer.rpc(
+      "append_quote_proposal_content_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_content: readyProposalContent,
+      },
+    );
+    record(
+      "same-tenant viewers cannot revise customer proposal content",
+      Boolean(viewerProposalRevision.error),
+    );
+    const malformedProposalRevision = await owner.rpc(
+      "append_quote_proposal_content_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_content: {
+          ...readyProposalContent,
+          inclusions: ["Daily breakfast", "daily breakfast"],
+        },
+      },
+    );
+    record(
+      "proposal revisions reject noncanonical duplicate customer content",
+      Boolean(malformedProposalRevision.error),
+    );
     const [coercedStructuredRevision, oversizedStructuredRevision] =
       await Promise.all([
         owner.rpc("append_structured_quote_version", {
@@ -1009,7 +1073,7 @@ async function verifyAuthorization() {
         entity_type: "quote",
         entity_id: guardedQuoteId,
       })
-      .select("payload")
+      .select("id, payload")
       .single();
     record(
       "sharing guardrails evaluate structured margin on net sell not tax",
@@ -1017,6 +1081,101 @@ async function verifyAuthorization() {
         structuredApproval.data?.payload?.quote_version === 4 &&
         structuredApproval.data.payload.guardrail_status === "ready" &&
         structuredApproval.data.payload.risk_codes?.length === 0,
+    );
+    const revisedProposalContent = {
+      schema_version: 1,
+      inclusions: [
+        "Private airport transfers",
+        "Daily breakfast",
+        "Reviewed local experiences",
+      ],
+      exclusions: ["International flights"],
+      terms: ["Subject to availability", "Valid only until quote expiry"],
+    };
+    const proposalRevision = await owner.rpc(
+      "append_quote_proposal_content_version",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_content: revisedProposalContent,
+      },
+    );
+    const proposalSummary = proposalRevision.data?.[0];
+    if (proposalRevision.error || !proposalSummary)
+      throw proposalRevision.error ??
+        new Error("Proposal-content authorization fixture was not created.");
+    const [
+      proposalVersion,
+      copiedProposalLines,
+      copiedProposalCosts,
+      cancelledStructuredApproval,
+      proposalAudit,
+    ] = await Promise.all([
+      owner
+        .from("quote_versions")
+        .select(
+          "terms_snapshot, total_amount, net_amount, tax_amount, margin_amount",
+        )
+        .eq("id", proposalSummary.quote_version_id)
+        .single(),
+      owner
+        .from("quote_line_items")
+        .select("catalog_rate_id, total_amount")
+        .eq("quote_version_id", proposalSummary.quote_version_id)
+        .order("position"),
+      owner
+        .from("quote_line_costs")
+        .select("cost_amount, quote_line_items!inner(quote_version_id)")
+        .eq("quote_line_items.quote_version_id", proposalSummary.quote_version_id),
+      owner
+        .from("approval_requests")
+        .select("status")
+        .eq("id", structuredApproval.data.id)
+        .single(),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("organization_id", organizationA.id)
+        .eq("event_type", "record.updated")
+        .eq("entity_id", guardedQuoteId)
+        .eq("metadata->>event", "quote.proposal_content_version_created")
+        .single(),
+    ]);
+    record(
+      "proposal edits append an exact immutable commercial revision",
+      proposalSummary.quote_version === 5 &&
+        !proposalVersion.error &&
+        Number(proposalVersion.data?.total_amount) === 504000 &&
+        Number(proposalVersion.data?.net_amount) === 480000 &&
+        Number(proposalVersion.data?.tax_amount) === 24000 &&
+        Number(proposalVersion.data?.margin_amount) === 110000 &&
+        proposalVersion.data?.terms_snapshot?.inclusions?.length === 3,
+    );
+    record(
+      "proposal revisions copy sell, protected cost, and catalog provenance",
+      !copiedProposalLines.error &&
+        copiedProposalLines.data?.length === 2 &&
+        copiedProposalLines.data[0]?.catalog_rate_id === catalogRate.rate_id &&
+        !copiedProposalCosts.error &&
+        copiedProposalCosts.data?.length === 2 &&
+        copiedProposalCosts.data.reduce(
+          (sum, cost) => sum + Number(cost.cost_amount),
+          0,
+        ) === 370000,
+    );
+    record(
+      "proposal edits cancel review of the superseded content revision",
+      !cancelledStructuredApproval.error &&
+        cancelledStructuredApproval.data?.status === "cancelled",
+    );
+    record(
+      "proposal audit stores counts and a hash instead of customer content",
+      !proposalAudit.error &&
+        proposalAudit.data?.metadata?.inclusion_count === 3 &&
+        proposalAudit.data.metadata.term_count === 2 &&
+        proposalAudit.data.metadata.content_sha256?.length === 64 &&
+        proposalAudit.data.metadata.external_share_performed === false &&
+        !JSON.stringify(proposalAudit.data.metadata).includes("breakfast"),
     );
     const { data: structuredAudit, error: structuredAuditError } = await owner
       .from("audit_events")

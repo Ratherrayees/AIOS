@@ -15,6 +15,7 @@ test("quote guardrails accept a current costed draft inside policy", () => {
       totalAmount: 545000,
       estimatedCostAmount: 410000,
       validUntil: "2026-09-15",
+      proposalContentReady: true,
     },
     DEFAULT_QUOTE_APPROVAL_POLICY,
     now,
@@ -33,6 +34,7 @@ test("quote guardrails block review when required evidence is absent", () => {
       totalAmount: 0,
       estimatedCostAmount: null,
       validUntil: null,
+      proposalContentReady: false,
     },
     DEFAULT_QUOTE_APPROVAL_POLICY,
     now,
@@ -43,6 +45,7 @@ test("quote guardrails block review when required evidence is absent", () => {
     "total_missing",
     "cost_missing",
     "validity_missing",
+    "proposal_content_missing",
   ]);
   assert.equal(result.canRequestReview, false);
 });
@@ -54,6 +57,7 @@ test("low margin and extended validity remain explicit human-review exceptions",
       totalAmount: 500000,
       estimatedCostAmount: 460000,
       validUntil: "2026-11-01",
+      proposalContentReady: true,
     },
     {
       ...DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -82,6 +86,7 @@ test("an expired quote is blocked even when validity is optional", () => {
       totalAmount: 100000,
       estimatedCostAmount: null,
       validUntil: "2026-07-31",
+      proposalContentReady: true,
     },
     {
       ...DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -102,6 +107,7 @@ test("non-draft commercial records cannot re-enter sharing review", () => {
       totalAmount: 100000,
       estimatedCostAmount: 80000,
       validUntil: "2026-08-15",
+      proposalContentReady: true,
     },
     DEFAULT_QUOTE_APPROVAL_POLICY,
     now,

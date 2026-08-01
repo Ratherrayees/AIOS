@@ -4695,6 +4695,17 @@ export type Database = {
         }
         Returns: number
       }
+      append_quote_proposal_content_version: {
+        Args: {
+          target_content: Json
+          target_organization_id: string
+          target_quote_id: string
+        }
+        Returns: {
+          quote_version: number
+          quote_version_id: string
+        }[]
+      }
       append_quote_version: {
         Args: {
           quote_total_amount: number

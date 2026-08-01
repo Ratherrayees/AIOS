@@ -547,6 +547,19 @@ async function verify() {
       ],
     },
   );
+  const { error: anonymousQuoteProposalError } = await anonymous.rpc(
+    "append_quote_proposal_content_version",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
+      target_content: {
+        schema_version: 1,
+        inclusions: ["Blocked anonymous inclusion"],
+        exclusions: [],
+        terms: ["Blocked anonymous term"],
+      },
+    },
+  );
   const { error: anonymousCatalogProductError } = await anonymous.rpc(
     "create_quote_catalog_product",
     {
@@ -605,6 +618,11 @@ async function verify() {
       function: "append_structured_quote_version",
       anonymousExecutionBlocked: Boolean(anonymousStructuredQuoteError),
       anonymousErrorCode: anonymousStructuredQuoteError?.code ?? null,
+    },
+    {
+      function: "append_quote_proposal_content_version",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteProposalError),
+      anonymousErrorCode: anonymousQuoteProposalError?.code ?? null,
     },
     {
       function: "upsert_quote_approval_policy",

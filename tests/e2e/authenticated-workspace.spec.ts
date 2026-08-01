@@ -1463,8 +1463,46 @@ test.describe("authenticated owner workspace", () => {
       "Created internal version 2",
     );
     await expect(
+      quoteCard.getByLabel("Commercial readiness: Incomplete"),
+    ).toContainText("Proposal inclusions and terms required");
+    await expect(
+      quoteCard.getByRole("button", {
+        name: "Request human sharing review",
+      }),
+    ).toBeDisabled();
+
+    await quoteCard
+      .getByText("Define proposal inclusions & terms")
+      .click();
+    await quoteCard
+      .getByLabel("Proposal inclusions")
+      .fill("Two rooms with breakfast\nPrivate airport transfers");
+    await quoteCard
+      .getByLabel("Proposal exclusions")
+      .fill("International flights\nPersonal expenses");
+    await quoteCard
+      .getByLabel("Proposal terms")
+      .fill("Subject to availability\nValid only until the quote expiry date");
+    await quoteCard
+      .getByRole("button", { name: "Save as new proposal version" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Created customer-content version 3",
+    );
+    await expect(
       quoteCard.getByLabel("Commercial readiness: Ready for human review"),
     ).toContainText("24.8% evidenced margin");
+    await quoteCard.getByText("Customer proposal content").click();
+    const proposalPreview = quoteCard.locator(".quote-proposal-preview");
+    await expect(
+      proposalPreview.getByText("Two rooms with breakfast"),
+    ).toBeVisible();
+    await expect(
+      proposalPreview.getByText("International flights"),
+    ).toBeVisible();
+    await expect(
+      proposalPreview.getByText("Subject to availability"),
+    ).toBeVisible();
     await expect(quoteCard.getByText(/₹5,45,000/)).toBeVisible();
     await quoteCard
       .getByRole("button", { name: "Request human sharing review" })
@@ -1482,7 +1520,7 @@ test.describe("authenticated owner workspace", () => {
       .single();
     expect(quoteError).toBeNull();
     expect(quote).toMatchObject({
-      current_version: 2,
+      current_version: 3,
       status: "draft",
       valid_until: validUntil,
     });
@@ -1496,6 +1534,7 @@ test.describe("authenticated owner workspace", () => {
     expect(versions).toMatchObject([
       { version: 1, total_amount: 520000 },
       { version: 2, total_amount: 545000 },
+      { version: 3, total_amount: 545000 },
     ]);
     const { data: cost, error: costError } = await admin!
       .from("quote_cost_estimates")
@@ -1515,10 +1554,16 @@ test.describe("authenticated owner workspace", () => {
     expect(shareApprovalError).toBeNull();
     expect(shareApproval?.status).toBe("pending");
     expect(shareApproval?.payload).toMatchObject({
-      quote_version: 2,
+      quote_version: 3,
       guardrail_status: "ready",
       risk_codes: [],
       external_share_performed: false,
+      proposal_content: {
+        schema_version: 1,
+        inclusion_count: 2,
+        exclusion_count: 2,
+        term_count: 2,
+      },
       guardrail_policy: {
         minimum_margin_percent: 20,
         require_cost_estimate: true,
@@ -1528,12 +1573,24 @@ test.describe("authenticated owner workspace", () => {
     });
     expect(JSON.stringify(shareApproval?.payload)).not.toContain("410000");
     expect(JSON.stringify(shareApproval?.payload)).not.toContain("545000");
+    expect(JSON.stringify(shareApproval?.payload)).not.toContain(
+      "Two rooms with breakfast",
+    );
+    expect(
+      String(
+        (
+          shareApproval?.payload as {
+            proposal_content?: { sha256?: string };
+          }
+        )?.proposal_content?.sha256,
+      ),
+    ).toHaveLength(64);
 
     await quoteCard.getByLabel("Revise total").fill("550000");
     await quoteCard.getByLabel("Internal estimated cost").fill("412000");
     await quoteCard.getByRole("button", { name: "New version" }).click();
     await expect(page.getByRole("status")).toContainText(
-      "Created internal version 3",
+      "Created internal version 4",
     );
     await expect(quoteCard.getByText("Sharing review pending")).toHaveCount(0);
     await expect(
@@ -1590,7 +1647,7 @@ test.describe("authenticated owner workspace", () => {
       .getByRole("button", { name: "Save structured version" })
       .click();
     await expect(page.getByRole("status")).toContainText(
-      "Created structured internal version 4",
+      "Created structured internal version 5",
     );
     await expect(
       quoteCard.getByLabel("Commercial readiness: Ready for human review"),
@@ -1603,15 +1660,15 @@ test.describe("authenticated owner workspace", () => {
       .eq("id", quote!.id)
       .single();
     expect(structuredQuoteError).toBeNull();
-    expect(structuredQuote?.current_version).toBe(4);
+    expect(structuredQuote?.current_version).toBe(5);
     const { data: structuredVersion, error: structuredVersionError } =
       await admin!
         .from("quote_versions")
         .select(
-          "id, total_amount, net_amount, tax_amount, margin_amount, margin_percent",
+          "id, total_amount, net_amount, tax_amount, margin_amount, margin_percent, terms_snapshot",
         )
         .eq("quote_id", quote!.id)
-        .eq("version", 4)
+        .eq("version", 5)
         .single();
     expect(structuredVersionError).toBeNull();
     expect(structuredVersion).toMatchObject({
@@ -1621,6 +1678,15 @@ test.describe("authenticated owner workspace", () => {
       margin_amount: 110000,
     });
     expect(Number(structuredVersion?.margin_percent)).toBeCloseTo(22.9167, 4);
+    expect(structuredVersion?.terms_snapshot).toMatchObject({
+      schema_version: 1,
+      inclusions: ["Two rooms with breakfast", "Private airport transfers"],
+      exclusions: ["International flights", "Personal expenses"],
+      terms: [
+        "Subject to availability",
+        "Valid only until the quote expiry date",
+      ],
+    });
     const { data: customerLines, error: customerLinesError } = await admin!
       .from("quote_line_items")
       .select(

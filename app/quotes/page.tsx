@@ -19,6 +19,7 @@ import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import { StructuredQuoteComposer } from "./structured-quote-composer";
+import { QuoteProposalEditor } from "./quote-proposal-editor";
 import {
   buildEffectiveQuoteCatalog,
   type QuoteCatalogProduct,
@@ -29,6 +30,10 @@ import {
   DEFAULT_QUOTE_APPROVAL_POLICY,
   type QuoteApprovalPolicy,
 } from "../../lib/crm/quote-guardrails";
+import {
+  isQuoteProposalContentReady,
+  parseQuoteProposalContent,
+} from "../../lib/crm/quote-proposal";
 import "./quotes.css";
 
 type Deal = { id: string; title: string; stage: string; currency: string };
@@ -52,6 +57,7 @@ type QuoteVersion = {
   tax_amount: number;
   margin_amount: number | null;
   margin_percent: number | null;
+  terms_snapshot: unknown;
 };
 type QuoteLineItem = {
   id: string;
@@ -172,7 +178,7 @@ export default function QuotesPage() {
           supabase
             .from("quote_versions")
             .select(
-              "id, quote_id, version, total_amount, net_amount, tax_amount, margin_amount, margin_percent",
+              "id, quote_id, version, total_amount, net_amount, tax_amount, margin_amount, margin_percent, terms_snapshot",
             )
             .eq("organization_id", membership.organization_id)
             .order("version", { ascending: false }),
@@ -335,6 +341,9 @@ export default function QuotesPage() {
                 ? (costs.get(versionId) ?? null)
                 : null,
               validUntil: quote.valid_until,
+              proposalContentReady: isQuoteProposalContentReady(
+                currentVersion?.terms_snapshot,
+              ),
             },
             approvalPolicy,
           ),
@@ -375,6 +384,7 @@ export default function QuotesPage() {
             tax_amount: 0,
             margin_amount: null,
             margin_percent: null,
+            terms_snapshot: {},
           },
           ...current,
         ]);
@@ -426,6 +436,9 @@ export default function QuotesPage() {
               totalAmount > 0
                 ? ((totalAmount - estimatedCostAmount) / totalAmount) * 100
                 : null,
+            terms_snapshot:
+              versionsByKey.get(`${quote.id}:${quote.current_version}`)
+                ?.terms_snapshot ?? {},
           },
           ...current,
         ]);
@@ -485,6 +498,12 @@ export default function QuotesPage() {
     result: Awaited<ReturnType<typeof import("../actions/crm").reviseQuoteDraftWithLines>>,
   ) {
     const summary = result.summary;
+    const previousQuote = quotes.find((quote) => quote.id === result.quote.id);
+    const previousContent = previousQuote
+      ? versionsByKey.get(
+          `${previousQuote.id}:${previousQuote.current_version}`,
+        )?.terms_snapshot
+      : {};
     setQuotes((current) =>
       current.map((quote) =>
         quote.id === result.quote.id ? (result.quote as Quote) : quote,
@@ -500,6 +519,7 @@ export default function QuotesPage() {
         tax_amount: summary.tax_total_amount,
         margin_amount: summary.gross_margin_amount,
         margin_percent: summary.gross_margin_percent,
+        terms_snapshot: previousContent ?? {},
       },
       ...current,
     ]);
@@ -510,6 +530,29 @@ export default function QuotesPage() {
       },
       ...current,
     ]);
+    setLineItems((current) => [
+      ...(result.lines as QuoteLineItem[]),
+      ...current,
+    ]);
+  }
+
+  function applyProposalRevision(
+    result: Awaited<
+      ReturnType<typeof import("../actions/crm").reviseQuoteProposalContent>
+    >,
+  ) {
+    setQuotes((current) =>
+      current.map((quote) =>
+        quote.id === result.quote.id ? (result.quote as Quote) : quote,
+      ),
+    );
+    setVersions((current) => [result.version as QuoteVersion, ...current]);
+    if (result.cost) {
+      setCostEstimates((current) => [
+        result.cost as QuoteCostEstimate,
+        ...current,
+      ]);
+    }
     setLineItems((current) => [
       ...(result.lines as QuoteLineItem[]),
       ...current,
@@ -750,6 +793,10 @@ export default function QuotesPage() {
           quotes.map((quote) => {
             const quoteKey = `${quote.id}:${quote.current_version}`;
             const guardrails = guardrailsByQuote.get(quote.id);
+            const currentVersion = versionsByKey.get(quoteKey);
+            const proposalContent = parseQuoteProposalContent(
+              currentVersion?.terms_snapshot,
+            );
             const currentVersionId = versionIds.get(quoteKey);
             const currentLines = currentVersionId
               ? (linesByVersion.get(currentVersionId) ?? [])
@@ -818,6 +865,31 @@ export default function QuotesPage() {
                     </ul>
                   </details>
                 )}
+                {isQuoteProposalContentReady(
+                  currentVersion?.terms_snapshot,
+                ) && (
+                  <details className="quote-proposal-preview">
+                    <summary>Customer proposal content</summary>
+                    {[
+                      ["Included", proposalContent.inclusions],
+                      ["Not included", proposalContent.exclusions],
+                      ["Terms", proposalContent.terms],
+                    ].map(([label, items]) => (
+                      <section key={label as string}>
+                        <h4>{label}</h4>
+                        {(items as string[]).length > 0 ? (
+                          <ul>
+                            {(items as string[]).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>None recorded.</p>
+                        )}
+                      </section>
+                    ))}
+                  </details>
+                )}
                 {guardrails ? (
                   <section
                     className={`quote-guardrails quote-guardrails-${guardrails.status.tone}`}
@@ -843,6 +915,16 @@ export default function QuotesPage() {
                     Commercial readiness evidence is restricted to authorized
                     roles.
                   </small>
+                )}
+                {canCreate && quote.status === "draft" && (
+                  <QuoteProposalEditor
+                    key={`proposal:${quote.id}:${quote.current_version}`}
+                    organizationId={organizationId!}
+                    quoteId={quote.id}
+                    currentContent={proposalContent}
+                    onSaved={applyProposalRevision}
+                    onNotice={setNotice}
+                  />
                 )}
                 {canCreate && quote.status === "draft" && (
                   <StructuredQuoteComposer
