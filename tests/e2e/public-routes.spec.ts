@@ -112,6 +112,13 @@ test("anonymous quote workspace remains protected", async ({ page }) => {
   await expect(page).toHaveURL(/\/sign-in$/);
 });
 
+test("anonymous customer quote previews remain protected", async ({ page }) => {
+  await page.goto(
+    "/quotes/22222222-2222-4222-8222-222222222222/preview?organization=11111111-1111-4111-8111-111111111111",
+  );
+  await expect(page).toHaveURL(/\/sign-in$/);
+});
+
 test("anonymous itinerary workspace remains protected", async ({ page }) => {
   await page.goto("/itineraries");
   await expect(page).toHaveURL(/\/sign-in$/);

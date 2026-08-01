@@ -1732,6 +1732,40 @@ test.describe("authenticated owner workspace", () => {
       .single();
     expect(structuredCostError).toBeNull();
     expect(structuredCost?.estimated_cost_amount).toBe(370000);
+
+    const previewHref = await quoteCard
+      .getByRole("link", { name: "Preview customer version" })
+      .getAttribute("href");
+    expect(previewHref).toContain(`/quotes/${quote!.id}/preview`);
+    const previewPage = await page.context().newPage();
+    const previewResponse = await previewPage.goto(previewHref!);
+    expect(previewResponse?.status()).toBe(200);
+    await expect(
+      previewPage.getByText("INTERNAL CUSTOMER PREVIEW"),
+    ).toBeVisible();
+    await expect(
+      previewPage.getByRole("heading", { name: quoteTitle }),
+    ).toBeVisible();
+    await expect(previewPage.getByText("Prepared for Aarav Sharma")).toBeVisible();
+    await expect(
+      previewPage.getByRole("table", { name: "Customer quote line items" }),
+    ).toContainText("Two rooms");
+    await expect(previewPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(previewPage.getByText(/₹5,04,000/).first()).toBeVisible();
+    await expect(
+      previewPage.getByRole("button", { name: "Print or save PDF" }),
+    ).toBeVisible();
+    const previewBody = previewPage.locator("body");
+    await expect(previewBody).not.toContainText("estimated cost");
+    await expect(previewBody).not.toContainText("gross margin");
+    await expect(previewBody).not.toContainText("catalog snapshot");
+    await expect(previewBody).not.toContainText("₹3,70,000");
+    await previewPage.setViewportSize({ width: 390, height: 844 });
+    const previewOverflow = await previewPage.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(previewOverflow).toBeLessThanOrEqual(1);
+    await previewPage.close();
   });
 
   test("wires trip drafts, day items, comments, readiness tasks, and reusable templates", async ({

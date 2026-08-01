@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   type FormEvent,
   useEffect,
@@ -890,6 +891,12 @@ export default function QuotesPage() {
                     ))}
                   </details>
                 )}
+                <Link
+                  className="quote-customer-preview-link"
+                  href={`/quotes/${quote.id}/preview?organization=${organizationId}`}
+                >
+                  Preview customer version
+                </Link>
                 {guardrails ? (
                   <section
                     className={`quote-guardrails quote-guardrails-${guardrails.status.tone}`}
