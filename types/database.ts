@@ -3290,31 +3290,40 @@ export type Database = {
       quote_approval_policies: {
         Row: {
           created_at: string
+          enforce_standard_terms: boolean
+          maximum_discount_percent: number
           maximum_validity_days: number
           minimum_margin_percent: number
           organization_id: string
           require_cost_estimate: boolean
           require_valid_until: boolean
+          standard_terms: Json
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           created_at?: string
+          enforce_standard_terms?: boolean
+          maximum_discount_percent?: number
           maximum_validity_days?: number
           minimum_margin_percent?: number
           organization_id: string
           require_cost_estimate?: boolean
           require_valid_until?: boolean
+          standard_terms?: Json
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           created_at?: string
+          enforce_standard_terms?: boolean
+          maximum_discount_percent?: number
           maximum_validity_days?: number
           minimum_margin_percent?: number
           organization_id?: string
           require_cost_estimate?: boolean
           require_valid_until?: boolean
+          standard_terms?: Json
           updated_at?: string
           updated_by?: string | null
         }
@@ -6173,19 +6182,25 @@ export type Database = {
       }
       upsert_quote_approval_policy: {
         Args: {
+          target_enforce_standard_terms: boolean
+          target_maximum_discount_percent: number
           target_maximum_validity_days: number
           target_minimum_margin_percent: number
           target_organization_id: string
           target_require_cost_estimate: boolean
           target_require_valid_until: boolean
+          target_standard_terms: Json
         }
         Returns: {
           created_at: string
+          enforce_standard_terms: boolean
+          maximum_discount_percent: number
           maximum_validity_days: number
           minimum_margin_percent: number
           organization_id: string
           require_cost_estimate: boolean
           require_valid_until: boolean
+          standard_terms: Json
           updated_at: string
           updated_by: string | null
         }[]

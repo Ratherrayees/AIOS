@@ -269,6 +269,9 @@ async function verifyAuthorization() {
         target_require_cost_estimate: false,
         target_require_valid_until: false,
         target_maximum_validity_days: 365,
+        target_maximum_discount_percent: 100,
+        target_enforce_standard_terms: false,
+        target_standard_terms: [],
       },
     );
     record(
@@ -284,11 +287,53 @@ async function verifyAuthorization() {
         target_require_cost_estimate: false,
         target_require_valid_until: false,
         target_maximum_validity_days: 365,
+        target_maximum_discount_percent: 100,
+        target_enforce_standard_terms: false,
+        target_standard_terms: [],
       },
     );
     record(
       "owners cannot configure another tenant's quote policy",
       Boolean(foreignQuotePolicyUpdate.error),
+    );
+
+    const emptyStandardTermsPolicy = await owner.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_minimum_margin_percent: 20,
+        target_require_cost_estimate: true,
+        target_require_valid_until: true,
+        target_maximum_validity_days: 60,
+        target_maximum_discount_percent: 3,
+        target_enforce_standard_terms: true,
+        target_standard_terms: [],
+      },
+    );
+    record(
+      "database requires a standard-term set before enforcing it",
+      Boolean(emptyStandardTermsPolicy.error),
+    );
+
+    const duplicateStandardTermsPolicy = await owner.rpc(
+      "upsert_quote_approval_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_minimum_margin_percent: 20,
+        target_require_cost_estimate: true,
+        target_require_valid_until: true,
+        target_maximum_validity_days: 60,
+        target_maximum_discount_percent: 3,
+        target_enforce_standard_terms: true,
+        target_standard_terms: [
+          "Subject to availability",
+          "subject to availability",
+        ],
+      },
+    );
+    record(
+      "database rejects duplicate standard terms case-insensitively",
+      Boolean(duplicateStandardTermsPolicy.error),
     );
 
     const updatedQuotePolicy = await owner.rpc(
@@ -299,6 +344,9 @@ async function verifyAuthorization() {
         target_require_cost_estimate: true,
         target_require_valid_until: true,
         target_maximum_validity_days: 60,
+        target_maximum_discount_percent: 100,
+        target_enforce_standard_terms: false,
+        target_standard_terms: [],
       },
     );
     record(
@@ -306,7 +354,9 @@ async function verifyAuthorization() {
       !updatedQuotePolicy.error &&
         updatedQuotePolicy.data?.length === 1 &&
         Number(updatedQuotePolicy.data[0].minimum_margin_percent) === 20 &&
-        updatedQuotePolicy.data[0].maximum_validity_days === 60,
+        updatedQuotePolicy.data[0].maximum_validity_days === 60 &&
+        Number(updatedQuotePolicy.data[0].maximum_discount_percent) === 100 &&
+        updatedQuotePolicy.data[0].enforce_standard_terms === false,
     );
     const { data: quotePolicyAudit } = await owner
       .from("audit_events")
@@ -319,7 +369,9 @@ async function verifyAuthorization() {
     record(
       "quote policy changes preserve content-free audit evidence",
       quotePolicyAudit?.metadata?.minimum_margin_percent === 20 &&
-        quotePolicyAudit.metadata.maximum_validity_days === 60,
+        quotePolicyAudit.metadata.maximum_validity_days === 60 &&
+        quotePolicyAudit.metadata.standard_term_count === 0 &&
+        quotePolicyAudit.metadata.standard_terms_sha256?.length === 64,
     );
 
     const ownerCrossTenantInsert = await owner.from("contacts").insert({
@@ -556,6 +608,9 @@ async function verifyAuthorization() {
         target_require_cost_estimate: true,
         target_require_valid_until: true,
         target_maximum_validity_days: 60,
+        target_maximum_discount_percent: 3,
+        target_enforce_standard_terms: true,
+        target_standard_terms: ["Subject to availability"],
       },
     );
     if (tightenedQuotePolicy.error)
@@ -1076,11 +1131,28 @@ async function verifyAuthorization() {
       .select("id, payload")
       .single();
     record(
-      "sharing guardrails evaluate structured margin on net sell not tax",
+      "sharing guardrails expose the exact itemized discount exception",
       !structuredApproval.error &&
         structuredApproval.data?.payload?.quote_version === 4 &&
-        structuredApproval.data.payload.guardrail_status === "ready" &&
-        structuredApproval.data.payload.risk_codes?.length === 0,
+        structuredApproval.data.payload.guardrail_status ===
+          "exception_review" &&
+        structuredApproval.data.payload.risk_codes?.length === 1 &&
+        structuredApproval.data.payload.risk_codes[0] ===
+          "discount_above_policy" &&
+        Number(
+          structuredApproval.data.payload.commercial_exceptions
+            ?.discount_percent,
+        ) === 4 &&
+        structuredApproval.data.payload.commercial_exceptions
+          ?.standard_terms_match === true &&
+        Number(
+          structuredApproval.data.payload.guardrail_policy
+            ?.maximum_discount_percent,
+        ) === 3 &&
+        structuredApproval.data.payload.guardrail_policy
+          ?.standard_term_count === 1 &&
+        structuredApproval.data.payload.guardrail_policy
+          ?.standard_terms_sha256?.length === 64,
     );
     const revisedProposalContent = {
       schema_version: 1,
@@ -1194,6 +1266,26 @@ async function verifyAuthorization() {
     if (publishApproval.error || !publishApproval.data)
       throw publishApproval.error ??
         new Error("Public proposal approval fixture was not created.");
+    const publishApprovalPayload = JSON.stringify(publishApproval.data.payload);
+    record(
+      "approval evidence flags discount and term exceptions without wording",
+      publishApproval.data.status === "pending" &&
+        publishApproval.data.payload?.guardrail_status === "exception_review" &&
+        publishApproval.data.payload.risk_codes?.includes(
+          "discount_above_policy",
+        ) &&
+        publishApproval.data.payload.risk_codes?.includes(
+          "non_standard_terms",
+        ) &&
+        Number(
+          publishApproval.data.payload.commercial_exceptions
+            ?.discount_percent,
+        ) === 4 &&
+        publishApproval.data.payload.commercial_exceptions
+          ?.standard_terms_match === false &&
+        !publishApprovalPayload.includes("Subject to availability") &&
+        !publishApprovalPayload.includes("Valid only until quote expiry"),
+    );
     const rawProposalToken = randomBytes(32).toString("base64url");
     const proposalTokenHash = createHash("sha256")
       .update(rawProposalToken)

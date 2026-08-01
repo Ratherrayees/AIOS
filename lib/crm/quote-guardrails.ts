@@ -3,6 +3,9 @@ export type QuoteApprovalPolicy = {
   requireCostEstimate: boolean;
   requireValidUntil: boolean;
   maximumValidityDays: number;
+  maximumDiscountPercent: number;
+  enforceStandardTerms: boolean;
+  standardTerms: string[];
 };
 
 export type QuoteCommercialEvidence = {
@@ -12,6 +15,9 @@ export type QuoteCommercialEvidence = {
   estimatedCostAmount: number | null;
   validUntil: string | null;
   proposalContentReady: boolean;
+  listAmount?: number | null;
+  discountAmount?: number | null;
+  proposalTerms?: string[];
 };
 
 export const DEFAULT_QUOTE_APPROVAL_POLICY: QuoteApprovalPolicy = {
@@ -19,6 +25,9 @@ export const DEFAULT_QUOTE_APPROVAL_POLICY: QuoteApprovalPolicy = {
   requireCostEstimate: true,
   requireValidUntil: true,
   maximumValidityDays: 45,
+  maximumDiscountPercent: 100,
+  enforceStandardTerms: false,
+  standardTerms: [],
 };
 
 export type QuoteGuardrailSignal = {
@@ -46,6 +55,23 @@ export function assessQuoteGuardrails(
   const marginBase = evidence.netAmount ?? total;
   const cost = evidence.estimatedCostAmount;
   const validUntil = dateStart(evidence.validUntil);
+  const listAmount = evidence.listAmount ?? null;
+  const discountAmount = evidence.discountAmount ?? null;
+  const discountPercent =
+    listAmount !== null &&
+    listAmount > 0 &&
+    discountAmount !== null &&
+    Number.isFinite(discountAmount)
+      ? Math.round((discountAmount / listAmount) * 1000) / 10
+      : 0;
+  const normalizeTerms = (terms: string[]) =>
+    terms.map((term) => term.trim().toLocaleLowerCase("en")).sort();
+  const proposalTerms = normalizeTerms(evidence.proposalTerms ?? []);
+  const standardTerms = normalizeTerms(policy.standardTerms);
+  const standardTermsMatch =
+    !policy.enforceStandardTerms ||
+    (proposalTerms.length === standardTerms.length &&
+      proposalTerms.every((term, index) => term === standardTerms[index]));
   const today = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
@@ -116,6 +142,21 @@ export function assessQuoteGuardrails(
       detail: `${marginPercent.toFixed(1)}% margin; policy floor is ${policy.minimumMarginPercent.toFixed(1)}%.`,
     });
   }
+  if (discountPercent > policy.maximumDiscountPercent) {
+    exceptions.push({
+      code: "discount_above_policy",
+      label: "Discount exceeds the review threshold",
+      detail: `${discountPercent.toFixed(1)}% discount; policy allows ${policy.maximumDiscountPercent.toFixed(1)}%.`,
+    });
+  }
+  if (!standardTermsMatch) {
+    exceptions.push({
+      code: "non_standard_terms",
+      label: "Terms differ from the standard set",
+      detail:
+        "The exact current customer terms require an explicit exception decision.",
+    });
+  }
 
   const status = blockers.length
     ? { code: "incomplete", label: "Incomplete", tone: "blocked" }
@@ -128,12 +169,17 @@ export function assessQuoteGuardrails(
     blockers,
     exceptions,
     marginPercent,
+    discountPercent,
+    standardTermsMatch,
     canRequestReview: blockers.length === 0,
     policySnapshot: {
       minimum_margin_percent: policy.minimumMarginPercent,
       require_cost_estimate: policy.requireCostEstimate,
       require_valid_until: policy.requireValidUntil,
       maximum_validity_days: policy.maximumValidityDays,
+      maximum_discount_percent: policy.maximumDiscountPercent,
+      enforce_standard_terms: policy.enforceStandardTerms,
+      standard_term_count: policy.standardTerms.length,
     },
     riskCodes: [...blockers, ...exceptions].map((signal) => signal.code),
     boundaries: {

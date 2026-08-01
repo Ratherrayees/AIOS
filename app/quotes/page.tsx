@@ -36,8 +36,10 @@ import {
 import {
   isQuoteProposalContentReady,
   parseQuoteProposalContent,
+  splitQuoteProposalLines,
 } from "../../lib/crm/quote-proposal";
 import "./quotes.css";
+import "./quote-policy.css";
 
 type Deal = { id: string; title: string; stage: string; currency: string };
 type Quote = {
@@ -69,6 +71,7 @@ type QuoteLineItem = {
   category: string;
   description: string;
   quantity: number;
+  unit_price_amount: number;
   discount_amount: number;
   tax_percent: number;
   net_amount: number;
@@ -105,6 +108,9 @@ type QuoteApprovalPolicyRow = {
   require_cost_estimate: boolean;
   require_valid_until: boolean;
   maximum_validity_days: number;
+  maximum_discount_percent: number;
+  enforce_standard_terms: boolean;
+  standard_terms: unknown;
 };
 
 const commercialRoles = new Set(["owner", "admin", "sales", "trip_designer"]);
@@ -217,14 +223,14 @@ export default function QuotesPage() {
           supabase
             .from("quote_approval_policies")
             .select(
-              "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days",
+              "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, enforce_standard_terms, standard_terms",
             )
             .eq("organization_id", membership.organization_id)
             .maybeSingle(),
           supabase
             .from("quote_line_items")
             .select(
-              "id, quote_version_id, position, category, description, quantity, discount_amount, tax_percent, net_amount, tax_amount, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
+              "id, quote_version_id, position, category, description, quantity, unit_price_amount, discount_amount, tax_percent, net_amount, tax_amount, total_amount, catalog_product_id, catalog_rate_id, supplier_id",
             )
             .eq("organization_id", membership.organization_id)
             .order("position"),
@@ -261,6 +267,13 @@ export default function QuotesPage() {
           requireCostEstimate: row.require_cost_estimate,
           requireValidUntil: row.require_valid_until,
           maximumValidityDays: row.maximum_validity_days,
+          maximumDiscountPercent: Number(row.maximum_discount_percent),
+          enforceStandardTerms: row.enforce_standard_terms,
+          standardTerms: Array.isArray(row.standard_terms)
+            ? row.standard_terms.filter(
+                (term): term is string => typeof term === "string",
+              )
+            : [],
         });
       }
       setLoading(false);
@@ -363,6 +376,12 @@ export default function QuotesPage() {
         const key = `${quote.id}:${quote.current_version}`;
         const currentVersion = versionsByKey.get(key);
         const versionId = currentVersion?.id;
+        const currentLines = versionId
+          ? (linesByVersion.get(versionId) ?? [])
+          : [];
+        const proposalContent = parseQuoteProposalContent(
+          currentVersion?.terms_snapshot,
+        );
         return [
           quote.id,
           assessQuoteGuardrails(
@@ -377,13 +396,30 @@ export default function QuotesPage() {
               proposalContentReady: isQuoteProposalContentReady(
                 currentVersion?.terms_snapshot,
               ),
+              listAmount: currentLines.reduce(
+                (sum, line) =>
+                  sum + Number(line.quantity) * Number(line.unit_price_amount),
+                0,
+              ),
+              discountAmount: currentLines.reduce(
+                (sum, line) => sum + Number(line.discount_amount),
+                0,
+              ),
+              proposalTerms: proposalContent.terms,
             },
             approvalPolicy,
           ),
         ] as const;
       }),
     );
-  }, [approvalPolicy, canViewCosts, costs, quotes, versionsByKey]);
+  }, [
+    approvalPolicy,
+    canViewCosts,
+    costs,
+    linesByVersion,
+    quotes,
+    versionsByKey,
+  ]);
 
   function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -710,6 +746,12 @@ export default function QuotesPage() {
     const form = new FormData(event.currentTarget);
     const minimumMarginPercent = Number(form.get("minimumMarginPercent"));
     const maximumValidityDays = Number(form.get("maximumValidityDays"));
+    const maximumDiscountPercent = Number(
+      form.get("maximumDiscountPercent"),
+    );
+    const standardTerms = splitQuoteProposalLines(
+      String(form.get("standardTerms") || ""),
+    );
     startTransition(async () => {
       try {
         const policy = await updateQuoteApprovalPolicy({
@@ -718,12 +760,22 @@ export default function QuotesPage() {
           maximumValidityDays,
           requireCostEstimate: form.get("requireCostEstimate") === "on",
           requireValidUntil: form.get("requireValidUntil") === "on",
+          maximumDiscountPercent,
+          enforceStandardTerms: form.get("enforceStandardTerms") === "on",
+          standardTerms,
         });
         setApprovalPolicy({
           minimumMarginPercent: Number(policy.minimum_margin_percent),
           requireCostEstimate: policy.require_cost_estimate,
           requireValidUntil: policy.require_valid_until,
           maximumValidityDays: policy.maximum_validity_days,
+          maximumDiscountPercent: Number(policy.maximum_discount_percent),
+          enforceStandardTerms: policy.enforce_standard_terms,
+          standardTerms: Array.isArray(policy.standard_terms)
+            ? policy.standard_terms.filter(
+                (term): term is string => typeof term === "string",
+              )
+            : [],
         });
         setShareApprovals((current) =>
           current.map((approval) =>
@@ -824,6 +876,18 @@ export default function QuotesPage() {
                 required
               />
             </label>
+            <label>
+              Maximum discount %
+              <input
+                name="maximumDiscountPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue={approvalPolicy.maximumDiscountPercent}
+                required
+              />
+            </label>
             <label className="quote-policy-check">
               <input
                 name="requireCostEstimate"
@@ -840,6 +904,24 @@ export default function QuotesPage() {
               />
               Require validity date
             </label>
+            <label className="quote-policy-check">
+              <input
+                name="enforceStandardTerms"
+                type="checkbox"
+                defaultChecked={approvalPolicy.enforceStandardTerms}
+              />
+              Flag terms outside the standard set
+            </label>
+            <label className="quote-policy-terms">
+              Standard customer terms · one per line
+              <textarea
+                name="standardTerms"
+                rows={3}
+                maxLength={9029}
+                defaultValue={approvalPolicy.standardTerms.join("\n")}
+                placeholder="Subject to availability"
+              />
+            </label>
             <button type="submit" disabled={pending || !organizationId}>
               {pending ? "Saving…" : "Save quote guardrails"}
             </button>
@@ -847,8 +929,12 @@ export default function QuotesPage() {
         ) : (
           <p className="quote-policy-summary">
             {approvalPolicy.minimumMarginPercent}% margin floor · up to{" "}
-            {approvalPolicy.maximumValidityDays} validity days · owners and
-            admins configure
+            {approvalPolicy.maximumDiscountPercent}% discount · up to{" "}
+            {approvalPolicy.maximumValidityDays} validity days
+            {approvalPolicy.enforceStandardTerms
+              ? " · standard terms enforced"
+              : ""}{" "}
+            · owners and admins configure
           </p>
         )}
       </section>
@@ -1079,6 +1165,11 @@ export default function QuotesPage() {
                     <strong>{guardrails.status.label}</strong>
                     {guardrails.marginPercent !== null && (
                       <span>{guardrails.marginPercent.toFixed(1)}% evidenced margin</span>
+                    )}
+                    {currentLines.length > 0 && (
+                      <span>
+                        {guardrails.discountPercent.toFixed(1)}% itemized discount
+                      </span>
                     )}
                     {[...guardrails.blockers, ...guardrails.exceptions].map(
                       (signal) => (

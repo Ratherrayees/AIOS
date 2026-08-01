@@ -958,6 +958,32 @@ test("quote approval policies enforce bounded commercial controls", () => {
     }).success,
     true,
   );
+  assert.equal(
+    quoteApprovalPolicyInputSchema.safeParse({
+      organizationId,
+      minimumMarginPercent: 20,
+      requireCostEstimate: true,
+      requireValidUntil: true,
+      maximumValidityDays: 60,
+      maximumDiscountPercent: 3,
+      enforceStandardTerms: true,
+      standardTerms: [],
+    }).success,
+    false,
+  );
+  assert.equal(
+    quoteApprovalPolicyInputSchema.safeParse({
+      organizationId,
+      minimumMarginPercent: 20,
+      requireCostEstimate: true,
+      requireValidUntil: true,
+      maximumValidityDays: 60,
+      maximumDiscountPercent: 3,
+      enforceStandardTerms: true,
+      standardTerms: ["Subject to availability", "subject to availability"],
+    }).success,
+    false,
+  );
 });
 
 test("trip drafts reject an inverted travel date range", () => {

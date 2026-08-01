@@ -544,13 +544,41 @@ export const quoteShareRevokeSchema = z.object({
   note: z.string().trim().min(10).max(500),
 });
 
-export const quoteApprovalPolicyInputSchema = z.object({
-  organizationId: z.uuid(),
-  minimumMarginPercent: z.number().finite().min(0).max(100),
-  requireCostEstimate: z.boolean(),
-  requireValidUntil: z.boolean(),
-  maximumValidityDays: z.number().int().min(1).max(365),
-});
+const quoteStandardTermsSchema = z
+  .array(z.string().trim().min(1).max(MAX_QUOTE_PROPOSAL_ITEM_LENGTH))
+  .max(MAX_QUOTE_PROPOSAL_ITEMS)
+  .superRefine((items, context) => {
+    const identities = new Set<string>();
+    items.forEach((item, index) => {
+      const identity = item.toLocaleLowerCase("en");
+      if (identities.has(identity))
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: "Standard terms must be unique.",
+        });
+      identities.add(identity);
+    });
+  });
+
+export const quoteApprovalPolicyInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    minimumMarginPercent: z.number().finite().min(0).max(100),
+    requireCostEstimate: z.boolean(),
+    requireValidUntil: z.boolean(),
+    maximumValidityDays: z.number().int().min(1).max(365),
+    maximumDiscountPercent: z.number().finite().min(0).max(100).default(100),
+    enforceStandardTerms: z.boolean().default(false),
+    standardTerms: quoteStandardTermsSchema.default([]),
+  })
+  .refine(
+    (value) => !value.enforceStandardTerms || value.standardTerms.length > 0,
+    {
+      path: ["standardTerms"],
+      message: "Add at least one standard term before enforcing the set.",
+    },
+  );
 
 export const structuredQuoteLineInputSchema = z
   .object({

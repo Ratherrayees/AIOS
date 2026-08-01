@@ -1905,6 +1905,9 @@ export async function updateQuoteApprovalPolicy(
       target_require_cost_estimate: data.requireCostEstimate,
       target_require_valid_until: data.requireValidUntil,
       target_maximum_validity_days: data.maximumValidityDays,
+      target_maximum_discount_percent: data.maximumDiscountPercent,
+      target_enforce_standard_terms: data.enforceStandardTerms,
+      target_standard_terms: data.standardTerms,
     })
     .single();
   if (error || !policy)
@@ -1942,7 +1945,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     supabase
       .from("quote_approval_policies")
       .select(
-        "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days",
+        "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, enforce_standard_terms, standard_terms",
       )
       .eq("organization_id", data.organizationId)
       .maybeSingle(),
@@ -1950,15 +1953,39 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
   if (versionResult.error) throw versionResult.error;
   if (policyResult.error) throw policyResult.error;
 
-  const { data: cost, error: costError } = versionResult.data
-    ? await supabase
+  let cost: { estimated_cost_amount: number } | null = null;
+  let pricingLines: Array<{
+    quantity: number;
+    unit_price_amount: number;
+    discount_amount: number;
+  }> = [];
+  if (versionResult.data) {
+    const [costResult, lineResult] = await Promise.all([
+      supabase
         .from("quote_cost_estimates")
         .select("estimated_cost_amount")
         .eq("organization_id", data.organizationId)
         .eq("quote_version_id", versionResult.data.id)
-        .maybeSingle()
-    : { data: null, error: null };
-  if (costError) throw costError;
+        .maybeSingle(),
+      supabase
+        .from("quote_line_items")
+        .select("quantity, unit_price_amount, discount_amount")
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", versionResult.data.id),
+    ]);
+    if (costResult.error) throw costResult.error;
+    if (lineResult.error) throw lineResult.error;
+    cost = costResult.data;
+    pricingLines = lineResult.data ?? [];
+  }
+  const listAmount = pricingLines.reduce(
+    (sum, line) => sum + Number(line.quantity) * Number(line.unit_price_amount),
+    0,
+  );
+  const discountAmount = pricingLines.reduce(
+    (sum, line) => sum + Number(line.discount_amount),
+    0,
+  );
 
   const policy: QuoteApprovalPolicy = policyResult.data
     ? {
@@ -1968,6 +1995,15 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
         requireCostEstimate: policyResult.data.require_cost_estimate,
         requireValidUntil: policyResult.data.require_valid_until,
         maximumValidityDays: policyResult.data.maximum_validity_days,
+        maximumDiscountPercent: Number(
+          policyResult.data.maximum_discount_percent,
+        ),
+        enforceStandardTerms: policyResult.data.enforce_standard_terms,
+        standardTerms: Array.isArray(policyResult.data.standard_terms)
+          ? policyResult.data.standard_terms.filter(
+              (term): term is string => typeof term === "string",
+            )
+          : [],
       }
     : DEFAULT_QUOTE_APPROVAL_POLICY;
   const guardrails = assessQuoteGuardrails(
@@ -1980,6 +2016,17 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
       proposalContentReady: isQuoteProposalContentReady(
         versionResult.data?.terms_snapshot,
       ),
+      listAmount,
+      discountAmount,
+      proposalTerms:
+        versionResult.data?.terms_snapshot &&
+        typeof versionResult.data.terms_snapshot === "object" &&
+        !Array.isArray(versionResult.data.terms_snapshot) &&
+        Array.isArray(versionResult.data.terms_snapshot.terms)
+          ? versionResult.data.terms_snapshot.terms.filter(
+              (term): term is string => typeof term === "string",
+            )
+          : [],
     },
     policy,
   );

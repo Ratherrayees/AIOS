@@ -528,6 +528,9 @@ async function verify() {
       target_require_cost_estimate: true,
       target_require_valid_until: true,
       target_maximum_validity_days: 45,
+      target_maximum_discount_percent: 100,
+      target_enforce_standard_terms: false,
+      target_standard_terms: [],
     },
   );
   const { error: anonymousStructuredQuoteError } = await anonymous.rpc(

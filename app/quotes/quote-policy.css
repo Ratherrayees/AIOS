@@ -1,0 +1,13 @@
+.quote-policy-terms {
+  grid-column: 1 / -1;
+}
+
+.quote-policy-terms textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #ded9e8;
+  border-radius: 7px;
+  padding: 8px;
+  color: #393448;
+  font: 11px/1.45 inherit;
+}

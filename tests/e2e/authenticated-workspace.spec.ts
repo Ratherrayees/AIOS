@@ -1428,6 +1428,13 @@ test.describe("authenticated owner workspace", () => {
 
     await page.getByLabel("Minimum gross margin %").fill("20");
     await page.getByLabel("Maximum validity days").fill("60");
+    await page.getByLabel("Maximum discount %").fill("3");
+    await page
+      .getByLabel("Flag terms outside the standard set")
+      .check();
+    await page
+      .getByLabel("Standard customer terms · one per line")
+      .fill("Subject to availability");
     await page.getByRole("button", { name: "Save quote guardrails" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Quote guardrails updated",
@@ -1491,8 +1498,8 @@ test.describe("authenticated owner workspace", () => {
       "Created customer-content version 3",
     );
     await expect(
-      quoteCard.getByLabel("Commercial readiness: Ready for human review"),
-    ).toContainText("24.8% evidenced margin");
+      quoteCard.getByLabel("Commercial readiness: Exception review"),
+    ).toContainText("Terms differ from the standard set");
     await quoteCard.getByText("Customer proposal content").click();
     const proposalPreview = quoteCard.locator(".quote-proposal-preview");
     await expect(
@@ -1556,8 +1563,8 @@ test.describe("authenticated owner workspace", () => {
     expect(shareApproval?.status).toBe("pending");
     expect(shareApproval?.payload).toMatchObject({
       quote_version: 3,
-      guardrail_status: "ready",
-      risk_codes: [],
+      guardrail_status: "exception_review",
+      risk_codes: ["non_standard_terms"],
       external_share_performed: false,
       proposal_content: {
         schema_version: 1,
@@ -1570,6 +1577,13 @@ test.describe("authenticated owner workspace", () => {
         require_cost_estimate: true,
         require_valid_until: true,
         maximum_validity_days: 60,
+        maximum_discount_percent: 3,
+        enforce_standard_terms: true,
+        standard_term_count: 1,
+      },
+      commercial_exceptions: {
+        discount_percent: 0,
+        standard_terms_match: false,
       },
     });
     expect(JSON.stringify(shareApproval?.payload)).not.toContain("410000");
@@ -1651,8 +1665,17 @@ test.describe("authenticated owner workspace", () => {
       "Created structured internal version 5",
     );
     await expect(
-      quoteCard.getByLabel("Commercial readiness: Ready for human review"),
+      quoteCard.getByLabel("Commercial readiness: Exception review"),
     ).toContainText("22.9% evidenced margin");
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Exception review"),
+    ).toContainText("4.0% itemized discount");
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Exception review"),
+    ).toContainText("Discount exceeds the review threshold");
+    await expect(
+      quoteCard.getByLabel("Commercial readiness: Exception review"),
+    ).toContainText("Terms differ from the standard set");
     await expect(quoteCard.getByText("2 customer line items")).toBeVisible();
 
     const { data: structuredQuote, error: structuredQuoteError } = await admin!
