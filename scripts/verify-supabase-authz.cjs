@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { randomBytes, randomUUID } = require("node:crypto");
+const { createHash, randomBytes, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -1176,6 +1176,224 @@ async function verifyAuthorization() {
         proposalAudit.data.metadata.content_sha256?.length === 64 &&
         proposalAudit.data.metadata.external_share_performed === false &&
         !JSON.stringify(proposalAudit.data.metadata).includes("breakfast"),
+    );
+
+    activeVerificationPhase = "approval-gated quote publishing authorization";
+    const publishApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+      })
+      .select("id, status, payload")
+      .single();
+    if (publishApproval.error || !publishApproval.data)
+      throw publishApproval.error ??
+        new Error("Public proposal approval fixture was not created.");
+    const rawProposalToken = randomBytes(32).toString("base64url");
+    const proposalTokenHash = createHash("sha256")
+      .update(rawProposalToken)
+      .digest("hex");
+    const proposalExpiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const unresolvedPublish = await owner.rpc("publish_quote_share", {
+      target_organization_id: organizationA.id,
+      target_quote_id: guardedQuoteId,
+      target_approval_id: publishApproval.data.id,
+      target_token_hash: proposalTokenHash,
+      target_expires_at: proposalExpiresAt,
+    });
+    record(
+      "public proposal publishing requires a resolved exact-version approval",
+      Boolean(unresolvedPublish.error),
+    );
+    const directProposalLinkWrite = await owner.from("quote_share_links").insert({
+      organization_id: organizationA.id,
+      quote_id: guardedQuoteId,
+      quote_version_id: proposalSummary.quote_version_id,
+      approval_request_id: publishApproval.data.id,
+      token_hash: proposalTokenHash,
+      snapshot: {},
+      expires_at: proposalExpiresAt,
+    });
+    record(
+      "browser clients cannot forge public proposal links",
+      Boolean(directProposalLinkWrite.error),
+    );
+    const approvedPublish = await owner.rpc("resolve_approval_request", {
+      target_organization_id: organizationA.id,
+      target_approval_id: publishApproval.data.id,
+      target_decision: "approved",
+    });
+    if (
+      approvedPublish.error ||
+      approvedPublish.data?.[0]?.resolved_status !== "approved"
+    )
+      throw approvedPublish.error ??
+        new Error("Public proposal approval was not resolved.");
+    const foreignProposalPublish = await viewer.rpc("publish_quote_share", {
+      target_organization_id: organizationA.id,
+      target_quote_id: guardedQuoteId,
+      target_approval_id: publishApproval.data.id,
+      target_token_hash: proposalTokenHash,
+      target_expires_at: proposalExpiresAt,
+    });
+    record(
+      "foreign tenants cannot publish another workspace proposal",
+      Boolean(foreignProposalPublish.error),
+    );
+    const invalidCredentialPublish = await owner.rpc("publish_quote_share", {
+      target_organization_id: organizationA.id,
+      target_quote_id: guardedQuoteId,
+      target_approval_id: publishApproval.data.id,
+      target_token_hash: "not-a-sha256-token",
+      target_expires_at: proposalExpiresAt,
+    });
+    record(
+      "proposal publishing rejects malformed bearer-token hashes",
+      Boolean(invalidCredentialPublish.error),
+    );
+    const publishedProposal = await owner.rpc("publish_quote_share", {
+      target_organization_id: organizationA.id,
+      target_quote_id: guardedQuoteId,
+      target_approval_id: publishApproval.data.id,
+      target_token_hash: proposalTokenHash,
+      target_expires_at: proposalExpiresAt,
+    });
+    const publishedProposalLink = publishedProposal.data?.[0];
+    if (publishedProposal.error || !publishedProposalLink)
+      throw publishedProposal.error ??
+        new Error("Approved public proposal was not published.");
+    record(
+      "authorized human publishes one expiring exact-version proposal",
+      publishedProposalLink.share_status === "active" &&
+        publishedProposalLink.quote_version === 5 &&
+        Boolean(publishedProposalLink.share_link_id),
+    );
+    const [directProposalRead, listedProposalLinks, storedProposal, quotePublicSnapshot] =
+      await Promise.all([
+        owner
+          .from("quote_share_links")
+          .select("id, token_hash, snapshot")
+          .eq("organization_id", organizationA.id),
+        owner.rpc("list_quote_share_links", {
+          target_organization_id: organizationA.id,
+        }),
+        admin
+          .from("quote_share_links")
+          .select("token_hash, snapshot")
+          .eq("id", publishedProposalLink.share_link_id)
+          .single(),
+        admin.rpc("get_quote_share_snapshot", {
+          target_token_hash: proposalTokenHash,
+        }),
+      ]);
+    record(
+      "browser clients receive proposal metadata but never hashes or snapshots",
+      Boolean(directProposalRead.error) &&
+        !listedProposalLinks.error &&
+        listedProposalLinks.data?.length === 1 &&
+        !Object.prototype.hasOwnProperty.call(
+          listedProposalLinks.data[0] ?? {},
+          "token_hash",
+        ) &&
+        !Object.prototype.hasOwnProperty.call(
+          listedProposalLinks.data[0] ?? {},
+          "snapshot",
+        ),
+    );
+    const storedSnapshotText = JSON.stringify(storedProposal.data?.snapshot ?? {});
+    record(
+      "database stores only the bearer-token hash and a customer-safe snapshot",
+      !storedProposal.error &&
+        storedProposal.data?.token_hash === proposalTokenHash &&
+        !storedSnapshotText.includes(rawProposalToken) &&
+        !/(unit_cost|estimated_cost|margin|supplier|catalog|deal_id|contact_id)/i.test(
+          storedSnapshotText,
+        ),
+    );
+    record(
+      "service-only proposal lookup returns exact approved customer evidence",
+      !quotePublicSnapshot.error &&
+        quotePublicSnapshot.data?.quote?.version === 5 &&
+        Number(quotePublicSnapshot.data?.quote?.total_amount) === 504000 &&
+        quotePublicSnapshot.data?.quote?.line_items?.length === 2 &&
+        quotePublicSnapshot.data?.quote?.content?.inclusions?.length === 3,
+    );
+    const reusedApproval = await owner.rpc("publish_quote_share", {
+      target_organization_id: organizationA.id,
+      target_quote_id: guardedQuoteId,
+      target_approval_id: publishApproval.data.id,
+      target_token_hash: createHash("sha256")
+        .update(randomBytes(32).toString("base64url"))
+        .digest("hex"),
+      target_expires_at: proposalExpiresAt,
+    });
+    record(
+      "one human approval cannot produce competing proposal links",
+      Boolean(reusedApproval.error),
+    );
+    const weakRevocation = await owner.rpc("revoke_quote_share", {
+      target_organization_id: organizationA.id,
+      target_share_link_id: publishedProposalLink.share_link_id,
+      target_note: "short",
+    });
+    record(
+      "proposal revocation requires accountable human evidence",
+      Boolean(weakRevocation.error),
+    );
+    const foreignRevocation = await viewer.rpc("revoke_quote_share", {
+      target_organization_id: organizationA.id,
+      target_share_link_id: publishedProposalLink.share_link_id,
+      target_note: "Foreign tenant must not revoke this proposal",
+    });
+    record(
+      "foreign tenants cannot revoke another workspace proposal",
+      Boolean(foreignRevocation.error),
+    );
+    const revokedProposal = await owner.rpc("revoke_quote_share", {
+      target_organization_id: organizationA.id,
+      target_share_link_id: publishedProposalLink.share_link_id,
+      target_note: "Customer requested a revised proposal",
+    });
+    const [revokedProposalSnapshot, reopenedQuote, proposalLifecycleAudit] =
+      await Promise.all([
+        admin.rpc("get_quote_share_snapshot", {
+          target_token_hash: proposalTokenHash,
+        }),
+        owner
+          .from("quotes")
+          .select("status")
+          .eq("id", guardedQuoteId)
+          .single(),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("organization_id", organizationA.id)
+          .eq("entity_type", "quote_share_link")
+          .eq("entity_id", publishedProposalLink.share_link_id)
+          .order("created_at"),
+      ]);
+    record(
+      "authorized revocation immediately invalidates public proposal access",
+      !revokedProposal.error &&
+        revokedProposal.data?.[0]?.share_status === "revoked" &&
+        revokedProposalSnapshot.data === null &&
+        reopenedQuote.data?.status === "draft",
+    );
+    record(
+      "proposal lifecycle audit excludes tokens snapshots and commercial values",
+      !proposalLifecycleAudit.error &&
+        proposalLifecycleAudit.data?.length === 2 &&
+        !proposalLifecycleAudit.data.some((event) =>
+          new RegExp(
+            `${proposalTokenHash}|${rawProposalToken}|504000|370000|Private airport`,
+            "i",
+          ).test(JSON.stringify(event.metadata)),
+        ),
     );
     const { data: structuredAudit, error: structuredAuditError } = await owner
       .from("audit_events")

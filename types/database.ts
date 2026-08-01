@@ -3667,6 +3667,112 @@ export type Database = {
           },
         ]
       }
+      quote_share_links: {
+        Row: {
+          approval_request_id: string
+          approved_by: string | null
+          created_at: string
+          expired_at: string | null
+          expires_at: string
+          id: string
+          organization_id: string
+          published_at: string
+          published_by: string | null
+          quote_id: string
+          quote_version_id: string
+          revocation_note: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          snapshot: Json
+          status: string
+          token_hash: string
+          updated_at: string
+        }
+        Insert: {
+          approval_request_id: string
+          approved_by?: string | null
+          created_at?: string
+          expired_at?: string | null
+          expires_at: string
+          id?: string
+          organization_id: string
+          published_at?: string
+          published_by?: string | null
+          quote_id: string
+          quote_version_id: string
+          revocation_note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          snapshot: Json
+          status?: string
+          token_hash: string
+          updated_at?: string
+        }
+        Update: {
+          approval_request_id?: string
+          approved_by?: string | null
+          created_at?: string
+          expired_at?: string | null
+          expires_at?: string
+          id?: string
+          organization_id?: string
+          published_at?: string
+          published_by?: string | null
+          quote_id?: string
+          quote_version_id?: string
+          revocation_note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          snapshot?: Json
+          status?: string
+          token_hash?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_share_links_approval_same_organization_fkey"
+            columns: ["organization_id", "approval_request_id"]
+            isOneToOne: false
+            referencedRelation: "approval_requests"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "quote_share_links_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_share_links_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_share_links_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_share_links_quote_version_same_organization_fkey"
+            columns: ["organization_id", "quote_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "quote_id", "id"]
+          },
+          {
+            foreignKeyName: "quote_share_links_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_versions: {
         Row: {
           cost_lines: Json
@@ -5041,6 +5147,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_quote_share_snapshot: {
+        Args: { target_token_hash: string }
+        Returns: Json
+      }
       get_sales_copilot_quality_summary: {
         Args: { target_organization_id: string }
         Returns: {
@@ -5131,6 +5241,20 @@ export type Database = {
         Args: { target_organization_id: string }
         Returns: boolean
       }
+      list_quote_share_links: {
+        Args: { target_organization_id: string }
+        Returns: {
+          approval_request_id: string
+          effective_status: string
+          expires_at: string
+          id: string
+          published_at: string
+          quote_id: string
+          quote_version_id: string
+          revoked_at: string
+          status: string
+        }[]
+      }
       meets_mfa_requirement: { Args: never; Returns: boolean }
       merge_duplicate_contacts: {
         Args: {
@@ -5156,6 +5280,22 @@ export type Database = {
         Returns: {
           rate_id: string
           rate_version: number
+        }[]
+      }
+      publish_quote_share: {
+        Args: {
+          target_approval_id: string
+          target_expires_at: string
+          target_organization_id: string
+          target_quote_id: string
+          target_token_hash: string
+        }
+        Returns: {
+          expires_at: string
+          published_at: string
+          quote_version: number
+          share_link_id: string
+          share_status: string
         }[]
       }
       publish_traveler_portal: {
@@ -5429,6 +5569,18 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      revoke_quote_share: {
+        Args: {
+          target_note: string
+          target_organization_id: string
+          target_share_link_id: string
+        }
+        Returns: {
+          revoked_at: string
+          share_link_id: string
+          share_status: string
+        }[]
       }
       revoke_traveler_portal: {
         Args: {

@@ -11,7 +11,9 @@ import {
 
 import {
   createQuoteDraft,
+  publishQuoteShare,
   requestQuoteShareApproval,
+  revokeQuoteShare,
   reviseQuoteDraft,
   updateQuoteApprovalPolicy,
 } from "../actions/crm";
@@ -81,10 +83,22 @@ type QuoteCostEstimate = {
   estimated_cost_amount: number;
 };
 type QuoteShareApproval = {
+  id: string;
   entity_id: string | null;
   status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
   created_at: string;
   payload: { quote_version?: number } | null;
+};
+type QuoteShareLink = {
+  id: string;
+  quote_id: string;
+  quote_version_id: string;
+  approval_request_id: string;
+  status: "active" | "revoked" | "expired";
+  effective_status: "active" | "revoked" | "expired";
+  published_at: string;
+  expires_at: string;
+  revoked_at: string | null;
 };
 type QuoteApprovalPolicyRow = {
   minimum_margin_percent: number;
@@ -135,6 +149,8 @@ export default function QuotesPage() {
   const [catalogProducts, setCatalogProducts] = useState<QuoteCatalogProduct[]>([]);
   const [catalogRates, setCatalogRates] = useState<QuoteCatalogRate[]>([]);
   const [shareApprovals, setShareApprovals] = useState<QuoteShareApproval[]>([]);
+  const [shareLinks, setShareLinks] = useState<QuoteShareLink[]>([]);
+  const [publishedPaths, setPublishedPaths] = useState<Record<string, string>>({});
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
   );
@@ -159,6 +175,7 @@ export default function QuotesPage() {
         { data: versionRows },
         { data: costRows },
         { data: shareApprovalRows },
+        { data: shareLinkRows },
         { data: approvalPolicyRow },
         { data: lineItemRows },
         { data: catalogProductRows },
@@ -189,11 +206,14 @@ export default function QuotesPage() {
             .eq("organization_id", membership.organization_id),
           supabase
             .from("approval_requests")
-            .select("entity_id, status, created_at, payload")
+            .select("id, entity_id, status, created_at, payload")
             .eq("organization_id", membership.organization_id)
             .eq("action", "quote.share")
             .eq("entity_type", "quote")
             .order("created_at", { ascending: false }),
+          supabase.rpc("list_quote_share_links", {
+            target_organization_id: membership.organization_id,
+          }),
           supabase
             .from("quote_approval_policies")
             .select(
@@ -228,6 +248,7 @@ export default function QuotesPage() {
       setShareApprovals(
         (shareApprovalRows || []) as unknown as QuoteShareApproval[],
       );
+      setShareLinks((shareLinkRows || []) as QuoteShareLink[]);
       setLineItems((lineItemRows || []) as QuoteLineItem[]);
       setCatalogProducts(
         (catalogProductRows || []) as QuoteCatalogProduct[],
@@ -317,6 +338,17 @@ export default function QuotesPage() {
     }
     return approvals;
   }, [quotes, shareApprovals]);
+  const latestShareLink = useMemo(() => {
+    const links = new Map<string, QuoteShareLink>();
+    for (const link of shareLinks) {
+      if (!links.has(link.quote_id)) links.set(link.quote_id, link);
+    }
+    return links;
+  }, [shareLinks]);
+  const consumedShareApprovals = useMemo(
+    () => new Set(shareLinks.map((link) => link.approval_request_id)),
+    [shareLinks],
+  );
   const dealTitles = useMemo(
     () => new Map(deals.map((deal) => [deal.id, deal.title])),
     [deals],
@@ -473,6 +505,7 @@ export default function QuotesPage() {
         });
         setShareApprovals((current) => [
           {
+            id: approval.approvalId,
             entity_id: quote.id,
             status: "pending",
             created_at: new Date().toISOString(),
@@ -490,6 +523,117 @@ export default function QuotesPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not request the human sharing review.",
+        );
+      }
+    });
+  }
+
+  function publishApprovedShare(
+    quote: Quote,
+    approvalId: string,
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const form = new FormData(event.currentTarget);
+    const durationDays = Number(form.get("durationDays") || 7);
+    startTransition(async () => {
+      try {
+        const published = await publishQuoteShare({
+          organizationId,
+          quoteId: quote.id,
+          approvalId,
+          durationDays,
+        });
+        const versionId = versionIds.get(
+          `${quote.id}:${published.quoteVersion}`,
+        );
+        if (!versionId)
+          throw new Error("The published quote version is not loaded.");
+        setQuotes((current) =>
+          current.map((item) =>
+            item.id === quote.id ? { ...item, status: "shared" } : item,
+          ),
+        );
+        setShareLinks((current) => [
+          {
+            id: published.id,
+            quote_id: quote.id,
+            quote_version_id: versionId,
+            approval_request_id: approvalId,
+            status: "active",
+            effective_status: "active",
+            published_at: published.publishedAt,
+            expires_at: published.expiresAt,
+            revoked_at: null,
+          },
+          ...current,
+        ]);
+        setPublishedPaths((current) => ({
+          ...current,
+          [published.id]: published.path,
+        }));
+        setNotice(
+          "Approved proposal published. Copy the private link now; the raw credential is not stored and nothing was emailed.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not publish the approved proposal.",
+        );
+      }
+    });
+  }
+
+  function revokePublishedShare(
+    quote: Quote,
+    shareLinkId: string,
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const note = String(form.get("note") || "").trim();
+    startTransition(async () => {
+      try {
+        const revoked = await revokeQuoteShare({
+          organizationId,
+          shareLinkId,
+          note,
+        });
+        setQuotes((current) =>
+          current.map((item) =>
+            item.id === quote.id ? { ...item, status: "draft" } : item,
+          ),
+        );
+        setShareLinks((current) =>
+          current.map((link) =>
+            link.id === shareLinkId
+              ? {
+                  ...link,
+                  status: "revoked",
+                  effective_status: "revoked",
+                  revoked_at: revoked.revokedAt,
+                }
+              : link,
+          ),
+        );
+        setPublishedPaths((current) => {
+          const next = { ...current };
+          delete next[shareLinkId];
+          return next;
+        });
+        formElement.reset();
+        setNotice(
+          "Public proposal revoked immediately. The quote is back in Draft and needs a fresh human review before republishing.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not revoke the public proposal.",
         );
       }
     });
@@ -634,11 +778,11 @@ export default function QuotesPage() {
         </p>
       )}
       <section className="quote-safety">
-        <span>LOCKED</span>
+        <span>GOVERNED</span>
         <p>
-          <b>External quote delivery is disabled.</b> This workspace creates
-          internal drafts only. Quote sharing stays behind the AIOS approval
-          catalog.
+          <b>Public proposals require an exact-version human approval.</b> AIOS
+          can prepare the draft, but only an authorized person can publish its
+          expiring private link. No email or message is sent automatically.
         </p>
       </section>
       <section className="quote-policy" aria-labelledby="quote-policy-title">
@@ -802,18 +946,48 @@ export default function QuotesPage() {
             const currentLines = currentVersionId
               ? (linesByVersion.get(currentVersionId) ?? [])
               : [];
+            const shareApproval = latestShareApproval.get(quote.id);
+            const shareLink = latestShareLink.get(quote.id);
+            const approvalConsumed = shareApproval
+              ? consumedShareApprovals.has(shareApproval.id)
+              : false;
+            const hasStoredOpenLink = shareLink?.status === "active";
+            const canPublishApproved =
+              quote.status === "draft" &&
+              shareApproval?.status === "approved" &&
+              !approvalConsumed &&
+              !hasStoredOpenLink;
+            const canRequestFreshReview =
+              quote.status === "draft" &&
+              !hasStoredOpenLink &&
+              (!shareApproval ||
+                ["rejected", "cancelled", "expired"].includes(
+                  shareApproval.status,
+                ) ||
+                (shareApproval.status === "approved" && approvalConsumed));
             return (
               <article key={quote.id}>
               <div>
                 <span className="quote-status">{quote.status}</span>
-                {latestShareApproval.get(quote.id)?.status === "pending" && (
+                {shareApproval?.status === "pending" && (
                   <span className="quote-review-state">Sharing review pending</span>
                 )}
-                {latestShareApproval.get(quote.id)?.status === "approved" && (
+                {shareApproval?.status === "approved" && !approvalConsumed && (
                   <span className="quote-review-state quote-review-approved">
-                    Approved · delivery unavailable
+                    Approved · ready to publish
                   </span>
                 )}
+                {shareLink?.effective_status === "active" && (
+                  <span className="quote-review-state quote-review-live">
+                    Public link active
+                  </span>
+                )}
+                {shareLink?.effective_status === "expired" &&
+                  shareLink.status === "active" && (
+                    <span className="quote-review-state quote-review-expired">
+                      Public link expired · close to edit
+                    </span>
+                  )}
                 <h3>{quote.title}</h3>
                 <p>
                   {dealTitles.get(quote.deal_id) || "Opportunity"} · Version{" "}
@@ -981,11 +1155,111 @@ export default function QuotesPage() {
                     </button>
                   </form>
                 )}
+                {canCreate && canPublishApproved && shareApproval && (
+                  <form
+                    className="quote-share-publish"
+                    onSubmit={(event) =>
+                      publishApprovedShare(quote, shareApproval.id, event)
+                    }
+                  >
+                    <div>
+                      <b>Human approval verified</b>
+                      <span>
+                        Publish an expiring snapshot of exact version {quote.current_version}.
+                        This creates a link but sends nothing.
+                      </span>
+                    </div>
+                    <label>
+                      Link lifetime
+                      <select name="durationDays" defaultValue="7">
+                        <option value="1">1 day</option>
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30">30 days</option>
+                      </select>
+                    </label>
+                    <button type="submit" disabled={pending}>
+                      {pending ? "Publishing…" : "Publish approved proposal"}
+                    </button>
+                  </form>
+                )}
+                {canCreate && hasStoredOpenLink && shareLink && (
+                  <section className="quote-share-live" aria-label="Public proposal link">
+                    <header>
+                      <div>
+                        <b>
+                          {shareLink.effective_status === "active"
+                            ? "Private proposal is live"
+                            : "Private proposal has expired"}
+                        </b>
+                        <span>
+                          {shareLink.effective_status === "active"
+                            ? "Access closes"
+                            : "Access closed"}{" "}
+                          {new Date(shareLink.expires_at).toLocaleString("en-IN", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </span>
+                      </div>
+                      {publishedPaths[shareLink.id] ? (
+                        <div className="quote-share-link-actions">
+                          <Link
+                            href={publishedPaths[shareLink.id]}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open public proposal
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard
+                                .writeText(
+                                  new URL(
+                                    publishedPaths[shareLink.id],
+                                    window.location.origin,
+                                  ).toString(),
+                                )
+                                .then(() => setNotice("Private proposal link copied."))
+                                .catch(() =>
+                                  setNotice("The browser could not copy the link."),
+                                );
+                            }}
+                          >
+                            Copy private link
+                          </button>
+                        </div>
+                      ) : (
+                        <small>
+                          The raw link is intentionally not stored. Revoke it if the
+                          original copy was lost.
+                        </small>
+                      )}
+                    </header>
+                    <form
+                      onSubmit={(event) =>
+                        revokePublishedShare(quote, shareLink.id, event)
+                      }
+                    >
+                      <label>
+                        Revocation reason
+                        <input
+                          name="note"
+                          minLength={10}
+                          maxLength={500}
+                          placeholder="Customer requested a revised proposal"
+                          required
+                        />
+                      </label>
+                      <button type="submit" disabled={pending}>
+                        {pending ? "Closing…" : "Revoke public proposal"}
+                      </button>
+                    </form>
+                  </section>
+                )}
                 {canCreate &&
-                  quote.status === "draft" &&
-                  !["pending", "approved"].includes(
-                    latestShareApproval.get(quote.id)?.status || "",
-                  ) && (
+                  canRequestFreshReview && (
                   <button
                     type="button"
                     className="quote-share-review"
@@ -997,7 +1271,11 @@ export default function QuotesPage() {
                         : "Complete the listed commercial guardrails first"
                     }
                   >
-                    {pending ? "Requesting…" : "Request human sharing review"}
+                    {pending
+                      ? "Requesting…"
+                      : approvalConsumed
+                        ? "Request new human sharing review"
+                        : "Request human sharing review"}
                   </button>
                 )}
               </div>

@@ -26,6 +26,7 @@ const protectedTables = [
   "quote_line_costs",
   "quote_catalog_products",
   "quote_catalog_rates",
+  "quote_share_links",
   "conversations",
   "messages",
   "approval_requests",
@@ -598,6 +599,34 @@ async function verify() {
       target_reason: "Blocked anonymous lifecycle request",
     },
   );
+  const { error: anonymousQuoteSharePublishError } = await anonymous.rpc(
+    "publish_quote_share",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
+      target_approval_id: "33333333-3333-4333-8333-333333333333",
+      target_token_hash: "a".repeat(64),
+      target_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  );
+  const { error: anonymousQuoteShareRevokeError } = await anonymous.rpc(
+    "revoke_quote_share",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_share_link_id: "44444444-4444-4444-8444-444444444444",
+      target_note: "Anonymous callers cannot revoke proposals",
+    },
+  );
+  const { error: anonymousQuoteShareListError } = await anonymous.rpc(
+    "list_quote_share_links",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
+  const { error: anonymousQuoteShareSnapshotError } = await anonymous.rpc(
+    "get_quote_share_snapshot",
+    { target_token_hash: "a".repeat(64) },
+  );
   const rpcChecks = [
     {
       function: "create_quote_catalog_product",
@@ -613,6 +642,26 @@ async function verify() {
       function: "set_quote_catalog_product_status",
       anonymousExecutionBlocked: Boolean(anonymousCatalogStatusError),
       anonymousErrorCode: anonymousCatalogStatusError?.code ?? null,
+    },
+    {
+      function: "publish_quote_share",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteSharePublishError),
+      anonymousErrorCode: anonymousQuoteSharePublishError?.code ?? null,
+    },
+    {
+      function: "revoke_quote_share",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteShareRevokeError),
+      anonymousErrorCode: anonymousQuoteShareRevokeError?.code ?? null,
+    },
+    {
+      function: "list_quote_share_links",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteShareListError),
+      anonymousErrorCode: anonymousQuoteShareListError?.code ?? null,
+    },
+    {
+      function: "get_quote_share_snapshot",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteShareSnapshotError),
+      anonymousErrorCode: anonymousQuoteShareSnapshotError?.code ?? null,
     },
     {
       function: "append_structured_quote_version",

@@ -25,6 +25,8 @@ import {
   quoteRevisionInputSchema,
   structuredQuoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
+  quoteSharePublishSchema,
+  quoteShareRevokeSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
   paymentAllocationInputSchema,
@@ -904,6 +906,35 @@ test("quote sharing review requires a tenant-scoped quote identifier", () => {
     quoteId: "not-a-quote-id",
   });
   assert.equal(result.success, false);
+});
+
+test("public proposal publication and revocation keep bounded human controls", () => {
+  assert.equal(
+    quoteSharePublishSchema.safeParse({
+      organizationId,
+      quoteId: "22222222-2222-4222-8222-222222222222",
+      approvalId: "33333333-3333-4333-8333-333333333333",
+      durationDays: 7,
+    }).success,
+    true,
+  );
+  assert.equal(
+    quoteSharePublishSchema.safeParse({
+      organizationId,
+      quoteId: "22222222-2222-4222-8222-222222222222",
+      approvalId: "33333333-3333-4333-8333-333333333333",
+      durationDays: 31,
+    }).success,
+    false,
+  );
+  assert.equal(
+    quoteShareRevokeSchema.safeParse({
+      organizationId,
+      shareLinkId: "44444444-4444-4444-8444-444444444444",
+      note: "too short",
+    }).success,
+    false,
+  );
 });
 
 test("quote approval policies enforce bounded commercial controls", () => {

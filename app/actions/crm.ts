@@ -39,6 +39,8 @@ import {
   quoteDraftInputSchema,
   quoteRevisionInputSchema,
   quoteShareApprovalInputSchema,
+  quoteSharePublishSchema,
+  quoteShareRevokeSchema,
   quoteApprovalPolicyInputSchema,
   quoteCatalogProductInputSchema,
   quoteCatalogProductStatusInputSchema,
@@ -108,6 +110,8 @@ import {
   type QuoteDraftInput,
   type QuoteRevisionInput,
   type QuoteShareApprovalInput,
+  type QuoteSharePublishInput,
+  type QuoteShareRevokeInput,
   type QuoteApprovalPolicyInput,
   type QuoteCatalogProductInput,
   type QuoteCatalogProductStatusInput,
@@ -2046,6 +2050,65 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     alreadyPending: false,
     guardrailStatus: guardrails.status.code,
     riskCodes: guardrails.riskCodes,
+  };
+}
+
+/**
+ * Publishes one expiring, customer-safe snapshot after the database consumes
+ * the exact resolved approval. The raw bearer token is returned once and is
+ * never persisted in the database, copied into audit evidence, or sent to a
+ * customer by this action.
+ */
+export async function publishQuoteShare(input: QuoteSharePublishInput) {
+  const data = quoteSharePublishSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const expiresAt = new Date(
+    Date.now() + data.durationDays * 86_400_000,
+  ).toISOString();
+  const supabase = await createSupabaseServerClient();
+  const { data: link, error } = await supabase
+    .rpc("publish_quote_share", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+      target_approval_id: data.approvalId,
+      target_token_hash: tokenHash,
+      target_expires_at: expiresAt,
+    })
+    .single();
+  if (error || !link)
+    throw new Error(
+      error?.message || "The approved public proposal could not be published.",
+    );
+  return {
+    id: link.share_link_id,
+    status: link.share_status,
+    quoteVersion: link.quote_version,
+    publishedAt: link.published_at,
+    expiresAt: link.expires_at,
+    path: `/proposal/${rawToken}`,
+  };
+}
+
+/** Immediately invalidates an active proposal link and returns the quote to Draft. */
+export async function revokeQuoteShare(input: QuoteShareRevokeInput) {
+  const data = quoteShareRevokeSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: link, error } = await supabase
+    .rpc("revoke_quote_share", {
+      target_organization_id: data.organizationId,
+      target_share_link_id: data.shareLinkId,
+      target_note: data.note,
+    })
+    .single();
+  if (error || !link)
+    throw new Error(error?.message || "The public proposal could not be revoked.");
+  return {
+    id: link.share_link_id,
+    status: link.share_status,
+    revokedAt: link.revoked_at,
   };
 }
 

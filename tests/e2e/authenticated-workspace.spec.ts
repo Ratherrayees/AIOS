@@ -1383,6 +1383,7 @@ test.describe("authenticated owner workspace", () => {
   });
 
   test("wires quote drafts, immutable revisions, internal costs, and sharing approval", async ({
+    browser,
     page,
   }) => {
     const quoteTitle = `E2E reviewed proposal ${Date.now()}`;
@@ -1766,6 +1767,131 @@ test.describe("authenticated owner workspace", () => {
     );
     expect(previewOverflow).toBeLessThanOrEqual(1);
     await previewPage.close();
+
+    await quoteCard
+      .getByRole("button", { name: "Request human sharing review" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Human sharing review requested",
+    );
+    await page.goto("/aios");
+    const quoteApprovalCard = page
+      .locator(".aios-approvals article")
+      .filter({ hasText: "quote share" })
+      .first();
+    await expect(quoteApprovalCard).toContainText(
+      "Quote version 5 passed deterministic readiness checks",
+    );
+    await quoteApprovalCard.getByRole("button", { name: "Approve" }).click();
+    await expect(page.getByRole("status")).toContainText("Approval approved");
+
+    await page.goto("/quotes");
+    await expect(
+      quoteCard.getByText("Approved · ready to publish"),
+    ).toBeVisible();
+    await quoteCard.getByLabel("Link lifetime").selectOption("7");
+    await quoteCard
+      .getByRole("button", { name: "Publish approved proposal" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Approved proposal published",
+    );
+    await expect(quoteCard.getByText("Public link active")).toBeVisible();
+    await expect(quoteCard.getByText("Private proposal is live")).toBeVisible();
+
+    const publicProposalHref = await quoteCard
+      .getByRole("link", { name: "Open public proposal" })
+      .getAttribute("href");
+    expect(publicProposalHref).toMatch(/^\/proposal\/[A-Za-z0-9_-]{43}$/);
+    const rawToken = publicProposalHref!.split("/").at(-1)!;
+    const { data: storedShare, error: storedShareError } = await admin!
+      .from("quote_share_links")
+      .select("id, token_hash, status, snapshot, expires_at")
+      .eq("quote_id", quote!.id)
+      .single();
+    expect(storedShareError).toBeNull();
+    expect(storedShare?.status).toBe("active");
+    expect(storedShare?.token_hash).toHaveLength(64);
+    expect(storedShare?.token_hash).not.toBe(rawToken);
+    expect(storedShare?.snapshot).toMatchObject({
+      schema_version: 1,
+      customer: { name: "Aarav Sharma", destination: "Kyoto, Japan" },
+      quote: {
+        title: quoteTitle,
+        version: 5,
+        currency: "INR",
+        total_amount: 504000,
+        content: {
+          inclusions: [
+            "Two rooms with breakfast",
+            "Private airport transfers",
+          ],
+        },
+      },
+    });
+    const storedSnapshotText = JSON.stringify(storedShare?.snapshot);
+    expect(storedSnapshotText).not.toMatch(
+      /unit_cost|estimated_cost|margin|supplier|catalog|deal_id|contact_id/i,
+    );
+
+    const publicContext = await browser.newContext();
+    const publicPage = await publicContext.newPage();
+    const publicProposalUrl = new URL(publicProposalHref!, page.url()).toString();
+    const publicResponse = await publicPage.goto(publicProposalUrl);
+    expect(publicResponse?.status()).toBe(200);
+    await expect(
+      publicPage.getByRole("heading", { name: quoteTitle }),
+    ).toBeVisible();
+    await expect(publicPage.getByText("Prepared for Aarav Sharma")).toBeVisible();
+    await expect(
+      publicPage.getByRole("table", { name: "Proposal line items" }),
+    ).toContainText("Two rooms");
+    await expect(publicPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(publicPage.getByText(/₹5,04,000/).first()).toBeVisible();
+    await expect(
+      publicPage.getByRole("button", { name: "Print or save PDF" }),
+    ).toBeVisible();
+    await expect(publicPage.locator("body")).not.toContainText("estimated cost");
+    await expect(publicPage.locator("body")).not.toContainText("gross margin");
+    await expect(publicPage.locator("body")).not.toContainText("catalog snapshot");
+    await expect(publicPage.locator("body")).not.toContainText("₹3,70,000");
+    await publicPage.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await publicPage.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      ),
+    ).toBeLessThanOrEqual(1);
+
+    await quoteCard
+      .getByLabel("Revocation reason")
+      .fill("Customer requested a revised public proposal");
+    await quoteCard
+      .getByRole("button", { name: "Revoke public proposal" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Public proposal revoked immediately",
+    );
+    await expect(quoteCard.getByText("Public link active")).toHaveCount(0);
+    await expect(
+      quoteCard.getByRole("button", {
+        name: "Request new human sharing review",
+      }),
+    ).toBeVisible();
+    const revokedResponse = await publicPage.reload();
+    expect(revokedResponse?.status()).toBe(404);
+    await publicContext.close();
+
+    const { data: revokedShare, error: revokedShareError } = await admin!
+      .from("quote_share_links")
+      .select("status, revoked_at, revocation_note")
+      .eq("id", storedShare!.id)
+      .single();
+    expect(revokedShareError).toBeNull();
+    expect(revokedShare).toMatchObject({
+      status: "revoked",
+      revocation_note: "Customer requested a revised public proposal",
+    });
+    expect(revokedShare?.revoked_at).toBeTruthy();
   });
 
   test("wires trip drafts, day items, comments, readiness tasks, and reusable templates", async ({

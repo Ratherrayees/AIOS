@@ -140,6 +140,17 @@ test("traveler links are public routes but fail closed for unknown tokens", asyn
   expect(response.headers()["referrer-policy"]).toBe("no-referrer");
 });
 
+test("proposal links are public routes but fail closed for unknown tokens", async ({
+  request,
+}) => {
+  const response = await request.get(`/proposal/${"a".repeat(43)}`, {
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(404);
+  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+});
+
 test("traveler document routes fail closed without an approved mapping", async ({
   request,
 }) => {
