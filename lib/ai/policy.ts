@@ -7,6 +7,7 @@ export const AUTONOMOUS_INTERNAL_ACTIONS = [
   "crm.field_draft.create",
   "itinerary.draft.prepare",
   "knowledge.answer.compose",
+  "inbox.reply_draft.prepare",
   "crm.lead.triage",
   "inbox.sla.triage",
   "trip.operations.monitor",

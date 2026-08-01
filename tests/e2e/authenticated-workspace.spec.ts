@@ -1112,6 +1112,47 @@ test.describe("authenticated owner workspace", () => {
       "Internal note recorded",
     );
 
+    const { error: disabledBudgetError } = await admin!
+      .from("ai_budget_policies")
+      .insert({
+        organization_id: organizationIds[0],
+        daily_model_run_limit: 30,
+        model_execution_enabled: false,
+        selected_model_provider: "glm",
+        fallback_model_provider: null,
+        allowed_model_providers: ["glm"],
+        updated_by: userId!,
+      });
+    expect(disabledBudgetError).toBeNull();
+    await page.getByRole("button", { name: "Ask Sales Copilot" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "model execution is disabled",
+    );
+    const { data: blockedCopilotRun, error: blockedCopilotRunError } =
+      await admin!
+        .from("ai_runs")
+        .select("id, status, error_code")
+        .eq("organization_id", organizationIds[0])
+        .eq("agent_type", "conversation_reply_draft")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+    expect(blockedCopilotRunError).toBeNull();
+    expect(blockedCopilotRun).toMatchObject({
+      status: "blocked",
+      error_code: "AI_MODEL_EXECUTION_DISABLED",
+    });
+    const { count: generatedDraftCount } = await admin!
+      .from("message_drafts")
+      .select("id", { count: "exact", head: true })
+      .eq("ai_run_id", blockedCopilotRun!.id);
+    expect(generatedDraftCount).toBe(0);
+    const { error: disabledBudgetCleanupError } = await admin!
+      .from("ai_budget_policies")
+      .delete()
+      .eq("organization_id", organizationIds[0]);
+    expect(disabledBudgetCleanupError).toBeNull();
+
     await page.getByLabel("Search conversations").fill(subject);
     await page.getByLabel("Name this Inbox view").fill(viewName);
     await page.getByRole("button", { name: "Save view" }).click();

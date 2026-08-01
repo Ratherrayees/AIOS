@@ -3281,6 +3281,118 @@ async function verifyAuthorization() {
         ownerDraft.data.status === "ready_for_review",
     );
 
+    const { data: copilotRuns, error: copilotRunsError } = await admin
+      .from("ai_runs")
+      .insert([
+        {
+          organization_id: organizationA.id,
+          initiated_by: ownerUser.id,
+          agent_type: "conversation_reply_draft",
+          agent_version: "authz-fixture",
+          status: "succeeded",
+          input_reference: { conversation_id: alphaConversation.id },
+        },
+        {
+          organization_id: organizationA.id,
+          initiated_by: ownerUser.id,
+          agent_type: "lead_intake",
+          agent_version: "authz-fixture",
+          status: "succeeded",
+          input_reference: { conversation_id: alphaConversation.id },
+        },
+      ])
+      .select("id, agent_type");
+    if (copilotRunsError || copilotRuns?.length !== 2)
+      throw copilotRunsError ??
+        new Error("Sales Copilot provenance runs were not created.");
+    const copilotRun = copilotRuns.find(
+      (run) => run.agent_type === "conversation_reply_draft",
+    );
+    const wrongAgentRun = copilotRuns.find(
+      (run) => run.agent_type === "lead_intake",
+    );
+    if (!copilotRun || !wrongAgentRun)
+      throw new Error("Sales Copilot provenance runs could not be identified.");
+
+    const forgedCopilotDraft = await owner.from("message_drafts").insert({
+      organization_id: organizationA.id,
+      conversation_id: alphaConversation.id,
+      ai_run_id: copilotRun.id,
+      created_by: ownerUser.id,
+      channel: "email",
+      body: "Browser clients must not forge AI provenance.",
+      status: "ready_for_review",
+    });
+    record(
+      "browser clients cannot forge Sales Copilot draft provenance",
+      Boolean(forgedCopilotDraft.error),
+    );
+
+    const wrongAgentDraft = await admin.from("message_drafts").insert({
+      organization_id: organizationA.id,
+      conversation_id: alphaConversation.id,
+      ai_run_id: wrongAgentRun.id,
+      created_by: ownerUser.id,
+      channel: "email",
+      body: "The database must reject provenance from another agent type.",
+      status: "ready_for_review",
+    });
+    record(
+      "database rejects draft provenance from another AI agent type",
+      Boolean(wrongAgentDraft.error),
+    );
+
+    const { data: copilotDraft, error: copilotDraftError } = await admin
+      .from("message_drafts")
+      .insert({
+        organization_id: organizationA.id,
+        conversation_id: alphaConversation.id,
+        ai_run_id: copilotRun.id,
+        created_by: ownerUser.id,
+        channel: "email",
+        recipient: null,
+        subject: "Internal AIOS review draft",
+        body: "This generated copy remains internal and review-only.",
+        status: "ready_for_review",
+      })
+      .select("id, ai_run_id, recipient, status")
+      .single();
+    record(
+      "server can persist one review-only Sales Copilot draft with provenance",
+      !copilotDraftError &&
+        Boolean(copilotDraft?.id) &&
+        copilotDraft.ai_run_id === copilotRun.id &&
+        copilotDraft.recipient === null &&
+        copilotDraft.status === "ready_for_review",
+    );
+    if (copilotDraftError || !copilotDraft)
+      throw copilotDraftError ??
+        new Error("Sales Copilot draft fixture was not created.");
+
+    const duplicateCopilotDraft = await admin.from("message_drafts").insert({
+      organization_id: organizationA.id,
+      conversation_id: alphaConversation.id,
+      ai_run_id: copilotRun.id,
+      created_by: ownerUser.id,
+      channel: "email",
+      body: "One model run must not create a second generated draft.",
+      status: "ready_for_review",
+    });
+    record(
+      "database limits each Sales Copilot run to one durable draft",
+      duplicateCopilotDraft.error?.code === "23505",
+    );
+
+    const rewrittenProvenance = await admin
+      .from("message_drafts")
+      .update({ ai_run_id: wrongAgentRun.id })
+      .eq("id", copilotDraft.id)
+      .select("id");
+    record(
+      "Sales Copilot draft provenance is immutable",
+      Boolean(rewrittenProvenance.error),
+    );
+
     const foreignConversationDraft = await owner
       .from("message_drafts")
       .insert({

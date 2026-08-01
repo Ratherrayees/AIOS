@@ -22,6 +22,7 @@ import {
   updateMessageDraft,
   updateMessageTemplateStatus,
 } from "../actions/crm";
+import { prepareConversationReplyDraft } from "../actions/sales-copilot";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
@@ -71,6 +72,7 @@ type MessageTemplate = {
 };
 type MessageDraft = {
   id: string;
+  ai_run_id: string | null;
   conversation_id: string;
   template_id: string | null;
   channel: "email" | "whatsapp";
@@ -80,6 +82,12 @@ type MessageDraft = {
   status: "draft" | "ready_for_review";
   scheduled_for: string | null;
   created_at: string;
+};
+type CopilotInsight = {
+  summary: string;
+  suggestedNextSteps: Array<{ action: string; rationale: string }>;
+  missingInformation: string[];
+  confidence: number;
 };
 type SavedView = {
   id: string;
@@ -201,6 +209,8 @@ export default function InboxPage() {
   const [draftScheduledFor, setDraftScheduledFor] = useState("");
   const [draftStatus, setDraftStatus] =
     useState<MessageDraft["status"]>("draft");
+  const [copilotInsight, setCopilotInsight] =
+    useState<CopilotInsight | null>(null);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [filterTimestamp, setFilterTimestamp] = useState(0);
@@ -271,7 +281,7 @@ export default function InboxPage() {
         supabase
           .from("message_drafts")
           .select(
-            "id, conversation_id, template_id, channel, recipient, subject, body, status, scheduled_for, created_at",
+            "id, ai_run_id, conversation_id, template_id, channel, recipient, subject, body, status, scheduled_for, created_at",
           )
           .eq("organization_id", membership.organization_id)
           .is("archived_at", null)
@@ -702,6 +712,7 @@ export default function InboxPage() {
     setDraftBody("");
     setDraftScheduledFor("");
     setDraftStatus("draft");
+    setCopilotInsight(null);
   }
 
   function submitTemplate(event: FormEvent<HTMLFormElement>) {
@@ -842,6 +853,7 @@ export default function InboxPage() {
             });
         const nextDraft: MessageDraft = {
           id: draft.id,
+          ai_run_id: draft.ai_run_id,
           conversation_id: draft.conversation_id,
           template_id: draft.template_id,
           channel: messageChannel(draft.channel),
@@ -877,6 +889,58 @@ export default function InboxPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not save that message draft.",
+        );
+      }
+    });
+  }
+
+  function runSalesCopilot() {
+    if (!organizationId || !selected || pending) return;
+    startTransition(async () => {
+      try {
+        const result = await prepareConversationReplyDraft({
+          organizationId,
+          conversationId: selected.id,
+          channel: draftChannel,
+        });
+        setNotice(result.message);
+        if (result.status !== "succeeded") return;
+        const nextDraft: MessageDraft = {
+          id: result.draft.id,
+          ai_run_id: result.draft.ai_run_id,
+          conversation_id: result.draft.conversation_id,
+          template_id: result.draft.template_id,
+          channel: messageChannel(result.draft.channel),
+          recipient: result.draft.recipient,
+          subject: result.draft.subject,
+          body: result.draft.body,
+          status: messageDraftStatus(result.draft.status),
+          scheduled_for: result.draft.scheduled_for,
+          created_at: result.draft.created_at,
+        };
+        setMessageDrafts((current) => [
+          nextDraft,
+          ...current.filter((draft) => draft.id !== nextDraft.id),
+        ]);
+        setEditingDraftId(nextDraft.id);
+        setDraftTemplateId("");
+        setDraftChannel(nextDraft.channel);
+        setDraftRecipient(selectedContact?.email || "");
+        setDraftSubject(nextDraft.subject || "");
+        setDraftBody(nextDraft.body);
+        setDraftScheduledFor("");
+        setDraftStatus("ready_for_review");
+        setCopilotInsight({
+          summary: result.summary,
+          suggestedNextSteps: result.suggestedNextSteps,
+          missingInformation: result.missingInformation,
+          confidence: result.confidence,
+        });
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not prepare an internal reply draft.",
         );
       }
     });
@@ -1290,10 +1354,46 @@ export default function InboxPage() {
                         : "Prepare the next response"}
                     </h3>
                   </div>
-                  <span>
-                    Internal only · review does not send
-                  </span>
+                  <div className="draft-header-actions">
+                    <span>Internal only · review does not send</span>
+                    <button
+                      type="button"
+                      onClick={runSalesCopilot}
+                      disabled={pending || selectedMessages.length === 0}
+                    >
+                      Ask Sales Copilot
+                    </button>
+                  </div>
                 </header>
+                {copilotInsight ? (
+                  <aside
+                    className="copilot-insight"
+                    aria-label="Sales Copilot evidence summary"
+                  >
+                    <header>
+                      <b>AIOS evidence summary</b>
+                      <span>
+                        {Math.round(copilotInsight.confidence * 100)}%
+                        confidence
+                      </span>
+                    </header>
+                    <p>{copilotInsight.summary}</p>
+                    <ul>
+                      {copilotInsight.suggestedNextSteps.map((step) => (
+                        <li key={`${step.action}:${step.rationale}`}>
+                          <b>{step.action.replaceAll("_", " ")}</b>
+                          {step.rationale}
+                        </li>
+                      ))}
+                    </ul>
+                    {copilotInsight.missingInformation.length ? (
+                      <small>
+                        Confirm before use:{" "}
+                        {copilotInsight.missingInformation.join(" · ")}
+                      </small>
+                    ) : null}
+                  </aside>
+                ) : null}
                 <form onSubmit={submitDraft}>
                   <label>
                     Template
@@ -1411,6 +1511,7 @@ export default function InboxPage() {
                           <b>{draft.subject || "Untitled response"}</b>
                           <div className="draft-card-actions">
                             <span>{draft.status.replaceAll("_", " ")}</span>
+                            {draft.ai_run_id ? <em>AIOS</em> : null}
                             <button
                               type="button"
                               disabled={pending}

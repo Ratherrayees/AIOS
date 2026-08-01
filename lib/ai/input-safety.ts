@@ -269,3 +269,94 @@ export function inspectKnowledgeAnswerInput(input: KnowledgeAnswerInput) {
     } satisfies Json,
   };
 }
+
+export type ConversationCopilotSource = {
+  id: string;
+  subject: string | null;
+  channel: string;
+  status: string;
+  priority: string;
+  messages: Array<{
+    id: string;
+    direction: string;
+    body: string;
+    sentAt: string;
+  }>;
+};
+
+const MAX_COPILOT_MESSAGES = 12;
+const MAX_COPILOT_MESSAGE_CHARS = 2_500;
+const MAX_COPILOT_TOTAL_CHARS = 12_000;
+
+/**
+ * Creates a bounded, redacted transcript for the Sales Copilot. Recipient
+ * addresses are deliberately absent from this contract and raw text is never
+ * copied into audit telemetry.
+ */
+export function inspectConversationCopilotInput(
+  source: ConversationCopilotSource,
+) {
+  const messages = source.messages.slice(-MAX_COPILOT_MESSAGES);
+  const messageTooLarge = messages.some(
+    (message) => message.body.length > MAX_COPILOT_MESSAGE_CHARS,
+  );
+  const totalCharacters = messages.reduce(
+    (total, message) => total + message.body.length,
+    0,
+  );
+  const totalTooLarge = totalCharacters > MAX_COPILOT_TOTAL_CHARS;
+  const missingEvidence = messages.length === 0;
+  const signals = suspiciousSignals([
+    source.subject,
+    ...messages.map((message) => message.body),
+  ]);
+  const blocked =
+    missingEvidence ||
+    messageTooLarge ||
+    totalTooLarge ||
+    signals.length > 0;
+  const errorCode = missingEvidence
+    ? "CONVERSATION_EVIDENCE_MISSING"
+    : signals.length > 0
+      ? "UNTRUSTED_CONVERSATION_CONTENT"
+      : messageTooLarge || totalTooLarge
+        ? "CONVERSATION_INPUT_TOO_LARGE"
+        : null;
+  const redactionCounts = emptyRedactionCounts();
+  const redact = (value: string | null, maxLength: number) => {
+    const result = redactSensitiveModelText(
+      cleanUntrustedText(value, maxLength),
+    );
+    addRedactionCounts(redactionCounts, result.counts);
+    return result.value;
+  };
+
+  return {
+    source: {
+      ...source,
+      subject: redact(source.subject, 300),
+      channel: redact(source.channel, 40) || "manual",
+      status: redact(source.status, 40) || "open",
+      priority: redact(source.priority, 40) || "normal",
+      messages: messages.map((message) => ({
+        ...message,
+        direction: redact(message.direction, 40) || "internal",
+        body:
+          redact(message.body, MAX_COPILOT_MESSAGE_CHARS) ||
+          "[EMPTY_MESSAGE]",
+      })),
+    },
+    blocked,
+    errorCode,
+    audit: {
+      suspicious_instruction_signals: signals,
+      message_count: messages.length,
+      messages_truncated: source.messages.length > MAX_COPILOT_MESSAGES,
+      message_too_large: messageTooLarge,
+      total_character_count: totalCharacters,
+      total_too_large: totalTooLarge,
+      evidence_missing: missingEvidence,
+      sensitive_redactions: redactionCounts,
+    } satisfies Json,
+  };
+}

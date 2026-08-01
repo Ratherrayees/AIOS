@@ -8,6 +8,7 @@ import {
   executeApprovedLeadTriage,
   resumeApprovedLeadIntakeRun,
 } from "./agents";
+import { resumeApprovedConversationReplyDraft } from "./sales-copilot";
 import { requireOrganizationRole } from "../../lib/authorization";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
@@ -73,6 +74,31 @@ export async function resolveApprovalRequest(
       approvalId: approval.approval_id,
       status: data.decision,
       triage,
+    };
+  }
+  if (
+    approval.approval_action === "inbox.reply_draft.prepare" &&
+    approval.approval_entity_id
+  ) {
+    const runId =
+      typeof approval.approval_payload === "object" &&
+      approval.approval_payload !== null &&
+      !Array.isArray(approval.approval_payload) &&
+      typeof approval.approval_payload.ai_run_id === "string"
+        ? approval.approval_payload.ai_run_id
+        : null;
+    if (!runId)
+      throw new Error("This Sales Copilot approval is missing its agent run.");
+    const resumed = await resumeApprovedConversationReplyDraft({
+      organizationId: data.organizationId,
+      approvalId: approval.approval_id,
+      runId,
+      conversationId: approval.approval_entity_id,
+    });
+    return {
+      approvalId: approval.approval_id,
+      status: data.decision,
+      resumedRun: resumed,
     };
   }
   if (!approval.approval_entity_id)

@@ -39,6 +39,20 @@ Message templates and drafts are internal planning records. A planned time and
 send a message. External delivery requires a separate catalogued tool, a
 non-bypassable human approval, idempotency, and verified-provider handling.
 
+The Sales Copilot is a draft-preparation workflow, not a messaging agent. It
+re-fetches at most the latest 12 same-tenant conversation messages, caps each
+message at 2,500 characters and the transcript at 12,000 characters, blocks
+missing or instruction-like evidence, and redacts common direct identifiers
+before provider transit. Recipient addresses are absent from the model
+contract, durable job payload, and generated draft. Structured output may
+contain only an evidence summary, enumerated proposed next steps, missing
+information, confidence, and one reply subject/body. AIOS stores at most one
+`ready_for_review` draft per run; a database trigger validates the same-tenant
+conversation-agent provenance and prevents it from being replaced. Browser
+clients may revise ordinary draft copy under existing Inbox permissions but
+cannot forge AI provenance. No step in this workflow sends, schedules, or
+delivers a message.
+
 Provider-backed runs must pass the current workspace model policy immediately
 before execution. The selected provider must be in the workspace allow-list,
 model execution must be enabled, and the UTC daily ceiling must not be

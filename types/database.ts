@@ -2362,6 +2362,7 @@ export type Database = {
       }
       message_drafts: {
         Row: {
+          ai_run_id: string | null
           archived_at: string | null
           body: string
           channel: string
@@ -2378,6 +2379,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_run_id?: string | null
           archived_at?: string | null
           body: string
           channel?: string
@@ -2394,6 +2396,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_run_id?: string | null
           archived_at?: string | null
           body?: string
           channel?: string
@@ -2410,6 +2413,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "message_drafts_ai_run_same_organization_fkey"
+            columns: ["organization_id", "ai_run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["organization_id", "id"]
+          },
           {
             foreignKeyName: "message_drafts_conversation_same_organization_fkey"
             columns: ["organization_id", "conversation_id"]
@@ -5560,7 +5570,11 @@ export type Database = {
         | "failed"
         | "cancelled"
         | "dead_letter"
-      ai_job_type: "lead_intake" | "itinerary_draft" | "knowledge_answer"
+      ai_job_type:
+        | "lead_intake"
+        | "itinerary_draft"
+        | "knowledge_answer"
+        | "conversation_reply_draft"
       ai_run_status:
         | "queued"
         | "running"
@@ -5771,7 +5785,12 @@ export const Constants = {
         "cancelled",
         "dead_letter",
       ],
-      ai_job_type: ["lead_intake", "itinerary_draft", "knowledge_answer"],
+      ai_job_type: [
+        "lead_intake",
+        "itinerary_draft",
+        "knowledge_answer",
+        "conversation_reply_draft",
+      ],
       ai_run_status: [
         "queued",
         "running",

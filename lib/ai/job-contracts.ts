@@ -29,6 +29,16 @@ export const modelJobPayloadSchema = z.discriminatedUnion("workflow", [
       fallback_provider: modelProviderSchema.nullable().optional(),
     })
     .strict(),
+  z
+    .object({
+      workflow: z.literal("conversation_reply_draft"),
+      conversation_id: z.uuid(),
+      channel: z.enum(["email", "whatsapp"]),
+      prompt_version: z.string().trim().min(3).max(120),
+      provider: modelProviderSchema,
+      fallback_provider: modelProviderSchema.nullable().optional(),
+    })
+    .strict(),
 ]);
 
 export type ModelJobPayload = z.infer<typeof modelJobPayloadSchema>;

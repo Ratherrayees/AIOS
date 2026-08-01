@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  inspectConversationCopilotInput,
   inspectItineraryDraftInput,
   inspectKnowledgeAnswerInput,
   inspectLeadIntakeInput,
@@ -8,6 +9,7 @@ import {
 import {
   AiosProviderNotConfiguredError,
   getAiosProviderStatus,
+  runConversationReplyDraft,
   runItineraryDraft,
   runKnowledgeAnswer,
   runLeadIntake,
@@ -31,6 +33,11 @@ import {
   recordAgentToolCall,
   resumeAgentRun,
 } from "./runtime";
+import {
+  conversationMessageCitations,
+  loadConversationEvidence,
+  persistCopilotDraft,
+} from "./conversation-copilot-runtime";
 import { createSupabaseAdminClient } from "../supabase/admin";
 import type { Json } from "../../types/database";
 import {
@@ -199,7 +206,9 @@ async function processRunnableJob(
       ? AIOS_PROMPT_VERSIONS.leadIntake
       : payload.workflow === "itinerary_draft"
         ? AIOS_PROMPT_VERSIONS.itineraryDraft
-        : AIOS_PROMPT_VERSIONS.knowledgeAnswer;
+        : payload.workflow === "knowledge_answer"
+          ? AIOS_PROMPT_VERSIONS.knowledgeAnswer
+          : AIOS_PROMPT_VERSIONS.conversationReplyDraft;
   if (payload.prompt_version !== currentPromptVersion) {
     return markPermanentFailure({
       organizationId: job.organization_id,
@@ -424,6 +433,103 @@ async function processRunnableJob(
       return "succeeded";
     }
 
+    if (payload.workflow === "conversation_reply_draft") {
+      if (!run.initiated_by)
+        return markPermanentFailure({
+          organizationId: job.organization_id,
+          runId: run.id,
+          jobId: job.id,
+          workerId: claimed.workerId,
+          approvalRequestId: run.approval_request_id,
+          errorCode: "AI_JOB_REFERENCE_INVALID",
+          startedAt,
+        });
+      const source = await loadConversationEvidence(
+        job.organization_id,
+        payload.conversation_id,
+      );
+      const inspected = inspectConversationCopilotInput(source);
+      if (inspected.blocked)
+        return markPermanentFailure({
+          organizationId: job.organization_id,
+          runId: run.id,
+          jobId: job.id,
+          workerId: claimed.workerId,
+          approvalRequestId: run.approval_request_id,
+          errorCode:
+            inspected.errorCode ?? "UNTRUSTED_CONVERSATION_CONTENT",
+          startedAt,
+        });
+      const modelResult = await runConversationReplyDraft(
+        inspected.source,
+        payload.channel,
+        payload.provider,
+        payloadFallback,
+      );
+      const draft = await persistCopilotDraft({
+        organizationId: job.organization_id,
+        conversationId: payload.conversation_id,
+        runId: run.id,
+        initiatedBy: run.initiated_by,
+        channel: payload.channel,
+        subject: modelResult.draft.replySubject,
+        body: modelResult.draft.replyBody,
+      });
+      await settleModelJob({
+        jobId: job.id,
+        workerId: claimed.workerId,
+        attempt: claimed.job_attempts,
+        succeeded: true,
+      });
+      const estimatedCost = await estimateModelRunCost({
+        organizationId: job.organization_id,
+        provider: modelResult.provider,
+        model: modelResult.model,
+        inputTokens: modelResult.inputTokens,
+        outputTokens: modelResult.outputTokens,
+      });
+      await completeAgentRun({
+        organizationId: job.organization_id,
+        runId: run.id,
+        status: "succeeded",
+        result: {
+          summary: modelResult.draft.summary,
+          suggested_next_steps: modelResult.draft.suggestedNextSteps,
+          missing_information: modelResult.draft.missingInformation,
+          confidence: modelResult.draft.confidence,
+          draft_id: draft.id,
+          primary_provider: payload.provider,
+          provider: modelResult.provider,
+          attempted_providers: modelResult.attemptedProviders,
+          fallback_used: modelResult.fallbackUsed,
+          model: modelResult.model,
+          prompt_version: modelResult.promptVersion,
+          response_id: modelResult.responseId,
+          input_safety: inspected.audit,
+        } as Json,
+        citations: conversationMessageCitations(inspected.source) as Json,
+        durationMs: Date.now() - startedAt,
+        inputTokens: modelResult.inputTokens,
+        outputTokens: modelResult.outputTokens,
+        estimatedCost,
+        approvalRequestId: run.approval_request_id,
+      });
+      await recordAgentToolCall({
+        organizationId: job.organization_id,
+        runId: run.id,
+        toolName: "inbox.reply_draft",
+        requestedAction: "inbox.reply_draft.prepare",
+        decision: "allowed",
+        arguments: {
+          conversation_id: payload.conversation_id,
+          channel: payload.channel,
+          external_message_sent: false,
+        },
+        result: { draft_id: draft.id, status: "ready_for_review" },
+      });
+      return "succeeded";
+    }
+
     const { data: trip, error: tripError } = await admin
       .from("trips")
       .select("id, name, start_date, end_date")
@@ -517,9 +623,11 @@ async function processRunnableJob(
         ? "AI_PROVIDER_NOT_CONFIGURED"
         : payload.workflow === "lead_intake"
           ? "LEAD_INTAKE_FAILED"
-          : payload.workflow === "itinerary_draft"
-            ? "ITINERARY_DRAFT_FAILED"
-            : "KNOWLEDGE_ANSWER_FAILED";
+        : payload.workflow === "itinerary_draft"
+          ? "ITINERARY_DRAFT_FAILED"
+          : payload.workflow === "knowledge_answer"
+            ? "KNOWLEDGE_ANSWER_FAILED"
+            : "CONVERSATION_REPLY_DRAFT_FAILED";
     return markRetryableFailure({
       organizationId: job.organization_id,
       runId: run.id,

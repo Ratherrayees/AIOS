@@ -73,6 +73,14 @@ export const AIOS_ACTION_CATALOG = [
     hardApproval: false,
   },
   {
+    action: "inbox.reply_draft.prepare",
+    title: "Prepare Inbox reply drafts",
+    description:
+      "Summarize bounded conversation evidence and save an internal reply draft for human review without sending it.",
+    defaultMode: "assist",
+    hardApproval: false,
+  },
+  {
     action: "external_message.send",
     title: "Send traveller follow-ups",
     description: "Send approved, personalized customer communications.",

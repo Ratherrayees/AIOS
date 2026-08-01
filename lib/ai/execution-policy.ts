@@ -11,6 +11,7 @@ import { dailyRunLimitExceeded, resolveAiosBudgetPolicy } from "./budget";
 import { getAiosProviderStatus } from "./openai-provider";
 import { validFallbackProvider } from "./provider-fallback";
 import {
+  CONVERSATION_REPLY_DRAFT_AGENT,
   ITINERARY_DRAFT_AGENT,
   KNOWLEDGE_ANSWER_AGENT,
   LEAD_INTAKE_AGENT,
@@ -32,6 +33,7 @@ export async function loadOrganizationModelBudget(organizationId: string) {
         LEAD_INTAKE_AGENT.type,
         ITINERARY_DRAFT_AGENT.type,
         KNOWLEDGE_ANSWER_AGENT.type,
+        CONVERSATION_REPLY_DRAFT_AGENT.type,
       ])
       .gte("created_at", dayStart.toISOString()),
     admin

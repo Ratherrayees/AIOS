@@ -53,6 +53,14 @@ test("cited knowledge answers are bounded internal work", () => {
   );
 });
 
+test("Sales Copilot creates review-only drafts as bounded internal work", () => {
+  assert.equal(
+    evaluateAutonomy("inbox.reply_draft.prepare", "assist").decision,
+    "draft",
+  );
+  assert.equal(evaluateAgentAction("inbox.reply_draft.prepare").mode, "allowed");
+});
+
 test("every external-effect catalog action is non-bypassable", () => {
   const externalActions = AIOS_ACTION_CATALOG.filter(
     (action) =>
@@ -65,6 +73,7 @@ test("every external-effect catalog action is non-bypassable", () => {
         "inbox.sla.triage",
         "trip.operations.monitor",
         "knowledge.answer.compose",
+        "inbox.reply_draft.prepare",
       ].includes(action.action),
   );
   assert.ok(externalActions.length > 0);

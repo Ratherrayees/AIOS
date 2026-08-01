@@ -11,9 +11,9 @@ The Supabase CLI management identity available on this machine does not list the
 ## Results
 
 - Remote `public` schema lint returned zero errors or warnings.
-- Local migration history now contains 71 migrations; the hosted database had applied 57 at the read-only checkpoint.
-- Fourteen migrations are pending remotely, from `20260728082547` through `20260801090000`.
-- The pending set contains the newer operations, traveler-entry, supplier/finance, portal, knowledge, analytics-target, management-report, and related hardening work already verified locally.
+- Local migration history now contains 72 migrations; the hosted database had applied 57 at the read-only checkpoint.
+- Fifteen migrations are pending remotely, from `20260728082547` through `20260801100000`.
+- The pending set contains the newer operations, traveler-entry, supplier/finance, portal, knowledge, analytics-target, management-report, provider-fallback, Sales Copilot provenance, and related hardening work already verified locally.
 - Hosted table statistics are fixture-scale: the largest estimated application-table row count observed was only 12, and most tables held zero or one row.
 - Many indexes therefore report zero scans. This is expected at the current scale and is not evidence that those indexes are safe to remove.
 
@@ -25,7 +25,7 @@ Before wider testing:
 
 1. rotate the credentials previously exposed during setup;
 2. take and verify a recoverable backup;
-3. deploy the 14 pending migrations to a dedicated staging project, not directly to production;
+3. deploy the 15 pending migrations to a dedicated staging project, not directly to production;
 4. regenerate and compare types, rerun schema lint, anonymous access probes, authenticated authorization tests, webhook checks, and browser journeys against staging;
 5. connect the correct Supabase management identity or export the dashboard Security and Performance Advisor results;
 6. review any advisor finding against the staged schema and representative query workload before changing indexes or policies.

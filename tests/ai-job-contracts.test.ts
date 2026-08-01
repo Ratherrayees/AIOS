@@ -23,6 +23,16 @@ test("durable model jobs accept only reference metadata", () => {
   assert.equal(knowledgeJob.workflow, "knowledge_answer");
   assert.equal(knowledgeJob.fallback_provider, undefined);
   assert.equal("question" in knowledgeJob, false);
+
+  const conversationJob = modelJobPayloadSchema.parse({
+    workflow: "conversation_reply_draft",
+    conversation_id: "019c0000-0000-7000-8000-000000000002",
+    channel: "email",
+    prompt_version: "conversation-reply-draft.2026-08-01.1",
+    provider: "glm",
+  });
+  assert.equal(conversationJob.workflow, "conversation_reply_draft");
+  assert.equal("message_body" in conversationJob, false);
 });
 
 test("durable model jobs reject raw text and mismatched record references", () => {
@@ -51,6 +61,17 @@ test("durable model jobs reject raw text and mismatched record references", () =
       prompt_version: "knowledge-answer.2026-07-29.1",
       provider: "glm",
       fallback_provider: "unknown",
+    }).success,
+    false,
+  );
+  assert.equal(
+    modelJobPayloadSchema.safeParse({
+      workflow: "conversation_reply_draft",
+      conversation_id: "019c0000-0000-7000-8000-000000000002",
+      channel: "email",
+      prompt_version: "conversation-reply-draft.2026-08-01.1",
+      provider: "glm",
+      message_body: "raw conversation content must not be queued",
     }).success,
     false,
   );
