@@ -1,6 +1,20 @@
 # Database backup and recovery runbook
 
-This is a release gate, not a claim that a restore drill has already passed.
+The automated local database recovery gate passed on 1 August 2026. A hosted staging restore, Storage-object recovery, and provider point-in-time recovery exercise remain release gates.
+
+## Automated local recovery gate
+
+With the disposable local Supabase stack running, execute:
+
+```text
+npm run test:restore
+```
+
+The verifier creates a PostgreSQL custom-format backup inside the local database container, calculates its SHA-256 digest, restores it into a randomly named disposable database, and compares source and restored structural evidence. It then force-drops only the validated `aios_restore_drill_<random>` database and removes only its matching temporary dump, including on failure.
+
+The 1 August checkpoint restored 62 application tables with RLS, 170 policies, 317 indexes, 61 public functions, all 70 migrations through `20260729170000`, and representative organization, membership, and audit row counts. Source and restored evidence matched exactly. Backup plus restore completed in 6.6 seconds on the local workstation, and post-run inspection found no temporary database or dump.
+
+This proves the logical PostgreSQL backup is restorable in the matching Supabase PostgreSQL image. It does not prove hosted recovery time, managed point-in-time recovery, Auth/provider configuration, secrets, or Storage object bytes.
 
 ## Backup policy
 
@@ -26,6 +40,7 @@ This is a release gate, not a claim that a restore drill has already passed.
 
    ```text
    npm run security:secrets
+   npm run test:restore
    npm run verify:supabase
    npm run verify:authz
    npm run typecheck

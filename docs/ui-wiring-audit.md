@@ -1,6 +1,6 @@
 # UI Wiring Audit
 
-Reviewed: 29 July 2026
+Reviewed: 1 August 2026
 
 ## Outcome
 
@@ -15,6 +15,7 @@ The audited build passed with:
 - 21/21 zero-provider AI safety evaluations
 - 8/8 local Resend signed-webhook contract checks
 - 400/400 bounded local production requests with zero transport failures and fail-closed AIOS boundaries
+- one native backup/restore drill with exact 62-table/170-policy/317-index/61-function/70-migration parity and complete cleanup
 - zero TypeScript errors
 - zero ESLint errors or warnings
 - zero browser console errors or warnings across the protected-route sweep
@@ -91,4 +92,4 @@ The following items are not local UI wiring failures; they require external prov
 - deployed AIOS worker secret and schedule
 - credential rotation before deployment
 - remaining keyboard-only form/table walkthroughs and hands-on assistive-technology acceptance
-- production-like backup/restore and rollback drills
+- hosted staging backup/restore, Storage recovery, and rollback drills
