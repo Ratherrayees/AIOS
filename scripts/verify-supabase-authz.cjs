@@ -3393,6 +3393,125 @@ async function verifyAuthorization() {
       Boolean(rewrittenProvenance.error),
     );
 
+    const forgedDraftReview = await owner.from("message_draft_reviews").insert({
+      organization_id: organizationA.id,
+      message_draft_id: copilotDraft.id,
+      ai_run_id: copilotRun.id,
+      draft_updated_at: new Date().toISOString(),
+      content_sha256: "0".repeat(64),
+      decision: "approved",
+      reviewed_by: ownerUser.id,
+    });
+    record(
+      "browser clients cannot forge Sales Copilot review evidence",
+      Boolean(forgedDraftReview.error),
+    );
+
+    const approvedDraftReview = await owner.rpc("review_ai_message_draft", {
+      target_organization_id: organizationA.id,
+      target_message_draft_id: copilotDraft.id,
+      target_decision: "approved",
+    });
+    const approvedReview = approvedDraftReview.data?.[0];
+    record(
+      "authorized human can approve the exact current AI draft revision",
+      !approvedDraftReview.error &&
+        approvedDraftReview.data?.length === 1 &&
+        approvedReview?.decision === "approved" &&
+        approvedReview.note === null &&
+        /^[a-f0-9]{64}$/.test(approvedReview.content_sha256),
+    );
+    if (approvedDraftReview.error || !approvedReview)
+      throw approvedDraftReview.error ??
+        new Error("Sales Copilot review fixture was not created.");
+
+    const duplicateDraftReview = await owner.rpc("review_ai_message_draft", {
+      target_organization_id: organizationA.id,
+      target_message_draft_id: copilotDraft.id,
+      target_decision: "approved",
+    });
+    record(
+      "one AI draft revision cannot receive competing human decisions",
+      duplicateDraftReview.error?.code === "23505",
+    );
+
+    const rewrittenDraftReview = await owner
+      .from("message_draft_reviews")
+      .update({ decision: "rejected" })
+      .eq("id", approvedReview.id)
+      .select("id");
+    record(
+      "Sales Copilot review history is immutable to browser clients",
+      Boolean(rewrittenDraftReview.error) ||
+        rewrittenDraftReview.data?.length === 0,
+    );
+
+    const revisedCopilotDraft = await owner
+      .from("message_drafts")
+      .update({ body: "A human revised this internal AIOS draft." })
+      .eq("id", copilotDraft.id)
+      .select("id, updated_at")
+      .single();
+    if (revisedCopilotDraft.error || !revisedCopilotDraft.data)
+      throw revisedCopilotDraft.error ??
+        new Error("Sales Copilot revision fixture could not be updated.");
+    const changesRequestedReview = await owner.rpc(
+      "review_ai_message_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_message_draft_id: copilotDraft.id,
+        target_decision: "changes_requested",
+        target_note: "Confirm the hotel category before this reply is used.",
+      },
+    );
+    record(
+      "a revised AI draft can receive a new evidence-backed decision",
+      !changesRequestedReview.error &&
+        changesRequestedReview.data?.length === 1 &&
+        changesRequestedReview.data[0].decision === "changes_requested" &&
+        changesRequestedReview.data[0].draft_updated_at ===
+          revisedCopilotDraft.data.updated_at,
+    );
+
+    const foreignDraftReview = await viewer.rpc("review_ai_message_draft", {
+      target_organization_id: organizationA.id,
+      target_message_draft_id: copilotDraft.id,
+      target_decision: "rejected",
+      target_note: "A foreign tenant must not review this draft.",
+    });
+    record(
+      "foreign tenants cannot review Sales Copilot drafts",
+      Boolean(foreignDraftReview.error),
+    );
+
+    const humanDraftAiReview = await owner.rpc("review_ai_message_draft", {
+      target_organization_id: organizationA.id,
+      target_message_draft_id: ownerDraft.data?.id ?? randomUUID(),
+      target_decision: "rejected",
+      target_note: "Human-authored drafts do not belong in the AI review ledger.",
+    });
+    record(
+      "the AI feedback ledger rejects human-authored drafts",
+      Boolean(humanDraftAiReview.error),
+    );
+
+    const { data: draftReviewAudit } = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("entity_type", "message_draft")
+      .eq("entity_id", copilotDraft.id)
+      .eq("event_type", "ai.draft.reviewed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    record(
+      "draft-review audit proves the decision without copying feedback text",
+      draftReviewAudit?.metadata?.feedback_recorded === true &&
+        draftReviewAudit.metadata.external_message_sent === false &&
+        !JSON.stringify(draftReviewAudit.metadata).includes("hotel category"),
+    );
+
     const foreignConversationDraft = await owner
       .from("message_drafts")
       .insert({

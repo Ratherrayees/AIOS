@@ -1194,6 +1194,94 @@ test.describe("authenticated owner workspace", () => {
         body: "A revised human-reviewed response for the traveller.",
       }),
     );
+
+    const copilotSubject = `AIOS review draft ${suffix}`;
+    const { data: copilotRun, error: copilotRunError } = await admin!
+      .from("ai_runs")
+      .insert({
+        organization_id: organizationIds[0],
+        initiated_by: userId!,
+        agent_type: "conversation_reply_draft",
+        agent_version: "e2e-fixture",
+        status: "succeeded",
+        input_reference: {
+          workflow: "conversation_reply_draft",
+          conversation_id: conversation!.id,
+        },
+      })
+      .select("id")
+      .single();
+    expect(copilotRunError).toBeNull();
+    const { data: copilotDraft, error: copilotDraftError } = await admin!
+      .from("message_drafts")
+      .insert({
+        organization_id: organizationIds[0],
+        conversation_id: conversation!.id,
+        ai_run_id: copilotRun!.id,
+        created_by: userId!,
+        channel: "email",
+        recipient: null,
+        subject: copilotSubject,
+        body: "A fictional AIOS draft awaiting exact-revision review.",
+        status: "ready_for_review",
+      })
+      .select("id")
+      .single();
+    expect(copilotDraftError).toBeNull();
+
+    await page.reload();
+    await page.getByLabel("Search conversations").fill(subject);
+    await page
+      .locator("section.inbox-workspace > aside > button")
+      .filter({ hasText: subject })
+      .click();
+    let copilotCard = page.locator(".draft-card").filter({
+      hasText: copilotSubject,
+    });
+    await expect(copilotCard).toContainText("review needed");
+    await copilotCard.getByRole("button", { name: "Review AI draft" }).click();
+    await copilotCard
+      .getByLabel("Review feedback")
+      .fill("Confirm the hotel category before using this reply.");
+    await copilotCard.getByRole("button", { name: "Request changes" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Changes requested and recorded. Nothing was sent.",
+    );
+    await expect(copilotCard).toContainText("changes requested");
+
+    await copilotCard.getByRole("button", { name: "Edit" }).click();
+    await page
+      .getByRole("textbox", { name: "Draft", exact: true })
+      .fill("A human-revised fictional AIOS response for review.");
+    await page.getByRole("button", { name: "Save revision" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Internal draft revised",
+    );
+    copilotCard = page.locator(".draft-card").filter({
+      hasText: copilotSubject,
+    });
+    await expect(copilotCard).toContainText("revision needs review");
+    await copilotCard.getByRole("button", { name: "Review AI draft" }).click();
+    await copilotCard.getByRole("button", { name: "Approve for use" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Draft approved for human use. Nothing was sent.",
+    );
+    await expect(copilotCard).toContainText("approved");
+
+    const { data: copilotReviews, error: copilotReviewsError } = await admin!
+      .from("message_draft_reviews")
+      .select("decision, note, content_sha256")
+      .eq("message_draft_id", copilotDraft!.id)
+      .order("reviewed_at", { ascending: true });
+    expect(copilotReviewsError).toBeNull();
+    expect(copilotReviews).toHaveLength(2);
+    expect(copilotReviews?.map((review) => review.decision)).toEqual([
+      "changes_requested",
+      "approved",
+    ]);
+    expect(copilotReviews?.every((review) =>
+      /^[a-f0-9]{64}$/.test(review.content_sha256),
+    )).toBe(true);
     const { count: messageCount } = await admin!
       .from("messages")
       .select("id", { count: "exact", head: true })

@@ -60,6 +60,7 @@ const protectedTables = [
   "analytics_targets",
   "message_templates",
   "message_drafts",
+  "message_draft_reviews",
   "knowledge_sources",
   "knowledge_sections",
   "knowledge_conflicts",
@@ -499,7 +500,20 @@ async function verify() {
       target_error_code: "blocked",
     },
   );
+  const { error: anonymousDraftReviewError } = await anonymous.rpc(
+    "review_ai_message_draft",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_message_draft_id: "22222222-2222-4222-8222-222222222222",
+      target_decision: "approved",
+    },
+  );
   const rpcChecks = [
+    {
+      function: "review_ai_message_draft",
+      anonymousExecutionBlocked: Boolean(anonymousDraftReviewError),
+      anonymousErrorCode: anonymousDraftReviewError?.code ?? null,
+    },
     {
       function: "accept_organization_invitation",
       anonymousExecutionBlocked: Boolean(anonymousInvitationAcceptanceError),

@@ -53,6 +53,17 @@ clients may revise ordinary draft copy under existing Inbox permissions but
 cannot forge AI provenance. No step in this workflow sends, schedules, or
 delivers a message.
 
+Human review is bound to the exact draft revision, not merely its record ID.
+The guarded review function locks the draft and records its update timestamp,
+AI run, reviewer, decision, and SHA-256 content fingerprint. Approval accepts
+no free-text note; requesting changes or rejecting requires useful bounded
+feedback. A unique revision key prevents competing decisions, and earlier
+decisions remain immutable when a human edits the draft. The UI then marks the
+new revision as needing review. Audit metadata records the decision, content
+fingerprint, and whether feedback exists, but does not copy the draft or
+feedback text. Review is quality/accountability evidence only and confers no
+permission to send.
+
 Provider-backed runs must pass the current workspace model policy immediately
 before execution. The selected provider must be in the workspace allow-list,
 model execution must be enabled, and the UTC daily ceiling must not be

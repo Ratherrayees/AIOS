@@ -22,7 +22,10 @@ import {
   updateMessageDraft,
   updateMessageTemplateStatus,
 } from "../actions/crm";
-import { prepareConversationReplyDraft } from "../actions/sales-copilot";
+import {
+  prepareConversationReplyDraft,
+  reviewConversationReplyDraft,
+} from "../actions/sales-copilot";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
@@ -82,6 +85,15 @@ type MessageDraft = {
   status: "draft" | "ready_for_review";
   scheduled_for: string | null;
   created_at: string;
+  updated_at: string;
+};
+type MessageDraftReview = {
+  id: string;
+  message_draft_id: string;
+  draft_updated_at: string;
+  decision: "approved" | "changes_requested" | "rejected";
+  note: string | null;
+  reviewed_at: string;
 };
 type CopilotInsight = {
   summary: string;
@@ -211,6 +223,9 @@ export default function InboxPage() {
     useState<MessageDraft["status"]>("draft");
   const [copilotInsight, setCopilotInsight] =
     useState<CopilotInsight | null>(null);
+  const [draftReviews, setDraftReviews] = useState<MessageDraftReview[]>([]);
+  const [reviewingDraftId, setReviewingDraftId] = useState("");
+  const [draftReviewNote, setDraftReviewNote] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [filterTimestamp, setFilterTimestamp] = useState(0);
@@ -234,6 +249,7 @@ export default function InboxPage() {
         { data: messageRows },
         { data: templateRows },
         { data: draftRows },
+        { data: draftReviewRows },
         { data: savedViewRows },
       ] = await Promise.all([
         supabase
@@ -281,12 +297,20 @@ export default function InboxPage() {
         supabase
           .from("message_drafts")
           .select(
-            "id, ai_run_id, conversation_id, template_id, channel, recipient, subject, body, status, scheduled_for, created_at",
+            "id, ai_run_id, conversation_id, template_id, channel, recipient, subject, body, status, scheduled_for, created_at, updated_at",
           )
           .eq("organization_id", membership.organization_id)
           .is("archived_at", null)
           .order("created_at", { ascending: false })
           .limit(100),
+        supabase
+          .from("message_draft_reviews")
+          .select(
+            "id, message_draft_id, draft_updated_at, decision, note, reviewed_at",
+          )
+          .eq("organization_id", membership.organization_id)
+          .order("reviewed_at", { ascending: false })
+          .limit(200),
         supabase
           .from("saved_views")
           .select("id, name, filters, created_at")
@@ -335,6 +359,7 @@ export default function InboxPage() {
           status: messageDraftStatus(draft.status),
         })),
       );
+      setDraftReviews(draftReviewRows || []);
       setSavedViews(savedViewRows || []);
       setFilterTimestamp(Date.now());
       setSelectedId(nextConversations[0]?.id || null);
@@ -365,6 +390,14 @@ export default function InboxPage() {
   const selectedDrafts = messageDrafts.filter(
     (draft) => draft.conversation_id === selectedId,
   );
+  const latestReviewByDraft = useMemo(() => {
+    const reviews = new Map<string, MessageDraftReview>();
+    for (const review of draftReviews) {
+      if (!reviews.has(review.message_draft_id))
+        reviews.set(review.message_draft_id, review);
+    }
+    return reviews;
+  }, [draftReviews]);
   const visibleConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return conversations.filter((conversation) => {
@@ -713,6 +746,8 @@ export default function InboxPage() {
     setDraftScheduledFor("");
     setDraftStatus("draft");
     setCopilotInsight(null);
+    setReviewingDraftId("");
+    setDraftReviewNote("");
   }
 
   function submitTemplate(event: FormEvent<HTMLFormElement>) {
@@ -825,6 +860,41 @@ export default function InboxPage() {
     setDraftStatus("draft");
   }
 
+  function reviewCopilotDraft(
+    draft: MessageDraft,
+    decision: MessageDraftReview["decision"],
+  ) {
+    if (!organizationId || pending || !draft.ai_run_id) return;
+    const note = draftReviewNote.trim();
+    if (decision !== "approved" && note.length < 6) {
+      setNotice("Record at least six characters of useful review feedback.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const result = await reviewConversationReplyDraft({
+          organizationId,
+          draftId: draft.id,
+          decision,
+          note: decision === "approved" ? null : note,
+        });
+        setDraftReviews((current) => [
+          result.review,
+          ...current.filter((review) => review.id !== result.review.id),
+        ]);
+        setReviewingDraftId("");
+        setDraftReviewNote("");
+        setNotice(result.message);
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The Sales Copilot review could not be recorded.",
+        );
+      }
+    });
+  }
+
   function submitDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || !selected || pending || !draftBody.trim()) return;
@@ -863,6 +933,7 @@ export default function InboxPage() {
           status: messageDraftStatus(draft.status),
           scheduled_for: draft.scheduled_for,
           created_at: draft.created_at,
+          updated_at: draft.updated_at,
         };
         setMessageDrafts((current) =>
           editingDraftId
@@ -917,6 +988,7 @@ export default function InboxPage() {
           status: messageDraftStatus(result.draft.status),
           scheduled_for: result.draft.scheduled_for,
           created_at: result.draft.created_at,
+          updated_at: result.draft.updated_at,
         };
         setMessageDrafts((current) => [
           nextDraft,
@@ -1505,13 +1577,30 @@ export default function InboxPage() {
                     className="draft-list"
                     aria-label="Saved drafts for this conversation"
                   >
-                    {selectedDrafts.map((draft) => (
-                      <article key={draft.id} className="draft-card">
+                    {selectedDrafts.map((draft) => {
+                      const latestReview = latestReviewByDraft.get(draft.id);
+                      const currentReview =
+                        latestReview?.draft_updated_at === draft.updated_at
+                          ? latestReview
+                          : null;
+                      return (
+                        <article key={draft.id} className="draft-card">
                         <header>
                           <b>{draft.subject || "Untitled response"}</b>
                           <div className="draft-card-actions">
                             <span>{draft.status.replaceAll("_", " ")}</span>
                             {draft.ai_run_id ? <em>AIOS</em> : null}
+                            {draft.ai_run_id ? (
+                              <em
+                                className={`review-${currentReview?.decision || "pending"}`}
+                              >
+                                {currentReview
+                                  ? currentReview.decision.replaceAll("_", " ")
+                                  : latestReview
+                                    ? "revision needs review"
+                                    : "review needed"}
+                              </em>
+                            ) : null}
                             <button
                               type="button"
                               disabled={pending}
@@ -1519,6 +1608,24 @@ export default function InboxPage() {
                             >
                               Edit
                             </button>
+                            {draft.ai_run_id ? (
+                              <button
+                                type="button"
+                                disabled={pending || Boolean(currentReview)}
+                                onClick={() => {
+                                  setReviewingDraftId(
+                                    reviewingDraftId === draft.id
+                                      ? ""
+                                      : draft.id,
+                                  );
+                                  setDraftReviewNote("");
+                                }}
+                              >
+                                {currentReview
+                                  ? "Decision recorded"
+                                  : "Review AI draft"}
+                              </button>
+                            ) : null}
                           </div>
                         </header>
                         <p>{draft.body}</p>
@@ -1533,8 +1640,69 @@ export default function InboxPage() {
                               ).toLocaleString()}`
                             : ""}
                         </small>
-                      </article>
-                    ))}
+                        {currentReview?.note ? (
+                          <p className="draft-review-feedback">
+                            Review feedback: {currentReview.note}
+                          </p>
+                        ) : null}
+                        {reviewingDraftId === draft.id ? (
+                          <section
+                            className="draft-review-panel"
+                            aria-label="Review Sales Copilot draft"
+                          >
+                            <p>
+                              Approving marks this exact revision as suitable for
+                              human use. It still does not send anything.
+                            </p>
+                            <label>
+                              Review feedback
+                              <textarea
+                                value={draftReviewNote}
+                                onChange={(event) =>
+                                  setDraftReviewNote(event.target.value)
+                                }
+                                placeholder="Required when requesting changes or rejecting"
+                                maxLength={500}
+                              />
+                            </label>
+                            <div>
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() =>
+                                  reviewCopilotDraft(draft, "approved")
+                                }
+                              >
+                                Approve for use
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  pending || draftReviewNote.trim().length < 6
+                                }
+                                onClick={() =>
+                                  reviewCopilotDraft(draft, "changes_requested")
+                                }
+                              >
+                                Request changes
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  pending || draftReviewNote.trim().length < 6
+                                }
+                                onClick={() =>
+                                  reviewCopilotDraft(draft, "rejected")
+                                }
+                              >
+                                Reject draft
+                              </button>
+                            </div>
+                          </section>
+                        ) : null}
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </section>

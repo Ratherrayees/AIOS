@@ -10,6 +10,10 @@ import {
 } from "../../lib/ai/execution-policy";
 import { inspectConversationCopilotInput } from "../../lib/ai/input-safety";
 import {
+  conversationDraftReviewInputSchema,
+  type ConversationDraftReviewInput,
+} from "../../lib/ai/draft-review";
+import {
   conversationMessageCitations,
   loadConversationEvidence,
   persistCopilotDraft,
@@ -493,4 +497,42 @@ export async function resumeApprovedConversationReplyDraft(
     approvalRequestId: approval.id,
     resumed: true,
   });
+}
+
+/** Records one human decision for the exact current AI draft revision. */
+export async function reviewConversationReplyDraft(
+  input: ConversationDraftReviewInput,
+) {
+  const data = conversationDraftReviewInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [...inboxWriteRoles]);
+  const supabase = await createSupabaseServerClient();
+  const { data: review, error } = await supabase
+    .rpc("review_ai_message_draft", {
+      target_organization_id: data.organizationId,
+      target_message_draft_id: data.draftId,
+      target_decision: data.decision,
+      ...(data.note ? { target_note: data.note } : {}),
+    })
+    .single();
+  if (error?.code === "23505")
+    throw new Error(
+      "This exact draft revision already has a human decision. Revise it before reviewing again.",
+    );
+  if (error?.code === "22023")
+    throw new Error(
+      "This review is invalid for the current Sales Copilot draft revision.",
+    );
+  if (error?.code === "P0002")
+    throw new Error("This Sales Copilot draft is no longer available.");
+  if (error || !review)
+    throw new Error("The Sales Copilot draft could not be reviewed.");
+  return {
+    review,
+    message:
+      review.decision === "approved"
+        ? "Draft approved for human use. Nothing was sent."
+        : review.decision === "changes_requested"
+          ? "Changes requested and recorded. Nothing was sent."
+          : "Draft rejected with feedback. Nothing was sent.",
+  };
 }

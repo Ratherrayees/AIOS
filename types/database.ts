@@ -2360,6 +2360,74 @@ export type Database = {
           },
         ]
       }
+      message_draft_reviews: {
+        Row: {
+          ai_run_id: string
+          content_sha256: string
+          decision: Database["public"]["Enums"]["message_draft_review_decision"]
+          draft_updated_at: string
+          id: string
+          message_draft_id: string
+          note: string | null
+          organization_id: string
+          reviewed_at: string
+          reviewed_by: string
+        }
+        Insert: {
+          ai_run_id: string
+          content_sha256: string
+          decision: Database["public"]["Enums"]["message_draft_review_decision"]
+          draft_updated_at: string
+          id?: string
+          message_draft_id: string
+          note?: string | null
+          organization_id: string
+          reviewed_at?: string
+          reviewed_by: string
+        }
+        Update: {
+          ai_run_id?: string
+          content_sha256?: string
+          decision?: Database["public"]["Enums"]["message_draft_review_decision"]
+          draft_updated_at?: string
+          id?: string
+          message_draft_id?: string
+          note?: string | null
+          organization_id?: string
+          reviewed_at?: string
+          reviewed_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_draft_reviews_draft_same_organization_fkey"
+            columns: ["organization_id", "message_draft_id"]
+            isOneToOne: false
+            referencedRelation: "message_drafts"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "message_draft_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_draft_reviews_reviewer_same_organization_fkey"
+            columns: ["organization_id", "reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "memberships"
+            referencedColumns: ["organization_id", "user_id"]
+          },
+          {
+            foreignKeyName: "message_draft_reviews_run_same_organization_fkey"
+            columns: ["organization_id", "ai_run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       message_drafts: {
         Row: {
           ai_run_id: string | null
@@ -4889,6 +4957,32 @@ export type Database = {
           resolved_status: Database["public"]["Enums"]["approval_status"]
         }[]
       }
+      review_ai_message_draft: {
+        Args: {
+          target_decision: Database["public"]["Enums"]["message_draft_review_decision"]
+          target_message_draft_id: string
+          target_note?: string
+          target_organization_id: string
+        }
+        Returns: {
+          ai_run_id: string
+          content_sha256: string
+          decision: Database["public"]["Enums"]["message_draft_review_decision"]
+          draft_updated_at: string
+          id: string
+          message_draft_id: string
+          note: string | null
+          organization_id: string
+          reviewed_at: string
+          reviewed_by: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "message_draft_reviews"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       review_knowledge_conflict: {
         Args: {
           target_conflict_id: string
@@ -5627,6 +5721,10 @@ export type Database = {
       knowledge_source_status: "draft" | "in_review" | "approved" | "retired"
       membership_status: "active" | "invited" | "suspended"
       message_direction: "inbound" | "outbound" | "internal"
+      message_draft_review_decision:
+        | "approved"
+        | "changes_requested"
+        | "rejected"
       payment_status:
         | "pending"
         | "partially_paid"
@@ -5849,6 +5947,11 @@ export const Constants = {
       knowledge_source_status: ["draft", "in_review", "approved", "retired"],
       membership_status: ["active", "invited", "suspended"],
       message_direction: ["inbound", "outbound", "internal"],
+      message_draft_review_decision: [
+        "approved",
+        "changes_requested",
+        "rejected",
+      ],
       payment_status: [
         "pending",
         "partially_paid",
