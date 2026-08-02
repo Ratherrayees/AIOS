@@ -2045,7 +2045,84 @@ test.describe("authenticated owner workspace", () => {
     ).toContainText("Accepted by Aarav Sharma");
     await expect(
       quoteCard.getByLabel("Customer acceptance evidence"),
-    ).toContainText("No booking, invoice, receivable, payment, or message was created");
+    ).toContainText(
+      "It did not create a booking, invoice, receivable, payment, or message",
+    );
+
+    const receivableHandoff = quoteCard.getByLabel(
+      "Accepted quote receivable handoff",
+    );
+    await expect(receivableHandoff).toContainText(
+      "Accepted schedule is ready for the ledger",
+    );
+    await receivableHandoff
+      .getByRole("button", { name: "Create internal receivable schedule" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "2 internal receivable milestones created",
+    );
+    await expect(receivableHandoff).toContainText(
+      "2 receivable milestones recorded",
+    );
+    await expect(receivableHandoff).toContainText("Booking deposit");
+    await expect(receivableHandoff).toContainText("Final balance");
+    await expect(receivableHandoff).toContainText(
+      "No traveler was charged or contacted",
+    );
+    const { data: quoteReceivables, error: quoteReceivablesError } = await admin!
+      .from("payments")
+      .select(
+        "quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, invoice_number, amount, paid_amount, currency, due_at",
+      )
+      .eq("quote_id", quote!.id)
+      .order("quote_schedule_item_position");
+    expect(quoteReceivablesError).toBeNull();
+    expect(quoteReceivables).toMatchObject([
+      {
+        quote_version_id: paymentSchedule!.quote_version_id,
+        quote_acceptance_id: acceptanceEvidence.data!.id,
+        quote_payment_schedule_id: paymentSchedule!.id,
+        quote_schedule_item_position: 0,
+        direction: "receivable",
+        title: "Booking deposit",
+        invoice_number: null,
+        amount: 151200,
+        paid_amount: 0,
+        currency: "INR",
+      },
+      {
+        quote_version_id: paymentSchedule!.quote_version_id,
+        quote_acceptance_id: acceptanceEvidence.data!.id,
+        quote_payment_schedule_id: paymentSchedule!.id,
+        quote_schedule_item_position: 1,
+        direction: "receivable",
+        title: "Final balance",
+        invoice_number: null,
+        amount: 352800,
+        paid_amount: 0,
+        currency: "INR",
+      },
+    ]);
+    expect(
+      quoteReceivables?.reduce(
+        (sum, receivable) => sum + Number(receivable.amount),
+        0,
+      ),
+    ).toBe(504000);
+
+    await page.goto("/finance");
+    const depositReceivable = page
+      .locator(".payment-card")
+      .filter({ hasText: "Booking deposit" });
+    await expect(depositReceivable).toContainText("ACCEPTED QUOTE");
+    await expect(depositReceivable).toContainText(
+      "no invoice document was issued or delivered",
+    );
+    await expect(
+      depositReceivable.getByRole("link", { name: "Review quote evidence" }),
+    ).toHaveAttribute("href", "/quotes");
+    await page.goto("/quotes");
+    await expect(quoteCard.locator(".quote-status")).toHaveText("accepted");
 
     await quoteCard
       .getByLabel("Revocation reason")

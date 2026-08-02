@@ -1045,6 +1045,11 @@ export const paymentObligationInputSchema = z.object({
   description: z.string().trim().max(4_000).nullable().optional(),
 });
 
+export const acceptedQuoteReceivablesInputSchema = z.object({
+  organizationId: z.uuid(),
+  quoteId: z.uuid(),
+});
+
 export const paymentAllocationInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1251,6 +1256,9 @@ export type SupplierContactInput = z.infer<typeof supplierContactInputSchema>;
 export type SupplierContractInput = z.infer<typeof supplierContractInputSchema>;
 export type PaymentObligationInput = z.infer<
   typeof paymentObligationInputSchema
+>;
+export type AcceptedQuoteReceivablesInput = z.infer<
+  typeof acceptedQuoteReceivablesInputSchema
 >;
 export type PaymentAllocationInput = z.infer<
   typeof paymentAllocationInputSchema

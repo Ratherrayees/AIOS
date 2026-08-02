@@ -85,6 +85,11 @@ type Payment = {
   paid_at: string | null;
   status_note: string | null;
   created_at: string;
+  quote_id: string | null;
+  quote_version_id: string | null;
+  quote_acceptance_id: string | null;
+  quote_payment_schedule_id: string | null;
+  quote_schedule_item_position: number | null;
 };
 
 type PaymentAllocation = {
@@ -208,7 +213,7 @@ export default function FinancePage() {
       supabase
         .from("payments")
         .select(
-          "id, deal_id, trip_id, supplier_id, direction, status, title, invoice_number, description, amount, paid_amount, currency, due_at, paid_at, status_note, created_at",
+          "id, deal_id, trip_id, supplier_id, direction, status, title, invoice_number, description, amount, paid_amount, currency, due_at, paid_at, status_note, created_at, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position",
         )
         .eq("organization_id", targetOrganizationId)
         .order("created_at", { ascending: false }),
@@ -1208,6 +1213,19 @@ export default function FinancePage() {
                     <p className="payment-description">
                       {payment.description}
                     </p>
+                  ) : null}
+                  {payment.quote_acceptance_id ? (
+                    <div className="quote-receivable-provenance">
+                      <span>
+                        ACCEPTED QUOTE · MILESTONE{" "}
+                        {(payment.quote_schedule_item_position ?? 0) + 1}
+                      </span>
+                      <Link href="/quotes">Review quote evidence</Link>
+                      <small>
+                        Internal ledger record only · no invoice document was
+                        issued or delivered.
+                      </small>
+                    </div>
                   ) : null}
                   {paymentAllocations.length > 0 ? (
                     <div className="allocation-history">

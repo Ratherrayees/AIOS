@@ -3058,6 +3058,11 @@ export type Database = {
           paid_amount: number
           paid_at: string | null
           provider_reference: string | null
+          quote_acceptance_id: string | null
+          quote_id: string | null
+          quote_payment_schedule_id: string | null
+          quote_schedule_item_position: number | null
+          quote_version_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
           status_note: string | null
           supplier_id: string | null
@@ -3082,6 +3087,11 @@ export type Database = {
           paid_amount?: number
           paid_at?: string | null
           provider_reference?: string | null
+          quote_acceptance_id?: string | null
+          quote_id?: string | null
+          quote_payment_schedule_id?: string | null
+          quote_schedule_item_position?: number | null
+          quote_version_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
           status_note?: string | null
           supplier_id?: string | null
@@ -3106,6 +3116,11 @@ export type Database = {
           paid_amount?: number
           paid_at?: string | null
           provider_reference?: string | null
+          quote_acceptance_id?: string | null
+          quote_id?: string | null
+          quote_payment_schedule_id?: string | null
+          quote_schedule_item_position?: number | null
+          quote_version_id?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
           status_note?: string | null
           supplier_id?: string | null
@@ -3136,6 +3151,40 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_quote_acceptance_exact_version_fkey"
+            columns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_acceptance_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quote_acceptances"
+            referencedColumns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "id",
+            ]
+          },
+          {
+            foreignKeyName: "payments_quote_schedule_exact_version_fkey"
+            columns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_payment_schedule_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quote_payment_schedules"
+            referencedColumns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "id",
+            ]
           },
           {
             foreignKeyName: "payments_supplier_same_organization_fkey"
@@ -5194,6 +5243,18 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      create_accepted_quote_receivables: {
+        Args: { target_organization_id: string; target_quote_id: string }
+        Returns: {
+          already_created: boolean
+          currency: string
+          quote_acceptance_id: string
+          quote_id: string
+          quote_payment_schedule_id: string
+          receivable_count: number
+          total_amount: number
+        }[]
+      }
       create_follow_up_sequence: {
         Args: {
           target_description: string
@@ -5256,6 +5317,11 @@ export type Database = {
           paid_amount: number
           paid_at: string | null
           provider_reference: string | null
+          quote_acceptance_id: string | null
+          quote_id: string | null
+          quote_payment_schedule_id: string | null
+          quote_schedule_item_position: number | null
+          quote_version_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
           status_note: string | null
           supplier_id: string | null
@@ -5556,6 +5622,11 @@ export type Database = {
           paid_amount: number
           paid_at: string | null
           provider_reference: string | null
+          quote_acceptance_id: string | null
+          quote_id: string | null
+          quote_payment_schedule_id: string | null
+          quote_schedule_item_position: number | null
+          quote_version_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
           status_note: string | null
           supplier_id: string | null
@@ -6471,6 +6542,11 @@ export type Database = {
           paid_amount: number
           paid_at: string | null
           provider_reference: string | null
+          quote_acceptance_id: string | null
+          quote_id: string | null
+          quote_payment_schedule_id: string | null
+          quote_schedule_item_position: number | null
+          quote_version_id: string | null
           status: Database["public"]["Enums"]["payment_status"]
           status_note: string | null
           supplier_id: string | null

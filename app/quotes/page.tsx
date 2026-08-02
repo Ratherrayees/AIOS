@@ -11,6 +11,7 @@ import {
 
 import {
   createQuoteDraft,
+  createAcceptedQuoteReceivables,
   publishQuoteShare,
   requestQuoteShareApproval,
   revokeQuoteShare,
@@ -140,8 +141,25 @@ type QuoteAcceptanceRow = {
   snapshot_sha256: string;
   accepted_at: string;
 };
+type QuoteReceivableRow = {
+  id: string;
+  quote_id: string;
+  quote_version_id: string;
+  quote_acceptance_id: string;
+  quote_payment_schedule_id: string;
+  quote_schedule_item_position: number;
+  direction: "receivable";
+  status: "pending" | "partially_paid" | "paid" | "overdue" | "void";
+  title: string;
+  amount: number;
+  paid_amount: number;
+  currency: string;
+  due_at: string | null;
+  invoice_number: string | null;
+};
 
 const commercialRoles = new Set(["owner", "admin", "sales", "trip_designer"]);
+const receivableRoles = new Set(["owner", "admin", "finance"]);
 const costRoles = new Set([
   "owner",
   "admin",
@@ -188,6 +206,9 @@ export default function QuotesPage() {
     QuotePaymentScheduleRow[]
   >([]);
   const [acceptances, setAcceptances] = useState<QuoteAcceptanceRow[]>([]);
+  const [quoteReceivables, setQuoteReceivables] = useState<
+    QuoteReceivableRow[]
+  >([]);
   const [publishedPaths, setPublishedPaths] = useState<Record<string, string>>({});
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -220,6 +241,7 @@ export default function QuotesPage() {
         { data: catalogRateRows },
         { data: paymentScheduleRows },
         { data: acceptanceRows },
+        { data: quoteReceivableRows },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -294,6 +316,14 @@ export default function QuotesPage() {
             )
             .eq("organization_id", membership.organization_id)
             .order("accepted_at", { ascending: false }),
+          supabase
+            .from("payments")
+            .select(
+              "id, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, amount, paid_amount, currency, due_at, invoice_number",
+            )
+            .eq("organization_id", membership.organization_id)
+            .not("quote_acceptance_id", "is", null)
+            .order("quote_schedule_item_position"),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
@@ -312,6 +342,9 @@ export default function QuotesPage() {
         (paymentScheduleRows || []) as QuotePaymentScheduleRow[],
       );
       setAcceptances((acceptanceRows || []) as QuoteAcceptanceRow[]);
+      setQuoteReceivables(
+        (quoteReceivableRows || []) as QuoteReceivableRow[],
+      );
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
@@ -425,6 +458,15 @@ export default function QuotesPage() {
       ),
     [acceptances],
   );
+  const receivablesByQuote = useMemo(() => {
+    const grouped = new Map<string, QuoteReceivableRow[]>();
+    for (const receivable of quoteReceivables) {
+      const current = grouped.get(receivable.quote_id) ?? [];
+      current.push(receivable);
+      grouped.set(receivable.quote_id, current);
+    }
+    return grouped;
+  }, [quoteReceivables]);
   const consumedShareApprovals = useMemo(
     () => new Set(shareLinks.map((link) => link.approval_request_id)),
     [shareLinks],
@@ -435,6 +477,7 @@ export default function QuotesPage() {
   );
   const canCreate = role ? commercialRoles.has(role) : false;
   const canViewCosts = role ? costRoles.has(role) : false;
+  const canManageReceivables = role ? receivableRoles.has(role) : false;
   const canManagePolicy = role === "owner" || role === "admin";
   const guardrailsByQuote = useMemo(() => {
     if (!canViewCosts) return new Map();
@@ -742,6 +785,33 @@ export default function QuotesPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not revoke the public proposal.",
+        );
+      }
+    });
+  }
+
+  function createQuoteReceivables(quote: Quote) {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const result = await createAcceptedQuoteReceivables({
+          organizationId,
+          quoteId: quote.id,
+        });
+        setQuoteReceivables((current) => [
+          ...current.filter((item) => item.quote_id !== quote.id),
+          ...(result.receivables as QuoteReceivableRow[]),
+        ]);
+        setNotice(
+          result.summary.already_created
+            ? "The accepted quote receivables already exist. Nothing was duplicated."
+            : `${result.summary.receivable_count} internal receivable milestones created. No invoice was issued or sent.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not create the internal receivables.",
         );
       }
     });
@@ -1126,6 +1196,7 @@ export default function QuotesPage() {
             const shareLink = latestShareLink.get(quote.id);
             const paymentSchedule = activePaymentSchedules.get(quote.id) ?? null;
             const acceptance = acceptanceByQuote.get(quote.id) ?? null;
+            const receivables = receivablesByQuote.get(quote.id) ?? [];
             const paymentScheduleItems = parseQuotePaymentScheduleItems(
               paymentSchedule?.items,
             );
@@ -1287,8 +1358,9 @@ export default function QuotesPage() {
                       </ol>
                     )}
                     <small>
-                      This is readiness evidence only. AIOS has not issued an
-                      invoice or created a receivable.
+                      {receivables.length > 0
+                        ? "Internal receivables are recorded below. No invoice was issued or delivered."
+                        : "This is readiness evidence only. AIOS has not issued an invoice or created a receivable."}
                     </small>
                   </section>
                 )}
@@ -1315,9 +1387,82 @@ export default function QuotesPage() {
                       {acceptance.snapshot_sha256.slice(0, 12)}…
                     </small>
                     <p>
-                      Acceptance records customer intent only. No booking,
-                      invoice, receivable, payment, or message was created.
+                      Acceptance itself records customer intent only. It did not
+                      create a booking, invoice, receivable, payment, or message.
                     </p>
+                  </section>
+                )}
+                {invoiceReadiness?.ready && acceptance && (
+                  <section
+                    className="quote-receivable-handoff"
+                    aria-label="Accepted quote receivable handoff"
+                  >
+                    {receivables.length > 0 ? (
+                      <>
+                        <header>
+                          <div>
+                            <small>INTERNAL LEDGER</small>
+                            <strong>
+                              {receivables.length} receivable milestone
+                              {receivables.length === 1 ? "" : "s"} recorded
+                            </strong>
+                          </div>
+                          <Link href="/finance">Open Finance</Link>
+                        </header>
+                        <ol>
+                          {receivables.map((receivable) => (
+                            <li key={receivable.id}>
+                              <span>
+                                {receivable.title} ·{" "}
+                                {receivable.due_at ?? "No due date"}
+                              </span>
+                              <b>
+                                {formatMoney(
+                                  receivable.amount,
+                                  receivable.currency,
+                                )}
+                              </b>
+                              <em>{receivable.status.replace("_", " ")}</em>
+                            </li>
+                          ))}
+                        </ol>
+                        <small>
+                          These are internal obligations, not issued invoice
+                          documents. No traveler was charged or contacted.
+                        </small>
+                      </>
+                    ) : (
+                      <>
+                        <header>
+                          <div>
+                            <small>FINANCE HANDOFF</small>
+                            <strong>
+                              Accepted schedule is ready for the ledger
+                            </strong>
+                          </div>
+                        </header>
+                        <p>
+                          Create one internal receivable per accepted milestone.
+                          This records what is due but issues and sends nothing.
+                        </p>
+                        {canManageReceivables ? (
+                          <button
+                            type="button"
+                            onClick={() => createQuoteReceivables(quote)}
+                            disabled={pending}
+                          >
+                            {pending
+                              ? "Creating receivables…"
+                              : "Create internal receivable schedule"}
+                          </button>
+                        ) : (
+                          <small>
+                            An owner, admin, or finance teammate must create this
+                            internal ledger handoff.
+                          </small>
+                        )}
+                      </>
+                    )}
                   </section>
                 )}
                 <Link

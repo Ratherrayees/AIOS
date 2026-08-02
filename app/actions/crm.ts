@@ -9,6 +9,7 @@ import {
 } from "../../lib/authorization";
 import {
   activityNoteInputSchema,
+  acceptedQuoteReceivablesInputSchema,
   companyInputSchema,
   contactInputSchema,
   contactMergeInputSchema,
@@ -81,6 +82,7 @@ import {
   supplierContractInputSchema,
   supplierProfileInputSchema,
   type ActivityNoteInput,
+  type AcceptedQuoteReceivablesInput,
   type CompanyInput,
   type ContactInput,
   type ContactMergeInput,
@@ -3048,6 +3050,41 @@ export async function createPaymentObligation(input: PaymentObligationInput) {
   if (error || !payment)
     throw error ?? new Error("The payment obligation could not be created.");
   return payment;
+}
+
+/**
+ * Materializes an accepted quote's exact milestones as internal receivables.
+ * It does not issue or deliver an invoice, charge a customer, or record money.
+ */
+export async function createAcceptedQuoteReceivables(
+  input: AcceptedQuoteReceivablesInput,
+) {
+  const data = acceptedQuoteReceivablesInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: summary, error } = await supabase
+    .rpc("create_accepted_quote_receivables", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+    })
+    .single();
+  if (error || !summary)
+    throw new Error(
+      error?.message || "The accepted quote receivables could not be created.",
+    );
+
+  const { data: receivables, error: receivablesError } = await supabase
+    .from("payments")
+    .select(
+      "id, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, amount, paid_amount, currency, due_at, invoice_number",
+    )
+    .eq("organization_id", data.organizationId)
+    .eq("quote_acceptance_id", summary.quote_acceptance_id)
+    .order("quote_schedule_item_position");
+  if (receivablesError || !receivables)
+    throw new Error("The receivables were created but could not be reloaded.");
+
+  return { summary, receivables };
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

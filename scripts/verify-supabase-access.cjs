@@ -655,6 +655,13 @@ async function verify() {
       target_statement_version: 1,
     },
   );
+  const { error: anonymousAcceptedQuoteReceivablesError } = await anonymous.rpc(
+    "create_accepted_quote_receivables",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
   const rpcChecks = [
     {
       function: "create_quote_catalog_product",
@@ -695,6 +702,14 @@ async function verify() {
       function: "accept_quote_share",
       anonymousExecutionBlocked: Boolean(anonymousQuoteAcceptanceError),
       anonymousErrorCode: anonymousQuoteAcceptanceError?.code ?? null,
+    },
+    {
+      function: "create_accepted_quote_receivables",
+      anonymousExecutionBlocked: Boolean(
+        anonymousAcceptedQuoteReceivablesError,
+      ),
+      anonymousErrorCode:
+        anonymousAcceptedQuoteReceivablesError?.code ?? null,
     },
     {
       function: "append_structured_quote_version",

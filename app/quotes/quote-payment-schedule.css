@@ -81,6 +81,86 @@
   font-size: 10px;
 }
 
+.quote-receivable-handoff {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #c9bde8;
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: linear-gradient(145deg, #f8f5ff, #fff);
+}
+
+.quote-receivable-handoff header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quote-receivable-handoff header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-receivable-handoff small {
+  color: #74688e;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.quote-receivable-handoff p {
+  margin: 0;
+  color: #655c71;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.quote-receivable-handoff button,
+.quote-receivable-handoff header a {
+  width: max-content;
+  border: 0;
+  border-radius: 8px;
+  background: #392b66;
+  padding: 9px 11px;
+  color: #fff;
+  font: 700 10px/1 inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.quote-receivable-handoff button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.quote-receivable-handoff ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quote-receivable-handoff li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid #ece6f5;
+  padding-top: 7px;
+  color: #5d546a;
+  font-size: 10px;
+}
+
+.quote-receivable-handoff li em {
+  border-radius: 999px;
+  background: #eee9fa;
+  padding: 4px 7px;
+  color: #5e4a98;
+  font-style: normal;
+  text-transform: capitalize;
+}
+
 .quote-acceptance-evidence p {
   margin: 0;
   line-height: 1.45;

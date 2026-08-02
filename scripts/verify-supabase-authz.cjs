@@ -1730,6 +1730,138 @@ async function verifyAuthorization() {
           JSON.stringify(acceptedPublicSnapshot.data?.acceptance),
         ),
     );
+    const foreignReceivableCreation = await viewer.rpc(
+      "create_accepted_quote_receivables",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    record(
+      "foreign tenants cannot materialize another workspace quote receivables",
+      Boolean(foreignReceivableCreation.error),
+    );
+    const unacceptedReceivableCreation = await owner.rpc(
+      "create_accepted_quote_receivables",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: randomUUID(),
+      },
+    );
+    record(
+      "receivable handoff requires a real accepted quote",
+      Boolean(unacceptedReceivableCreation.error),
+    );
+    const forgedQuoteReceivable = await owner.from("payments").insert({
+      organization_id: organizationA.id,
+      deal_id: governedDeal.id,
+      direction: "receivable",
+      status: "pending",
+      title: "Forged accepted quote receivable",
+      amount: 200000,
+      paid_amount: 0,
+      currency: "INR",
+      due_at: firstPaymentSchedule[0].due_date,
+      quote_id: guardedQuoteId,
+      quote_version_id: storedProposal.data?.quote_version_id,
+      quote_acceptance_id: acceptedProposalRow.acceptance_id,
+      quote_payment_schedule_id: revisedScheduleRow.id,
+      quote_schedule_item_position: 0,
+    });
+    record(
+      "browser clients cannot forge accepted quote receivable provenance",
+      Boolean(forgedQuoteReceivable.error),
+    );
+    const createdReceivables = await owner.rpc(
+      "create_accepted_quote_receivables",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    const receivableSummary = createdReceivables.data?.[0];
+    if (createdReceivables.error || !receivableSummary)
+      throw createdReceivables.error ??
+        new Error("Accepted quote receivables were not created.");
+    const retriedReceivables = await owner.rpc(
+      "create_accepted_quote_receivables",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    const [quoteReceivables, receivableAudit, retainedQuote, retainedDeal] =
+      await Promise.all([
+        owner
+          .from("payments")
+          .select(
+            "quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, invoice_number, supplier_id, amount, paid_amount, currency, due_at",
+          )
+          .eq("organization_id", organizationA.id)
+          .eq("quote_acceptance_id", acceptedProposalRow.acceptance_id)
+          .order("quote_schedule_item_position"),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("organization_id", organizationA.id)
+          .eq("entity_id", guardedQuoteId)
+          .eq("metadata->>event", "quote.receivables_created"),
+        owner.from("quotes").select("status").eq("id", guardedQuoteId).single(),
+        owner.from("deals").select("stage").eq("id", governedDeal.id).single(),
+      ]);
+    record(
+      "accepted milestones create exact reconciled internal receivables",
+      !quoteReceivables.error &&
+        quoteReceivables.data?.length === 2 &&
+        quoteReceivables.data[0]?.title === "Booking deposit" &&
+        Number(quoteReceivables.data[0]?.amount) === 200000 &&
+        quoteReceivables.data[1]?.title === "Final balance" &&
+        Number(quoteReceivables.data[1]?.amount) === 304000 &&
+        quoteReceivables.data.reduce(
+          (sum, receivable) => sum + Number(receivable.amount),
+          0,
+        ) === 504000 &&
+        quoteReceivables.data.every(
+          (receivable, position) =>
+            receivable.quote_id === guardedQuoteId &&
+            receivable.quote_version_id === storedProposal.data?.quote_version_id &&
+            receivable.quote_acceptance_id ===
+              acceptedProposalRow.acceptance_id &&
+            receivable.quote_payment_schedule_id === revisedScheduleRow.id &&
+            receivable.quote_schedule_item_position === position &&
+            receivable.direction === "receivable" &&
+            receivable.invoice_number === null &&
+            receivable.supplier_id === null &&
+            Number(receivable.paid_amount) === 0,
+        ),
+    );
+    const receivableAuditMetadata = receivableAudit.data?.[0]?.metadata;
+    record(
+      "receivable handoff audit is exact and external-effect explicit",
+      !receivableAudit.error &&
+        receivableAudit.data?.length === 1 &&
+        receivableAuditMetadata?.receivable_count === 2 &&
+        Number(receivableAuditMetadata?.total_amount) === 504000 &&
+        receivableAuditMetadata?.invoice_issued === false &&
+        receivableAuditMetadata?.invoice_delivered === false &&
+        receivableAuditMetadata?.payment_collected === false &&
+        receivableAuditMetadata?.booking_created === false &&
+        receivableAuditMetadata?.opportunity_marked_won === false &&
+        receivableAuditMetadata?.external_action_performed === false,
+    );
+    record(
+      "receivable handoff preserves accepted quote and open opportunity state",
+      retainedQuote.data?.status === "accepted" &&
+        retainedDeal.data?.stage !== "won",
+    );
+    record(
+      "accepted quote receivable retries are idempotent",
+      !retriedReceivables.error &&
+        retriedReceivables.data?.[0]?.already_created === true &&
+        retriedReceivables.data?.[0]?.receivable_count === 2 &&
+        quoteReceivables.data?.length === 2 &&
+        receivableAudit.data?.length === 1,
+    );
     const reusedApproval = await owner.rpc("publish_quote_share", {
       target_organization_id: organizationA.id,
       target_quote_id: guardedQuoteId,
