@@ -130,6 +130,16 @@ type QuotePaymentScheduleRow = {
   item_count: number;
   content_sha256: string;
 };
+type QuoteAcceptanceRow = {
+  id: string;
+  quote_id: string;
+  quote_version_id: string;
+  quote_share_link_id: string;
+  signatory_name: string;
+  statement_version: number;
+  snapshot_sha256: string;
+  accepted_at: string;
+};
 
 const commercialRoles = new Set(["owner", "admin", "sales", "trip_designer"]);
 const costRoles = new Set([
@@ -177,6 +187,7 @@ export default function QuotesPage() {
   const [paymentSchedules, setPaymentSchedules] = useState<
     QuotePaymentScheduleRow[]
   >([]);
+  const [acceptances, setAcceptances] = useState<QuoteAcceptanceRow[]>([]);
   const [publishedPaths, setPublishedPaths] = useState<Record<string, string>>({});
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -208,6 +219,7 @@ export default function QuotesPage() {
         { data: catalogProductRows },
         { data: catalogRateRows },
         { data: paymentScheduleRows },
+        { data: acceptanceRows },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -275,6 +287,13 @@ export default function QuotesPage() {
             )
             .eq("organization_id", membership.organization_id)
             .order("revision", { ascending: false }),
+          supabase
+            .from("quote_acceptances")
+            .select(
+              "id, quote_id, quote_version_id, quote_share_link_id, signatory_name, statement_version, snapshot_sha256, accepted_at",
+            )
+            .eq("organization_id", membership.organization_id)
+            .order("accepted_at", { ascending: false }),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
@@ -292,6 +311,7 @@ export default function QuotesPage() {
       setPaymentSchedules(
         (paymentScheduleRows || []) as QuotePaymentScheduleRow[],
       );
+      setAcceptances((acceptanceRows || []) as QuoteAcceptanceRow[]);
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
@@ -398,6 +418,13 @@ export default function QuotesPage() {
     }
     return schedules;
   }, [paymentSchedules]);
+  const acceptanceByQuote = useMemo(
+    () =>
+      new Map(
+        acceptances.map((acceptance) => [acceptance.quote_id, acceptance]),
+      ),
+    [acceptances],
+  );
   const consumedShareApprovals = useMemo(
     () => new Set(shareLinks.map((link) => link.approval_request_id)),
     [shareLinks],
@@ -682,7 +709,9 @@ export default function QuotesPage() {
         });
         setQuotes((current) =>
           current.map((item) =>
-            item.id === quote.id ? { ...item, status: "draft" } : item,
+            item.id === quote.id && item.status === "shared"
+              ? { ...item, status: "draft" }
+              : item,
           ),
         );
         setShareLinks((current) =>
@@ -704,7 +733,9 @@ export default function QuotesPage() {
         });
         formElement.reset();
         setNotice(
-          "Public proposal revoked immediately. The quote is back in Draft and needs a fresh human review before republishing.",
+          quote.status === "accepted"
+            ? "Public proposal access revoked. The recorded customer acceptance remains immutable."
+            : "Public proposal revoked immediately. The quote is back in Draft and needs a fresh human review before republishing.",
         );
       } catch (error) {
         setNotice(
@@ -1094,6 +1125,7 @@ export default function QuotesPage() {
             const shareApproval = latestShareApproval.get(quote.id);
             const shareLink = latestShareLink.get(quote.id);
             const paymentSchedule = activePaymentSchedules.get(quote.id) ?? null;
+            const acceptance = acceptanceByQuote.get(quote.id) ?? null;
             const paymentScheduleItems = parseQuotePaymentScheduleItems(
               paymentSchedule?.items,
             );
@@ -1258,6 +1290,34 @@ export default function QuotesPage() {
                       This is readiness evidence only. AIOS has not issued an
                       invoice or created a receivable.
                     </small>
+                  </section>
+                )}
+                {acceptance && (
+                  <section
+                    className="quote-acceptance-evidence"
+                    aria-label="Customer acceptance evidence"
+                  >
+                    <div>
+                      <small>CUSTOMER INTENT</small>
+                      <strong>Accepted by {acceptance.signatory_name}</strong>
+                      <span>
+                        {new Date(acceptance.accepted_at).toLocaleString(
+                          "en-IN",
+                          {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          },
+                        )} · exact version {quote.current_version}
+                      </span>
+                    </div>
+                    <small>
+                      Statement v{acceptance.statement_version} · evidence{" "}
+                      {acceptance.snapshot_sha256.slice(0, 12)}…
+                    </small>
+                    <p>
+                      Acceptance records customer intent only. No booking,
+                      invoice, receivable, payment, or message was created.
+                    </p>
                   </section>
                 )}
                 <Link

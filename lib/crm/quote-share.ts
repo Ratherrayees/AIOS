@@ -10,6 +10,7 @@ import {
   MAX_QUOTE_PROPOSAL_ITEMS,
   QUOTE_PROPOSAL_SCHEMA_VERSION,
 } from "./quote-proposal";
+import { quoteAcceptanceSnapshotSchema } from "./quote-acceptance";
 
 export const quoteShareTokenSchema = z
   .string()
@@ -30,6 +31,7 @@ export const quoteShareSnapshotSchema = z.object({
     name: z.string().trim().min(1).max(201),
     destination: z.string().nullable(),
   }),
+  acceptance: quoteAcceptanceSnapshotSchema.default({ status: "pending" }),
   quote: z.object({
     title: z.string().trim().min(1).max(180),
     version: z.number().int().positive(),

@@ -4,6 +4,7 @@ import { expect, test, type Cookie, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { travelerPortalSnapshotSchema } from "../../lib/crm/traveler-portal";
+import { quoteShareSnapshotSchema } from "../../lib/crm/quote-share";
 import type { Database } from "../../types/app-database";
 
 const shouldRun = process.env.RUN_AUTHENTICATED_E2E === "true";
@@ -1971,6 +1972,81 @@ test.describe("authenticated owner workspace", () => {
       ),
     ).toBeLessThanOrEqual(1);
 
+    await expect(
+      publicPage.getByRole("heading", { name: "Accept this proposal" }),
+    ).toBeVisible();
+    await publicPage.getByLabel("Your full name").fill("Aarav Sharma");
+    await publicPage.getByRole("checkbox").check();
+    await publicPage
+      .getByRole("button", { name: "Accept this proposal" })
+      .click();
+    await expect(publicPage.getByText("Proposal accepted")).toBeVisible();
+    await expect(publicPage.getByText(/does not itself confirm bookings/i)).toHaveCount(0);
+
+    const acceptedResponse = await publicPage.reload();
+    expect(acceptedResponse?.status()).toBe(200);
+    await expect(publicPage.getByText("Proposal accepted")).toBeVisible();
+    await expect(
+      publicPage.getByRole("button", { name: "Accept this proposal" }),
+    ).toHaveCount(0);
+
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const [acceptanceEvidence, acceptedQuote, acceptedSnapshot] =
+      await Promise.all([
+        admin!
+          .from("quote_acceptances")
+          .select(
+            "id, quote_version_id, quote_share_link_id, signatory_name, statement_version, snapshot_sha256, accepted_at",
+          )
+          .eq("quote_id", quote!.id)
+          .single(),
+        admin!
+          .from("quotes")
+          .select("status, accepted_at, deal_id")
+          .eq("id", quote!.id)
+          .single(),
+        admin!.rpc("get_quote_share_snapshot", {
+          target_token_hash: tokenHash,
+        }),
+      ]);
+    expect(acceptanceEvidence.error).toBeNull();
+    expect(acceptanceEvidence.data).toMatchObject({
+      quote_version_id: paymentSchedule!.quote_version_id,
+      quote_share_link_id: storedShare!.id,
+      signatory_name: "Aarav Sharma",
+      statement_version: 1,
+    });
+    expect(acceptanceEvidence.data?.snapshot_sha256).toHaveLength(64);
+    expect(acceptanceEvidence.data?.accepted_at).toBeTruthy();
+    expect(acceptedQuote.error).toBeNull();
+    expect(acceptedQuote.data?.status).toBe("accepted");
+    expect(acceptedQuote.data?.accepted_at).toBeTruthy();
+    expect(acceptedSnapshot.error).toBeNull();
+    const acceptedSnapshotData = quoteShareSnapshotSchema.parse(
+      acceptedSnapshot.data,
+    );
+    expect(acceptedSnapshotData.acceptance).toMatchObject({
+      status: "accepted",
+      statement_version: 1,
+    });
+    expect(JSON.stringify(acceptedSnapshotData.acceptance)).not.toMatch(
+      /Aarav Sharma|snapshot_sha256|acceptance_id/,
+    );
+
+    await page.reload();
+    await expect(quoteCard.locator(".quote-status")).toHaveText("accepted");
+    await expect(
+      quoteCard.getByLabel(
+        "Invoice readiness: Accepted schedule is invoice-ready",
+      ),
+    ).toBeVisible();
+    await expect(
+      quoteCard.getByLabel("Customer acceptance evidence"),
+    ).toContainText("Accepted by Aarav Sharma");
+    await expect(
+      quoteCard.getByLabel("Customer acceptance evidence"),
+    ).toContainText("No booking, invoice, receivable, payment, or message was created");
+
     await quoteCard
       .getByLabel("Revocation reason")
       .fill("Customer requested a revised public proposal");
@@ -1978,14 +2054,15 @@ test.describe("authenticated owner workspace", () => {
       .getByRole("button", { name: "Revoke public proposal" })
       .click();
     await expect(page.getByRole("status")).toContainText(
-      "Public proposal revoked immediately",
+      "Public proposal access revoked",
     );
     await expect(quoteCard.getByText("Public link active")).toHaveCount(0);
     await expect(
       quoteCard.getByRole("button", {
         name: "Request new human sharing review",
       }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(quoteCard.locator(".quote-status")).toHaveText("accepted");
     const revokedResponse = await publicPage.reload();
     expect(revokedResponse?.status()).toBe(404);
     await publicContext.close();
@@ -2555,7 +2632,11 @@ test.describe("authenticated owner workspace", () => {
     ).toBeVisible();
     await expect(page.getByText("Internal ledger only")).toBeVisible();
 
-    await page.getByText("Create supplier profile", { exact: true }).click();
+    const createSupplierForm = page
+      .locator(".supplier-forms details")
+      .filter({ hasText: "Create supplier profile" });
+    await createSupplierForm.locator("summary").click();
+    await expect(createSupplierForm).toHaveAttribute("open", "");
     await page.getByLabel("Supplier name").fill(supplierName);
     await page.getByLabel("Supplier category").fill("DMC");
     await page.getByLabel("Main contact name").fill(contactName);

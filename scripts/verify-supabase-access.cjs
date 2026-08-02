@@ -28,6 +28,7 @@ const protectedTables = [
   "quote_catalog_rates",
   "quote_share_links",
   "quote_payment_schedules",
+  "quote_acceptances",
   "conversations",
   "messages",
   "approval_requests",
@@ -646,6 +647,14 @@ async function verify() {
     "get_quote_share_snapshot",
     { target_token_hash: "a".repeat(64) },
   );
+  const { error: anonymousQuoteAcceptanceError } = await anonymous.rpc(
+    "accept_quote_share",
+    {
+      target_token_hash: "a".repeat(64),
+      target_signatory_name: "Blocked anonymous customer",
+      target_statement_version: 1,
+    },
+  );
   const rpcChecks = [
     {
       function: "create_quote_catalog_product",
@@ -681,6 +690,11 @@ async function verify() {
       function: "get_quote_share_snapshot",
       anonymousExecutionBlocked: Boolean(anonymousQuoteShareSnapshotError),
       anonymousErrorCode: anonymousQuoteShareSnapshotError?.code ?? null,
+    },
+    {
+      function: "accept_quote_share",
+      anonymousExecutionBlocked: Boolean(anonymousQuoteAcceptanceError),
+      anonymousErrorCode: anonymousQuoteAcceptanceError?.code ?? null,
     },
     {
       function: "append_structured_quote_version",

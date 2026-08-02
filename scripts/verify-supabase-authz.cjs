@@ -1559,7 +1559,7 @@ async function verifyAuthorization() {
         }),
         admin
           .from("quote_share_links")
-          .select("token_hash, snapshot")
+          .select("token_hash, snapshot, quote_version_id")
           .eq("id", publishedProposalLink.share_link_id)
           .single(),
         admin.rpc("get_quote_share_snapshot", {
@@ -1603,6 +1603,133 @@ async function verifyAuthorization() {
         ) === 504000 &&
         quotePublicSnapshot.data?.quote?.content?.inclusions?.length === 3,
     );
+    record(
+      "new public proposals expose pending acceptance without customer identity",
+      quotePublicSnapshot.data?.acceptance?.status === "pending" &&
+        !JSON.stringify(quotePublicSnapshot.data?.acceptance).includes(
+          "signatory",
+        ),
+    );
+    const browserAcceptance = await owner.rpc("accept_quote_share", {
+      target_token_hash: proposalTokenHash,
+      target_signatory_name: "Browser user cannot self-authorize",
+      target_statement_version: 1,
+    });
+    record(
+      "authenticated browser clients cannot invoke customer acceptance directly",
+      Boolean(browserAcceptance.error),
+    );
+    const directAcceptanceWrite = await owner.from("quote_acceptances").insert({
+      organization_id: organizationA.id,
+      quote_id: guardedQuoteId,
+      quote_version_id: storedProposal.data?.quote_version_id,
+      quote_share_link_id: publishedProposalLink.share_link_id,
+      signatory_name: "Browser user cannot insert evidence",
+      statement_version: 1,
+      snapshot_sha256: "a".repeat(64),
+    });
+    record(
+      "browser clients cannot forge customer acceptance rows",
+      Boolean(directAcceptanceWrite.error),
+    );
+    const invalidAcceptance = await admin.rpc("accept_quote_share", {
+      target_token_hash: proposalTokenHash,
+      target_signatory_name: "A",
+      target_statement_version: 1,
+    });
+    record(
+      "customer acceptance rejects incomplete identity evidence",
+      Boolean(invalidAcceptance.error),
+    );
+    const acceptedProposal = await admin.rpc("accept_quote_share", {
+      target_token_hash: proposalTokenHash,
+      target_signatory_name: "Aarav Sharma",
+      target_statement_version: 1,
+    });
+    const acceptedProposalRow = acceptedProposal.data?.[0];
+    if (acceptedProposal.error || !acceptedProposalRow)
+      throw acceptedProposal.error ??
+        new Error("Public proposal acceptance was not recorded.");
+    const retriedAcceptance = await admin.rpc("accept_quote_share", {
+      target_token_hash: proposalTokenHash,
+      target_signatory_name: "Aarav Sharma",
+      target_statement_version: 1,
+    });
+    const [
+      acceptanceEvidence,
+      acceptedQuote,
+      acceptanceAudit,
+      acceptedPublicSnapshot,
+      acceptanceCount,
+    ] = await Promise.all([
+      owner
+        .from("quote_acceptances")
+        .select(
+          "id, quote_id, quote_version_id, quote_share_link_id, signatory_name, statement_version, snapshot_sha256, accepted_at",
+        )
+        .eq("quote_id", guardedQuoteId)
+        .single(),
+      owner.from("quotes").select("status, accepted_at").eq("id", guardedQuoteId).single(),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("organization_id", organizationA.id)
+        .eq("entity_id", guardedQuoteId)
+        .eq("metadata->>event", "quote.customer_accepted")
+        .single(),
+      admin.rpc("get_quote_share_snapshot", {
+        target_token_hash: proposalTokenHash,
+      }),
+      admin
+        .from("quote_acceptances")
+        .select("id", { count: "exact", head: true })
+        .eq("quote_id", guardedQuoteId),
+    ]);
+    record(
+      "customer acceptance binds one immutable row to the exact shared version",
+      !acceptanceEvidence.error &&
+        acceptanceEvidence.data?.id === acceptedProposalRow.acceptance_id &&
+        acceptanceEvidence.data?.quote_version_id ===
+          storedProposal.data?.quote_version_id &&
+        acceptanceEvidence.data?.quote_share_link_id ===
+          publishedProposalLink.share_link_id &&
+        acceptanceEvidence.data?.signatory_name === "Aarav Sharma" &&
+        acceptanceEvidence.data?.snapshot_sha256?.length === 64 &&
+        acceptedQuote.data?.status === "accepted" &&
+        Boolean(acceptedQuote.data?.accepted_at),
+    );
+    record(
+      "customer acceptance retries are idempotent",
+      !retriedAcceptance.error &&
+        retriedAcceptance.data?.[0]?.already_accepted === true &&
+        retriedAcceptance.data?.[0]?.acceptance_id ===
+          acceptedProposalRow.acceptance_id &&
+        acceptanceCount.count === 1,
+    );
+    const acceptanceAuditText = JSON.stringify(
+      acceptanceAudit.data?.metadata ?? {},
+    );
+    record(
+      "customer acceptance audit is privacy-safe and side-effect explicit",
+      !acceptanceAudit.error &&
+        !acceptanceAuditText.includes("Aarav Sharma") &&
+        acceptanceAudit.data?.metadata?.opportunity_marked_won === false &&
+        acceptanceAudit.data?.metadata?.booking_created === false &&
+        acceptanceAudit.data?.metadata?.invoice_created === false &&
+        acceptanceAudit.data?.metadata?.receivable_created === false &&
+        acceptanceAudit.data?.metadata?.payment_collected === false &&
+        acceptanceAudit.data?.metadata?.external_delivery_performed === false,
+    );
+    record(
+      "public acceptance status excludes signatory identity and evidence hashes",
+      !acceptedPublicSnapshot.error &&
+        acceptedPublicSnapshot.data?.acceptance?.status === "accepted" &&
+        acceptedPublicSnapshot.data?.acceptance?.statement_version === 1 &&
+        Boolean(acceptedPublicSnapshot.data?.acceptance?.accepted_at) &&
+        !/Aarav Sharma|snapshot_sha256|acceptance_id/.test(
+          JSON.stringify(acceptedPublicSnapshot.data?.acceptance),
+        ),
+    );
     const reusedApproval = await owner.rpc("publish_quote_share", {
       target_organization_id: organizationA.id,
       target_quote_id: guardedQuoteId,
@@ -1639,7 +1766,7 @@ async function verifyAuthorization() {
       target_share_link_id: publishedProposalLink.share_link_id,
       target_note: "Customer requested a revised proposal",
     });
-    const [revokedProposalSnapshot, reopenedQuote, proposalLifecycleAudit] =
+    const [revokedProposalSnapshot, retainedAcceptedQuote, proposalLifecycleAudit] =
       await Promise.all([
         admin.rpc("get_quote_share_snapshot", {
           target_token_hash: proposalTokenHash,
@@ -1662,7 +1789,11 @@ async function verifyAuthorization() {
       !revokedProposal.error &&
         revokedProposal.data?.[0]?.share_status === "revoked" &&
         revokedProposalSnapshot.data === null &&
-        reopenedQuote.data?.status === "draft",
+        retainedAcceptedQuote.data?.status === "accepted",
+    );
+    record(
+      "revoking public access does not erase recorded customer acceptance",
+      retainedAcceptedQuote.data?.status === "accepted",
     );
     record(
       "proposal lifecycle audit excludes tokens snapshots and commercial values",

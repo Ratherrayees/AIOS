@@ -68,6 +68,21 @@ test("public proposal snapshots accept exact customer-safe evidence", () => {
   assert.equal(parsed.quote.total_amount, 504000);
   assert.equal(parsed.quote.content.inclusions[0], "Daily breakfast");
   assert.equal(parsed.quote.payment_schedule[1]?.amount, 352800);
+  assert.deepEqual(parsed.acceptance, { status: "pending" });
+});
+
+test("public proposal snapshots expose accepted state without customer identity", () => {
+  const parsed = quoteShareSnapshotSchema.parse({
+    ...validSnapshot,
+    acceptance: {
+      status: "accepted",
+      accepted_at: "2026-08-01T13:00:00+05:30",
+      statement_version: 1,
+      signatory_name: "Aarav Sharma",
+    },
+  });
+  assert.equal(parsed.acceptance.status, "accepted");
+  assert.equal("signatory_name" in parsed.acceptance, false);
 });
 
 test("public proposal parsing strips accidental protected commercial fields", () => {

@@ -8,8 +8,10 @@ import {
 import { quoteShareTokenHash } from "../../../lib/crm/quote-share-token";
 import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import { PrintProposalButton } from "./print-proposal-button";
+import { QuoteAcceptanceForm } from "./quote-acceptance-form";
 import "./proposal.css";
 import "./payment-schedule.css";
+import "./acceptance.css";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -216,6 +218,28 @@ export default async function PublicQuoteProposalPage({
               )}
             </section>
           ))}
+        </section>
+
+        <section className="proposal-acceptance" aria-label="Proposal acceptance">
+          {snapshot.acceptance.status === "accepted" ? (
+            <div className="proposal-acceptance-confirmed" role="status">
+              <span aria-hidden="true">✓</span>
+              <div>
+                <strong>Proposal accepted</strong>
+                <p>
+                  Acceptance of exact proposal version {proposal.version} was
+                  recorded {readableDate(snapshot.acceptance.accepted_at, true)}.
+                  Your travel advisor can now prepare the next steps.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <QuoteAcceptanceForm
+              token={token}
+              organizationName={snapshot.organization.name}
+              proposalVersion={proposal.version}
+            />
+          )}
         </section>
 
         <footer className="public-proposal-footer">

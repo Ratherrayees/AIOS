@@ -2201,7 +2201,7 @@ export async function publishQuoteShare(input: QuoteSharePublishInput) {
   };
 }
 
-/** Immediately invalidates an active proposal link and returns the quote to Draft. */
+/** Immediately invalidates an active proposal link without erasing acceptance evidence. */
 export async function revokeQuoteShare(input: QuoteShareRevokeInput) {
   const data = quoteShareRevokeSchema.parse(input);
   await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);

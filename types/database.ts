@@ -3287,6 +3287,74 @@ export type Database = {
           },
         ]
       }
+      quote_acceptances: {
+        Row: {
+          accepted_at: string
+          id: string
+          organization_id: string
+          quote_id: string
+          quote_share_link_id: string
+          quote_version_id: string
+          signatory_name: string
+          snapshot_sha256: string
+          statement_version: number
+        }
+        Insert: {
+          accepted_at?: string
+          id?: string
+          organization_id: string
+          quote_id: string
+          quote_share_link_id: string
+          quote_version_id: string
+          signatory_name: string
+          snapshot_sha256: string
+          statement_version?: number
+        }
+        Update: {
+          accepted_at?: string
+          id?: string
+          organization_id?: string
+          quote_id?: string
+          quote_share_link_id?: string
+          quote_version_id?: string
+          signatory_name?: string
+          snapshot_sha256?: string
+          statement_version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_acceptances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_acceptances_share_exact_version_fkey"
+            columns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_share_link_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quote_share_links"
+            referencedColumns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "id",
+            ]
+          },
+          {
+            foreignKeyName: "quote_acceptances_version_same_organization_fkey"
+            columns: ["organization_id", "quote_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "quote_id", "id"]
+          },
+        ]
+      }
       quote_approval_policies: {
         Row: {
           created_at: string
@@ -4797,6 +4865,19 @@ export type Database = {
           membership_role: Database["public"]["Enums"]["app_role"]
           organization_id: string
           organization_name: string
+        }[]
+      }
+      accept_quote_share: {
+        Args: {
+          target_signatory_name: string
+          target_statement_version: number
+          target_token_hash: string
+        }
+        Returns: {
+          acceptance_id: string
+          accepted_at: string
+          already_accepted: boolean
+          quote_id: string
         }[]
       }
       acknowledge_lead_response: {

@@ -51,6 +51,41 @@
   background: #fffaf1;
 }
 
+.quote-acceptance-evidence {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #a9d7c1;
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: linear-gradient(145deg, #f3fff8, #fff);
+}
+
+.quote-acceptance-evidence > div {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-acceptance-evidence small {
+  color: #638172;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.quote-acceptance-evidence strong {
+  color: #236348;
+}
+
+.quote-acceptance-evidence span,
+.quote-acceptance-evidence p {
+  color: #5f7469;
+  font-size: 10px;
+}
+
+.quote-acceptance-evidence p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .quote-payment-schedule {
   border: 1px solid #ddd8ea;
   border-radius: 14px;

@@ -786,7 +786,7 @@ export default function FinancePage() {
             </div>
           )}
 
-          {canManageSuppliers ? (
+          {canManageSuppliers && !loading ? (
             <div className="supplier-forms">
               <details>
                 <summary>Create supplier profile</summary>
