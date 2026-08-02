@@ -29,9 +29,9 @@ This model covers the Next.js application, Supabase Auth/Postgres/Storage, Resen
 
 | Threat | Existing controls | Residual work |
 | --- | --- | --- |
-| Cross-tenant read/write | RLS on 69 application tables, active-membership helpers, immutable `organization_id`, same-tenant composite foreign keys, 330 owner/viewer authorization assertions | Repeat the complete probe against staging and production-like identities |
+| Cross-tenant read/write | RLS on 70 application tables, active-membership helpers, immutable `organization_id`, same-tenant composite foreign keys, 337 owner/viewer authorization assertions | Repeat the complete probe against staging and production-like identities |
 | Role escalation or orphaned workspace | Owner/admin role policies, owner-only owner grants, final-owner trigger, audited membership changes | Add enterprise SSO/SCIM lifecycle later |
-| Forged or replayed approval | Pending-only insert policy, no direct client update/delete, row lock, single transition, exact quote-version binding, database-derived discount/term exception codes, content-free policy hashes, one-link-per-approval consumption, atomic audit evidence | Add durable post-approval execution/retry state for future outbound workers |
+| Forged or replayed approval | Pending-only insert policy, no direct client update/delete, row lock, single transition, exact quote-version and payment-schedule binding, database-derived discount/term exception codes, content-free policy/schedule hashes, stale-review cancellation, one-link-per-approval consumption, atomic audit evidence | Add durable post-approval execution/retry state for future outbound workers |
 | AI bypasses human authority | Allowlisted action catalog, unknown actions blocked, external effects hard-gated in code and database, kill switch, tool-call ledger | Add adversarial evaluations for every new tool |
 | Prompt injection/data exfiltration | Deterministic input-size/instruction checks, structured output schemas, citations attached server-side, least-context model calls | Formal PII redaction policy and provider-region review |
 | Private document disclosure | Private bucket, tenant-first UUID paths, role/MFA policies, restricted MIME/size, no client overwrite/delete, 60-second authorized signed downloads | Verify Storage recovery and signed-download telemetry in staging |
@@ -40,7 +40,7 @@ This model covers the Next.js application, Supabase Auth/Postgres/Storage, Resen
 | Credential disclosure | Server-only environment validation, ignored local secrets, source secret scanner, redacted diagnostics | Rotate all credentials used in chat/testing before deployment |
 | Webhook spoofing/replay | Raw-body signature verification and provider-event uniqueness | Run public staging signature/retry tests after deployment |
 | Supply-chain compromise | Exact dependency versions, lockfile installs, dependency audit, minimal direct lint stack | Add automated upgrade review cadence and provenance policy |
-| Data loss/corruption | Migrations are the schema authority; quote/template writes use row locks and immutable versions | Schedule backups and complete a staging restore drill |
+| Data loss/corruption | Migrations are the schema authority; quote, payment-schedule, and template writes use row locks and immutable/revisioned evidence; local native restore parity covers every application table | Schedule backups and complete a staging restore drill |
 
 ## Agent authority rules
 

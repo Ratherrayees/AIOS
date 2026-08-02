@@ -1,0 +1,79 @@
+.customer-quote-payments {
+  padding: 36px 58px 0;
+}
+
+.customer-quote-payments .customer-quote-section-title p {
+  margin: 4px 0 0;
+  color: #8c8795;
+  font-size: 9px;
+}
+
+.customer-quote-payments ol {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #dfdbe6;
+  list-style: none;
+}
+
+.customer-quote-payments li {
+  display: grid;
+  grid-template-columns: 10px 1fr 180px 150px;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 4px;
+  border-bottom: 1px solid #ece9f0;
+}
+
+.customer-quote-payments li > span {
+  width: 7px;
+  height: 7px;
+  border: 2px solid #7b66d1;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.customer-quote-payments li div {
+  display: grid;
+  gap: 3px;
+}
+
+.customer-quote-payments li b {
+  font-size: 11px;
+}
+
+.customer-quote-payments li small {
+  color: #8c8795;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.customer-quote-payments time {
+  color: #716b78;
+  font-size: 10px;
+}
+
+.customer-quote-payments li strong {
+  text-align: right;
+  font: 700 13px Georgia, serif;
+}
+
+@media (max-width: 680px) {
+  .customer-quote-payments {
+    padding-right: 26px;
+    padding-left: 26px;
+  }
+
+  .customer-quote-payments li {
+    grid-template-columns: 10px 1fr auto;
+  }
+
+  .customer-quote-payments time {
+    grid-column: 2;
+  }
+
+  .customer-quote-payments li strong {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

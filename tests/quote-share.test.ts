@@ -30,6 +30,20 @@ const validSnapshot = {
         total_amount: 399000,
       },
     ],
+    payment_schedule: [
+      {
+        kind: "deposit",
+        label: "Booking deposit",
+        amount: 151200,
+        due_date: "2026-08-01",
+      },
+      {
+        kind: "balance",
+        label: "Final balance",
+        amount: 352800,
+        due_date: "2026-08-31",
+      },
+    ],
     content: {
       schema_version: 1,
       inclusions: ["Daily breakfast"],
@@ -53,6 +67,7 @@ test("public proposal snapshots accept exact customer-safe evidence", () => {
   assert.equal(parsed.quote.version, 5);
   assert.equal(parsed.quote.total_amount, 504000);
   assert.equal(parsed.quote.content.inclusions[0], "Daily breakfast");
+  assert.equal(parsed.quote.payment_schedule[1]?.amount, 352800);
 });
 
 test("public proposal parsing strips accidental protected commercial fields", () => {

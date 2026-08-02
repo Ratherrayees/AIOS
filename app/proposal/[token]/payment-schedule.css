@@ -1,0 +1,103 @@
+.public-proposal-payments {
+  padding: 36px 58px 0;
+}
+
+.public-proposal-payments > header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 18px;
+}
+
+.public-proposal-payments > header > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #eeeafd;
+  color: #654fc6;
+  font: 800 8px ui-monospace, monospace;
+}
+
+.public-proposal-payments h2 {
+  margin: 0;
+  font: 700 21px Georgia, serif;
+}
+
+.public-proposal-payments header p {
+  margin: 4px 0 0;
+  color: #8c8795;
+  font-size: 9px;
+}
+
+.public-proposal-payments ol {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #dfdbe6;
+  list-style: none;
+}
+
+.public-proposal-payments li {
+  display: grid;
+  grid-template-columns: 10px 1fr 180px 150px;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 4px;
+  border-bottom: 1px solid #ece9f0;
+}
+
+.public-proposal-payments li > span {
+  width: 7px;
+  height: 7px;
+  border: 2px solid #7b66d1;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.public-proposal-payments li div {
+  display: grid;
+  gap: 3px;
+}
+
+.public-proposal-payments li b {
+  font-size: 11px;
+}
+
+.public-proposal-payments li small {
+  color: #8c8795;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.public-proposal-payments time {
+  color: #716b78;
+  font-size: 10px;
+}
+
+.public-proposal-payments li strong {
+  text-align: right;
+  font: 700 13px Georgia, serif;
+}
+
+@media (max-width: 680px) {
+  .public-proposal-payments {
+    padding-right: 26px;
+    padding-left: 26px;
+  }
+
+  .public-proposal-payments li {
+    grid-template-columns: 10px 1fr auto;
+  }
+
+  .public-proposal-payments time {
+    grid-column: 2;
+  }
+
+  .public-proposal-payments li strong {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

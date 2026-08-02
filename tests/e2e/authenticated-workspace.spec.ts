@@ -1511,7 +1511,7 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       proposalPreview.getByText("Subject to availability"),
     ).toBeVisible();
-    await expect(quoteCard.getByText(/₹5,45,000/)).toBeVisible();
+    await expect(quoteCard.getByText(/₹5,45,000/).first()).toBeVisible();
     await quoteCard
       .getByRole("button", { name: "Request human sharing review" })
       .click();
@@ -1757,6 +1757,46 @@ test.describe("authenticated owner workspace", () => {
     expect(structuredCostError).toBeNull();
     expect(structuredCost?.estimated_cost_amount).toBe(370000);
 
+    await expect(quoteCard.getByLabel("Payment amount 1")).toHaveValue(
+      "151200",
+    );
+    await expect(quoteCard.getByLabel("Payment amount 2")).toHaveValue(
+      "352800",
+    );
+    await quoteCard
+      .getByRole("button", { name: "Save exact payment schedule" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Payment schedule revision 1 saved",
+    );
+    await expect(
+      quoteCard.getByLabel(
+        "Invoice readiness: Schedule ready · invoice after acceptance",
+      ),
+    ).toContainText("Schedule revision 1 · 2 milestones");
+    const { data: paymentSchedule, error: paymentScheduleError } = await admin!
+      .from("quote_payment_schedules")
+      .select(
+        "id, quote_version_id, revision, status, total_amount, items, item_count, content_sha256",
+      )
+      .eq("organization_id", organizationIds[0])
+      .eq("quote_id", quote!.id)
+      .eq("status", "active")
+      .single();
+    expect(paymentScheduleError).toBeNull();
+    expect(paymentSchedule).toMatchObject({
+      quote_version_id: structuredVersion!.id,
+      revision: 1,
+      status: "active",
+      total_amount: 504000,
+      item_count: 2,
+      items: [
+        { kind: "deposit", label: "Booking deposit", amount: 151200 },
+        { kind: "balance", label: "Final balance", amount: 352800 },
+      ],
+    });
+    expect(paymentSchedule?.content_sha256).toHaveLength(64);
+
     const previewHref = await quoteCard
       .getByRole("link", { name: "Preview customer version" })
       .getAttribute("href");
@@ -1775,6 +1815,11 @@ test.describe("authenticated owner workspace", () => {
       previewPage.getByRole("table", { name: "Customer quote line items" }),
     ).toContainText("Two rooms");
     await expect(previewPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(
+      previewPage.getByRole("heading", { name: "Payment schedule" }),
+    ).toBeVisible();
+    await expect(previewPage.getByText("Booking deposit")).toBeVisible();
+    await expect(previewPage.getByText("Final balance")).toBeVisible();
     await expect(previewPage.getByText(/₹5,04,000/).first()).toBeVisible();
     await expect(
       previewPage.getByRole("button", { name: "Print or save PDF" }),
@@ -1796,6 +1841,38 @@ test.describe("authenticated owner workspace", () => {
       .click();
     await expect(page.getByRole("status")).toContainText(
       "Human sharing review requested",
+    );
+    const { data: scheduledApproval, error: scheduledApprovalError } =
+      await admin!
+        .from("approval_requests")
+        .select("payload")
+        .eq("organization_id", organizationIds[0])
+        .eq("entity_id", quote!.id)
+        .eq("action", "quote.share")
+        .eq("status", "pending")
+        .single();
+    expect(scheduledApprovalError).toBeNull();
+    expect(scheduledApproval?.payload).toMatchObject({
+      quote_version: 5,
+      payment_schedule: {
+        configured: true,
+        revision: 1,
+        item_count: 2,
+        invoice_created: false,
+        receivable_created: false,
+      },
+    });
+    expect(
+      String(
+        (
+          scheduledApproval?.payload as {
+            payment_schedule?: { content_sha256?: string };
+          }
+        )?.payment_schedule?.content_sha256,
+      ),
+    ).toHaveLength(64);
+    expect(JSON.stringify(scheduledApproval?.payload)).not.toContain(
+      "Booking deposit",
     );
     await page.goto("/aios");
     const quoteApprovalCard = page
@@ -1844,6 +1921,10 @@ test.describe("authenticated owner workspace", () => {
         version: 5,
         currency: "INR",
         total_amount: 504000,
+        payment_schedule: [
+          { kind: "deposit", label: "Booking deposit", amount: 151200 },
+          { kind: "balance", label: "Final balance", amount: 352800 },
+        ],
         content: {
           inclusions: [
             "Two rooms with breakfast",
@@ -1870,6 +1951,11 @@ test.describe("authenticated owner workspace", () => {
       publicPage.getByRole("table", { name: "Proposal line items" }),
     ).toContainText("Two rooms");
     await expect(publicPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(
+      publicPage.getByRole("heading", { name: "Payment schedule" }),
+    ).toBeVisible();
+    await expect(publicPage.getByText("Booking deposit")).toBeVisible();
+    await expect(publicPage.getByText("Final balance")).toBeVisible();
     await expect(publicPage.getByText(/₹5,04,000/).first()).toBeVisible();
     await expect(
       publicPage.getByRole("button", { name: "Print or save PDF" }),

@@ -27,6 +27,7 @@ const protectedTables = [
   "quote_catalog_products",
   "quote_catalog_rates",
   "quote_share_links",
+  "quote_payment_schedules",
   "conversations",
   "messages",
   "approval_requests",
@@ -564,6 +565,21 @@ async function verify() {
       },
     },
   );
+  const { error: anonymousQuotePaymentScheduleError } = await anonymous.rpc(
+    "append_quote_payment_schedule",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
+      target_items: [
+        {
+          kind: "balance",
+          label: "Blocked anonymous balance",
+          amount: 100,
+          due_date: "2026-08-31",
+        },
+      ],
+    },
+  );
   const { error: anonymousCatalogProductError } = await anonymous.rpc(
     "create_quote_catalog_product",
     {
@@ -675,6 +691,11 @@ async function verify() {
       function: "append_quote_proposal_content_version",
       anonymousExecutionBlocked: Boolean(anonymousQuoteProposalError),
       anonymousErrorCode: anonymousQuoteProposalError?.code ?? null,
+    },
+    {
+      function: "append_quote_payment_schedule",
+      anonymousExecutionBlocked: Boolean(anonymousQuotePaymentScheduleError),
+      anonymousErrorCode: anonymousQuotePaymentScheduleError?.code ?? null,
     },
     {
       function: "upsert_quote_approval_policy",

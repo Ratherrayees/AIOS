@@ -9,6 +9,7 @@ import { quoteShareTokenHash } from "../../../lib/crm/quote-share-token";
 import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import { PrintProposalButton } from "./print-proposal-button";
 import "./proposal.css";
+import "./payment-schedule.css";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -148,11 +149,56 @@ export default async function PublicQuoteProposalPage({
           </section>
         )}
 
+        {proposal.payment_schedule.length > 0 && (
+          <section
+            className="public-proposal-payments"
+            aria-labelledby="proposal-payments-title"
+          >
+            <header>
+              <span>02</span>
+              <div>
+                <h2 id="proposal-payments-title">Payment schedule</h2>
+                <p>
+                  Milestones for this proposal version. Your advisor will
+                  confirm invoice and payment instructions separately.
+                </p>
+              </div>
+            </header>
+            <ol>
+              {proposal.payment_schedule.map((item) => (
+                <li key={`${item.kind}-${item.label}-${item.due_date}`}>
+                  <span aria-hidden="true" />
+                  <div>
+                    <b>{item.label}</b>
+                    <small>{item.kind}</small>
+                  </div>
+                  <time dateTime={item.due_date}>
+                    {readableDate(`${item.due_date}T00:00:00.000Z`)}
+                  </time>
+                  <strong>{money(item.amount, proposal.currency)}</strong>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         <section className="public-proposal-content" aria-label="Proposal scope and terms">
           {[
-            ["02", "What is included", proposal.content.inclusions],
-            ["03", "What is not included", proposal.content.exclusions],
-            ["04", "Terms", proposal.content.terms],
+            [
+              proposal.payment_schedule.length ? "03" : "02",
+              "What is included",
+              proposal.content.inclusions,
+            ],
+            [
+              proposal.payment_schedule.length ? "04" : "03",
+              "What is not included",
+              proposal.content.exclusions,
+            ],
+            [
+              proposal.payment_schedule.length ? "05" : "04",
+              "Terms",
+              proposal.content.terms,
+            ],
           ].map(([number, title, items]) => (
             <section key={title as string}>
               <header>

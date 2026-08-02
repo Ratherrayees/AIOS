@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { QUOTE_LINE_CATEGORIES } from "./quote-pricing";
 import {
+  MAX_QUOTE_PAYMENT_SCHEDULE_ITEMS,
+  quotePaymentScheduleStoredItemSchema,
+} from "./quote-payment-schedule";
+import {
   MAX_QUOTE_PROPOSAL_ITEM_LENGTH,
   MAX_QUOTE_PROPOSAL_ITEMS,
   QUOTE_PROPOSAL_SCHEMA_VERSION,
@@ -44,6 +48,10 @@ export const quoteShareSnapshotSchema = z.object({
         total_amount: z.number().nonnegative(),
       }),
     ).max(50),
+    payment_schedule: z
+      .array(quotePaymentScheduleStoredItemSchema)
+      .max(MAX_QUOTE_PAYMENT_SCHEDULE_ITEMS)
+      .default([]),
     content: z.object({
       schema_version: z.literal(QUOTE_PROPOSAL_SCHEMA_VERSION),
       inclusions: proposalItemsSchema.min(1),

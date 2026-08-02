@@ -6,9 +6,11 @@ import {
   isQuoteProposalContentReady,
   parseQuoteProposalContent,
 } from "../../../../lib/crm/quote-proposal";
+import { parseQuotePaymentScheduleItems } from "../../../../lib/crm/quote-payment-schedule";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { PrintQuoteButton } from "./print-quote-button";
 import "./preview.css";
+import "./payment-schedule.css";
 
 export const metadata: Metadata = {
   title: "Internal customer quote preview | AIOS Travel CRM",
@@ -76,7 +78,7 @@ export default async function QuoteCustomerPreviewPage({
   if (dealResult.error) throw dealResult.error;
   const version = versionResult.data;
 
-  const [lineResult, contactResult] = await Promise.all([
+  const [lineResult, contactResult, scheduleResult] = await Promise.all([
     supabase
       .from("quote_line_items")
       .select(
@@ -93,12 +95,24 @@ export default async function QuoteCustomerPreviewPage({
           .eq("id", dealResult.data.contact_id)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from("quote_payment_schedules")
+      .select("items")
+      .eq("organization_id", organizationId)
+      .eq("quote_id", quote.id)
+      .eq("quote_version_id", version.id)
+      .eq("status", "active")
+      .maybeSingle(),
   ]);
   if (lineResult.error) throw lineResult.error;
   if (contactResult.error) throw contactResult.error;
+  if (scheduleResult.error) throw scheduleResult.error;
 
   const content = parseQuoteProposalContent(version.terms_snapshot);
   const contentReady = isQuoteProposalContentReady(version.terms_snapshot);
+  const paymentSchedule = parseQuotePaymentScheduleItems(
+    scheduleResult.data?.items,
+  );
   const travelerName = contactResult.data
     ? [contactResult.data.first_name, contactResult.data.last_name]
         .filter(Boolean)
@@ -208,12 +222,60 @@ export default async function QuoteCustomerPreviewPage({
           </section>
         )}
 
+        {paymentSchedule.length > 0 && (
+          <section
+            className="customer-quote-payments"
+            aria-labelledby="quote-payments-title"
+          >
+            <div className="customer-quote-section-title">
+              <span>02</span>
+              <div>
+                <h2 id="quote-payments-title">Payment schedule</h2>
+                <p>
+                  Commercial milestones only. This preview does not create an
+                  invoice, receivable, payment request, or customer message.
+                </p>
+              </div>
+            </div>
+            <ol>
+              {paymentSchedule.map((item) => (
+                <li key={`${item.kind}-${item.label}-${item.dueDate}`}>
+                  <span aria-hidden="true" />
+                  <div>
+                    <b>{item.label}</b>
+                    <small>{item.kind}</small>
+                  </div>
+                  <time dateTime={item.dueDate}>
+                    {new Date(`${item.dueDate}T00:00:00`).toLocaleDateString(
+                      "en-IN",
+                      { day: "numeric", month: "long", year: "numeric" },
+                    )}
+                  </time>
+                  <strong>{money(item.amount, quote.currency)}</strong>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         {contentReady ? (
           <section className="customer-quote-content" aria-label="Proposal scope and terms">
             {[
-              ["02", "What is included", content.inclusions],
-              ["03", "What is not included", content.exclusions],
-              ["04", "Terms", content.terms],
+              [
+                paymentSchedule.length ? "03" : "02",
+                "What is included",
+                content.inclusions,
+              ],
+              [
+                paymentSchedule.length ? "04" : "03",
+                "What is not included",
+                content.exclusions,
+              ],
+              [
+                paymentSchedule.length ? "05" : "04",
+                "Terms",
+                content.terms,
+              ],
             ].map(([number, title, items]) => (
               <section key={title as string}>
                 <div className="customer-quote-section-title">

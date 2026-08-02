@@ -1250,6 +1250,181 @@ async function verifyAuthorization() {
         !JSON.stringify(proposalAudit.data.metadata).includes("breakfast"),
     );
 
+    activeVerificationPhase = "quote payment schedule authorization";
+    const firstPaymentSchedule = [
+      {
+        kind: "deposit",
+        label: "Booking deposit",
+        amount: 151200,
+        due_date: new Date().toISOString().slice(0, 10),
+      },
+      {
+        kind: "balance",
+        label: "Final balance",
+        amount: 352800,
+        due_date: quoteValidUntil,
+      },
+    ];
+    const [foreignScheduleWrite, forgedScheduleWrite, duplicateSchedule, unreconciledSchedule] =
+      await Promise.all([
+        viewer.rpc("append_quote_payment_schedule", {
+          target_organization_id: organizationA.id,
+          target_quote_id: guardedQuoteId,
+          target_items: firstPaymentSchedule,
+        }),
+        owner.from("quote_payment_schedules").insert({
+          organization_id: organizationA.id,
+          quote_id: guardedQuoteId,
+          quote_version_id: proposalSummary.quote_version_id,
+          revision: 99,
+          currency: "INR",
+          total_amount: 504000,
+          items: firstPaymentSchedule,
+          content_sha256: "0".repeat(64),
+        }),
+        owner.rpc("append_quote_payment_schedule", {
+          target_organization_id: organizationA.id,
+          target_quote_id: guardedQuoteId,
+          target_items: [
+            firstPaymentSchedule[0],
+            {
+              ...firstPaymentSchedule[1],
+              label: " booking deposit ",
+            },
+          ],
+        }),
+        owner.rpc("append_quote_payment_schedule", {
+          target_organization_id: organizationA.id,
+          target_quote_id: guardedQuoteId,
+          target_items: [
+            firstPaymentSchedule[0],
+            { ...firstPaymentSchedule[1], amount: 352799 },
+          ],
+        }),
+      ]);
+    record(
+      "foreign tenants cannot configure another workspace payment schedule",
+      Boolean(foreignScheduleWrite.error),
+    );
+    record(
+      "browser sessions cannot forge immutable payment schedule rows",
+      Boolean(forgedScheduleWrite.error),
+    );
+    record(
+      "database rejects duplicate customer payment milestone labels",
+      Boolean(duplicateSchedule.error),
+    );
+    record(
+      "database rejects payment milestones that do not reconcile exactly",
+      Boolean(unreconciledSchedule.error),
+    );
+
+    const createdPaymentSchedule = await owner.rpc(
+      "append_quote_payment_schedule",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: firstPaymentSchedule,
+      },
+    );
+    const firstScheduleRow = createdPaymentSchedule.data?.[0];
+    if (createdPaymentSchedule.error || !firstScheduleRow)
+      throw createdPaymentSchedule.error ??
+        new Error("Payment schedule authorization fixture was not created.");
+    const [storedPaymentSchedule, paymentScheduleAudit] = await Promise.all([
+      owner
+        .from("quote_payment_schedules")
+        .select(
+          "quote_version_id, revision, status, total_amount, items, item_count, content_sha256",
+        )
+        .eq("id", firstScheduleRow.id)
+        .single(),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("organization_id", organizationA.id)
+        .eq("entity_id", guardedQuoteId)
+        .eq("metadata->>event", "quote.payment_schedule_created")
+        .single(),
+    ]);
+    record(
+      "authorized payment terms bind to the exact current commercial version",
+      !storedPaymentSchedule.error &&
+        storedPaymentSchedule.data?.quote_version_id ===
+          proposalSummary.quote_version_id &&
+        storedPaymentSchedule.data.revision === 1 &&
+        storedPaymentSchedule.data.status === "active" &&
+        Number(storedPaymentSchedule.data.total_amount) === 504000 &&
+        storedPaymentSchedule.data.item_count === 2 &&
+        storedPaymentSchedule.data.content_sha256?.length === 64,
+    );
+    record(
+      "payment schedule audit stores a hash and explicit zero-side-effect boundaries",
+      !paymentScheduleAudit.error &&
+        paymentScheduleAudit.data?.metadata?.item_count === 2 &&
+        paymentScheduleAudit.data.metadata.content_sha256?.length === 64 &&
+        paymentScheduleAudit.data.metadata.invoice_created === false &&
+        paymentScheduleAudit.data.metadata.receivable_created === false &&
+        paymentScheduleAudit.data.metadata.external_delivery_performed ===
+          false &&
+        !JSON.stringify(paymentScheduleAudit.data.metadata).includes(
+          "Booking deposit",
+        ),
+    );
+
+    const scheduleChangeApproval = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "quote.share",
+        entity_type: "quote",
+        entity_id: guardedQuoteId,
+      })
+      .select("id")
+      .single();
+    if (scheduleChangeApproval.error || !scheduleChangeApproval.data)
+      throw scheduleChangeApproval.error ??
+        new Error("Schedule-change approval fixture was not created.");
+    const revisedPaymentSchedule = await owner.rpc(
+      "append_quote_payment_schedule",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+        target_items: [
+          { ...firstPaymentSchedule[0], amount: 200000 },
+          { ...firstPaymentSchedule[1], amount: 304000 },
+        ],
+      },
+    );
+    const revisedScheduleRow = revisedPaymentSchedule.data?.[0];
+    if (revisedPaymentSchedule.error || !revisedScheduleRow)
+      throw revisedPaymentSchedule.error ??
+        new Error("Revised payment schedule fixture was not created.");
+    const [cancelledScheduleApproval, scheduleCancellationAudit] =
+      await Promise.all([
+        owner
+          .from("approval_requests")
+          .select("status")
+          .eq("id", scheduleChangeApproval.data.id)
+          .single(),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("entity_id", scheduleChangeApproval.data.id)
+          .eq("event_type", "approval.cancelled")
+          .single(),
+      ]);
+    record(
+      "payment term changes supersede prior terms and cancel stale sharing review",
+      revisedScheduleRow.revision === 2 &&
+        revisedScheduleRow.status === "active" &&
+        cancelledScheduleApproval.data?.status === "cancelled" &&
+        scheduleCancellationAudit.data?.metadata?.reason ===
+          "quote_payment_schedule_changed",
+    );
+
     activeVerificationPhase = "approval-gated quote publishing authorization";
     const publishApproval = await owner
       .from("approval_requests")
@@ -1281,8 +1456,16 @@ async function verifyAuthorization() {
           publishApproval.data.payload.commercial_exceptions
             ?.discount_percent,
         ) === 4 &&
-        publishApproval.data.payload.commercial_exceptions
+      publishApproval.data.payload.commercial_exceptions
           ?.standard_terms_match === false &&
+        publishApproval.data.payload.payment_schedule?.configured === true &&
+        publishApproval.data.payload.payment_schedule?.revision === 2 &&
+        publishApproval.data.payload.payment_schedule?.item_count === 2 &&
+        publishApproval.data.payload.payment_schedule?.content_sha256?.length ===
+          64 &&
+        !/(Booking deposit|Final balance|151200|352800|200000|304000)/i.test(
+          publishApprovalPayload,
+        ) &&
         !publishApprovalPayload.includes("Subject to availability") &&
         !publishApprovalPayload.includes("Valid only until quote expiry"),
     );
@@ -1413,6 +1596,11 @@ async function verifyAuthorization() {
         quotePublicSnapshot.data?.quote?.version === 5 &&
         Number(quotePublicSnapshot.data?.quote?.total_amount) === 504000 &&
         quotePublicSnapshot.data?.quote?.line_items?.length === 2 &&
+        quotePublicSnapshot.data?.quote?.payment_schedule?.length === 2 &&
+        quotePublicSnapshot.data.quote.payment_schedule.reduce(
+          (sum, item) => sum + Number(item.amount),
+          0,
+        ) === 504000 &&
         quotePublicSnapshot.data?.quote?.content?.inclusions?.length === 3,
     );
     const reusedApproval = await owner.rpc("publish_quote_share", {

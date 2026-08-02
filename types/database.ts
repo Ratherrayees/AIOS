@@ -3676,6 +3676,89 @@ export type Database = {
           },
         ]
       }
+      quote_payment_schedules: {
+        Row: {
+          content_sha256: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          id: string
+          item_count: number | null
+          items: Json
+          organization_id: string
+          quote_id: string
+          quote_version_id: string
+          revision: number
+          status: string
+          superseded_at: string | null
+          superseded_by: string | null
+          total_amount: number
+        }
+        Insert: {
+          content_sha256: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          id?: string
+          item_count?: number | null
+          items: Json
+          organization_id: string
+          quote_id: string
+          quote_version_id: string
+          revision: number
+          status?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          total_amount: number
+        }
+        Update: {
+          content_sha256?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          id?: string
+          item_count?: number | null
+          items?: Json
+          organization_id?: string
+          quote_id?: string
+          quote_version_id?: string
+          revision?: number
+          status?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_payment_schedules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_payment_schedules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_payment_schedules_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_payment_schedules_version_same_organization_fkey"
+            columns: ["organization_id", "quote_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "quote_id", "id"]
+          },
+        ]
+      }
       quote_share_links: {
         Row: {
           approval_request_id: string
@@ -4809,6 +4892,36 @@ export type Database = {
           target_trip_id: string
         }
         Returns: number
+      }
+      append_quote_payment_schedule: {
+        Args: {
+          target_items: Json
+          target_organization_id: string
+          target_quote_id: string
+        }
+        Returns: {
+          content_sha256: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          id: string
+          item_count: number | null
+          items: Json
+          organization_id: string
+          quote_id: string
+          quote_version_id: string
+          revision: number
+          status: string
+          superseded_at: string | null
+          superseded_by: string | null
+          total_amount: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "quote_payment_schedules"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       append_quote_proposal_content_version: {
         Args: {

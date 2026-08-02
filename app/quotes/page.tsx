@@ -23,6 +23,7 @@ import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import { StructuredQuoteComposer } from "./structured-quote-composer";
 import { QuoteProposalEditor } from "./quote-proposal-editor";
+import { QuotePaymentScheduleEditor } from "./quote-payment-schedule-editor";
 import {
   buildEffectiveQuoteCatalog,
   type QuoteCatalogProduct,
@@ -38,8 +39,13 @@ import {
   parseQuoteProposalContent,
   splitQuoteProposalLines,
 } from "../../lib/crm/quote-proposal";
+import {
+  assessQuoteInvoiceReadiness,
+  parseQuotePaymentScheduleItems,
+} from "../../lib/crm/quote-payment-schedule";
 import "./quotes.css";
 import "./quote-policy.css";
+import "./quote-payment-schedule.css";
 
 type Deal = { id: string; title: string; stage: string; currency: string };
 type Quote = {
@@ -112,6 +118,18 @@ type QuoteApprovalPolicyRow = {
   enforce_standard_terms: boolean;
   standard_terms: unknown;
 };
+type QuotePaymentScheduleRow = {
+  id: string;
+  quote_id: string;
+  quote_version_id: string;
+  revision: number;
+  status: "active" | "superseded";
+  currency: string;
+  total_amount: number;
+  items: unknown;
+  item_count: number;
+  content_sha256: string;
+};
 
 const commercialRoles = new Set(["owner", "admin", "sales", "trip_designer"]);
 const costRoles = new Set([
@@ -156,6 +174,9 @@ export default function QuotesPage() {
   const [catalogRates, setCatalogRates] = useState<QuoteCatalogRate[]>([]);
   const [shareApprovals, setShareApprovals] = useState<QuoteShareApproval[]>([]);
   const [shareLinks, setShareLinks] = useState<QuoteShareLink[]>([]);
+  const [paymentSchedules, setPaymentSchedules] = useState<
+    QuotePaymentScheduleRow[]
+  >([]);
   const [publishedPaths, setPublishedPaths] = useState<Record<string, string>>({});
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
@@ -186,6 +207,7 @@ export default function QuotesPage() {
         { data: lineItemRows },
         { data: catalogProductRows },
         { data: catalogRateRows },
+        { data: paymentScheduleRows },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -246,6 +268,13 @@ export default function QuotesPage() {
               "id, product_id, version, unit_sell_amount, unit_cost_amount, tax_percent, valid_from, valid_until",
             )
             .eq("organization_id", membership.organization_id),
+          supabase
+            .from("quote_payment_schedules")
+            .select(
+              "id, quote_id, quote_version_id, revision, status, currency, total_amount, items, item_count, content_sha256",
+            )
+            .eq("organization_id", membership.organization_id)
+            .order("revision", { ascending: false }),
         ]);
       setDeals((dealRows || []) as Deal[]);
       setQuotes((quoteRows || []) as Quote[]);
@@ -260,6 +289,9 @@ export default function QuotesPage() {
         (catalogProductRows || []) as QuoteCatalogProduct[],
       );
       setCatalogRates((catalogRateRows || []) as QuoteCatalogRate[]);
+      setPaymentSchedules(
+        (paymentScheduleRows || []) as QuotePaymentScheduleRow[],
+      );
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
@@ -358,6 +390,14 @@ export default function QuotesPage() {
     }
     return links;
   }, [shareLinks]);
+  const activePaymentSchedules = useMemo(() => {
+    const schedules = new Map<string, QuotePaymentScheduleRow>();
+    for (const schedule of paymentSchedules) {
+      if (schedule.status === "active" && !schedules.has(schedule.quote_id))
+        schedules.set(schedule.quote_id, schedule);
+    }
+    return schedules;
+  }, [paymentSchedules]);
   const consumedShareApprovals = useMemo(
     () => new Set(shareLinks.map((link) => link.approval_request_id)),
     [shareLinks],
@@ -434,7 +474,7 @@ export default function QuotesPage() {
     if (!dealId || !title || !Number.isFinite(totalAmount)) return;
     startTransition(async () => {
       try {
-        const quote = await createQuoteDraft({
+        const created = await createQuoteDraft({
           organizationId,
           dealId,
           title,
@@ -442,10 +482,11 @@ export default function QuotesPage() {
           validUntil,
           totalAmount,
         });
-        setQuotes((current) => [quote as Quote, ...current]);
+        const quote = created.quote as Quote;
+        setQuotes((current) => [quote, ...current]);
         setVersions((current) => [
           {
-            id: `new:${quote.id}:${quote.current_version}`,
+            id: created.versionId,
             quote_id: quote.id,
             version: quote.current_version,
             total_amount: totalAmount,
@@ -494,7 +535,7 @@ export default function QuotesPage() {
         );
         setVersions((current) => [
           {
-            id: `new:${quote.id}:${updated.version}`,
+            id: updated.versionId,
             quote_id: quote.id,
             version: updated.version,
             total_amount: totalAmount,
@@ -513,7 +554,7 @@ export default function QuotesPage() {
         ]);
         setCostEstimates((current) => [
           {
-            quote_version_id: `new:${quote.id}:${updated.version}`,
+            quote_version_id: updated.versionId,
             estimated_cost_amount: estimatedCostAmount,
           },
           ...current,
@@ -738,6 +779,24 @@ export default function QuotesPage() {
       ...(result.lines as QuoteLineItem[]),
       ...current,
     ]);
+  }
+
+  function applyPaymentSchedule(saved: QuotePaymentScheduleRow) {
+    setPaymentSchedules((current) => [
+      saved,
+      ...current.map((schedule) =>
+        schedule.quote_id === saved.quote_id && schedule.status === "active"
+          ? { ...schedule, status: "superseded" as const }
+          : schedule,
+      ),
+    ]);
+    setShareApprovals((current) =>
+      current.map((approval) =>
+        approval.entity_id === saved.quote_id && approval.status === "pending"
+          ? { ...approval, status: "cancelled" }
+          : approval,
+      ),
+    );
   }
 
   function saveApprovalPolicy(event: FormEvent<HTMLFormElement>) {
@@ -1034,6 +1093,24 @@ export default function QuotesPage() {
               : [];
             const shareApproval = latestShareApproval.get(quote.id);
             const shareLink = latestShareLink.get(quote.id);
+            const paymentSchedule = activePaymentSchedules.get(quote.id) ?? null;
+            const paymentScheduleItems = parseQuotePaymentScheduleItems(
+              paymentSchedule?.items,
+            );
+            const invoiceReadiness = currentVersion
+              ? assessQuoteInvoiceReadiness({
+                  quoteStatus: quote.status,
+                  quoteVersionId: currentVersion.id,
+                  quoteTotalAmount: Number(currentVersion.total_amount),
+                  schedule: paymentSchedule
+                    ? {
+                        quoteVersionId: paymentSchedule.quote_version_id,
+                        totalAmount: Number(paymentSchedule.total_amount),
+                        items: paymentScheduleItems,
+                      }
+                    : null,
+                })
+              : null;
             const approvalConsumed = shareApproval
               ? consumedShareApprovals.has(shareApproval.id)
               : false;
@@ -1151,6 +1228,38 @@ export default function QuotesPage() {
                     ))}
                   </details>
                 )}
+                {invoiceReadiness && (
+                  <section
+                    className={`quote-invoice-readiness quote-invoice-${invoiceReadiness.code}`}
+                    aria-label={`Invoice readiness: ${invoiceReadiness.label}`}
+                  >
+                    <div>
+                      <small>PAYMENT TERMS</small>
+                      <strong>{invoiceReadiness.label}</strong>
+                      <span>
+                        {paymentSchedule
+                          ? `Schedule revision ${paymentSchedule.revision} · ${paymentScheduleItems.length} milestone${paymentScheduleItems.length === 1 ? "" : "s"}`
+                          : "Add exact customer payment milestones before invoicing."}
+                      </span>
+                    </div>
+                    {paymentSchedule?.quote_version_id === currentVersion?.id && (
+                      <ol>
+                        {paymentScheduleItems.map((item) => (
+                          <li key={`${item.kind}-${item.label}`}>
+                            <span>
+                              {item.label} · {item.dueDate}
+                            </span>
+                            <b>{formatMoney(item.amount, quote.currency)}</b>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    <small>
+                      This is readiness evidence only. AIOS has not issued an
+                      invoice or created a receivable.
+                    </small>
+                  </section>
+                )}
                 <Link
                   className="quote-customer-preview-link"
                   href={`/quotes/${quote.id}/preview?organization=${organizationId}`}
@@ -1187,6 +1296,32 @@ export default function QuotesPage() {
                     Commercial readiness evidence is restricted to authorized
                     roles.
                   </small>
+                )}
+                {canCreate && quote.status === "draft" && (
+                  <QuotePaymentScheduleEditor
+                    key={`payment:${quote.id}:${quote.current_version}:${paymentSchedule?.id ?? "none"}`}
+                    organizationId={organizationId!}
+                    quoteId={quote.id}
+                    quoteVersionId={currentVersion?.id ?? ""}
+                    quoteTotalAmount={Number(currentVersion?.total_amount ?? 0)}
+                    currency={quote.currency}
+                    validUntil={quote.valid_until}
+                    schedule={
+                      paymentSchedule
+                        ? {
+                            id: paymentSchedule.id,
+                            quote_version_id: paymentSchedule.quote_version_id,
+                            revision: paymentSchedule.revision,
+                            total_amount: Number(paymentSchedule.total_amount),
+                            items: paymentScheduleItems,
+                          }
+                        : null
+                    }
+                    onSaved={(saved) =>
+                      applyPaymentSchedule(saved as QuotePaymentScheduleRow)
+                    }
+                    onNotice={setNotice}
+                  />
                 )}
                 {canCreate && quote.status === "draft" && (
                   <QuoteProposalEditor

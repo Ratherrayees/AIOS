@@ -5,6 +5,7 @@ import {
   MAX_QUOTE_PROPOSAL_ITEM_LENGTH,
   MAX_QUOTE_PROPOSAL_ITEMS,
 } from "./quote-proposal";
+import { quotePaymentScheduleItemsSchema } from "./quote-payment-schedule";
 
 export const contactInputSchema = z.object({
   organizationId: z.uuid(),
@@ -542,6 +543,12 @@ export const quoteShareRevokeSchema = z.object({
   organizationId: z.uuid(),
   shareLinkId: z.uuid(),
   note: z.string().trim().min(10).max(500),
+});
+
+export const quotePaymentScheduleInputSchema = z.object({
+  organizationId: z.uuid(),
+  quoteId: z.uuid(),
+  items: quotePaymentScheduleItemsSchema,
 });
 
 const quoteStandardTermsSchema = z
@@ -1182,6 +1189,9 @@ export type QuoteSharePublishInput = z.infer<
 >;
 export type QuoteShareRevokeInput = z.infer<
   typeof quoteShareRevokeSchema
+>;
+export type QuotePaymentScheduleInput = z.infer<
+  typeof quotePaymentScheduleInputSchema
 >;
 export type QuoteApprovalPolicyInput = z.infer<
   typeof quoteApprovalPolicyInputSchema

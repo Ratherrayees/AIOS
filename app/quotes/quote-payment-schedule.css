@@ -1,0 +1,218 @@
+.quote-invoice-readiness {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #ddd7e8;
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: #fff;
+}
+
+.quote-invoice-readiness > div {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-invoice-readiness small {
+  color: #7a7285;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.quote-invoice-readiness span {
+  color: #665e71;
+  font-size: 11px;
+}
+
+.quote-invoice-readiness ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quote-invoice-readiness li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #eeeaf3;
+  padding-top: 6px;
+  font-size: 11px;
+}
+
+.quote-invoice-ready {
+  border-color: #a9d7c1;
+  background: #f7fffa;
+}
+
+.quote-invoice-schedule_stale,
+.quote-invoice-schedule_unreconciled {
+  border-color: #e4c99d;
+  background: #fffaf1;
+}
+
+.quote-payment-schedule {
+  border: 1px solid #ddd8ea;
+  border-radius: 14px;
+  background: #fbfaff;
+  overflow: hidden;
+}
+
+.quote-payment-schedule > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.quote-payment-schedule > summary::-webkit-details-marker {
+  display: none;
+}
+
+.quote-payment-schedule > summary span {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-payment-schedule > summary small,
+.quote-payment-schedule > summary em {
+  color: #777083;
+  font: 600 10px/1.35 inherit;
+  font-style: normal;
+}
+
+.quote-payment-schedule > summary em {
+  border: 1px solid #d7d0e5;
+  border-radius: 999px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.quote-payment-boundary {
+  margin: 0 16px 12px;
+  border-left: 3px solid #7254cc;
+  padding: 8px 10px;
+  background: #f1edff;
+  color: #5a506b;
+  font-size: 11px;
+}
+
+.quote-payment-items {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px;
+}
+
+.quote-payment-items fieldset {
+  display: grid;
+  grid-template-columns: 0.8fr 1.4fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #e3deec;
+  border-radius: 10px;
+  padding: 10px;
+  background: white;
+}
+
+.quote-payment-items legend {
+  padding: 0 5px;
+  color: #746b80;
+  font: 700 9px/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quote-payment-items label {
+  display: grid;
+  gap: 5px;
+  color: #665e72;
+  font-size: 10px;
+}
+
+.quote-payment-items input,
+.quote-payment-items select {
+  min-width: 0;
+  border: 1px solid #ded9e8;
+  border-radius: 7px;
+  padding: 8px;
+  background: white;
+  color: #393448;
+}
+
+.quote-payment-items button,
+.quote-payment-schedule > footer button {
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #30264d;
+  color: white;
+  font: 700 10px/1 inherit;
+  cursor: pointer;
+}
+
+.quote-payment-items button {
+  background: #eeeaf5;
+  color: #5b5268;
+}
+
+.quote-payment-schedule button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.quote-payment-schedule > footer {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 16px 16px;
+}
+
+.quote-payment-schedule > footer div {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 2px 8px;
+}
+
+.quote-payment-schedule > footer div small {
+  grid-column: 1 / -1;
+  color: #746d80;
+  font-size: 10px;
+}
+
+.quote-payment-schedule .is-reconciled b {
+  color: #28704f;
+}
+
+.quote-payment-schedule .is-unreconciled b {
+  color: #a33b4b;
+}
+
+@media (max-width: 820px) {
+  .quote-payment-items fieldset {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .quote-payment-items fieldset button {
+    grid-column: 1 / -1;
+  }
+
+  .quote-payment-schedule > footer {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .quote-payment-schedule > footer div {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .quote-payment-items fieldset,
+  .quote-payment-schedule > footer {
+    grid-template-columns: 1fr;
+  }
+}

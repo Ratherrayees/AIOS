@@ -41,6 +41,7 @@ import {
   quoteShareApprovalInputSchema,
   quoteSharePublishSchema,
   quoteShareRevokeSchema,
+  quotePaymentScheduleInputSchema,
   quoteApprovalPolicyInputSchema,
   quoteCatalogProductInputSchema,
   quoteCatalogProductStatusInputSchema,
@@ -112,6 +113,7 @@ import {
   type QuoteShareApprovalInput,
   type QuoteSharePublishInput,
   type QuoteShareRevokeInput,
+  type QuotePaymentScheduleInput,
   type QuoteApprovalPolicyInput,
   type QuoteCatalogProductInput,
   type QuoteCatalogProductStatusInput,
@@ -1642,14 +1644,26 @@ export async function createQuoteDraft(input: QuoteDraftInput) {
     .single();
   if (error || !result)
     throw error ?? new Error("Quote draft was not created.");
-  const { data: quote, error: quoteError } = await supabase
-    .from("quotes")
-    .select()
-    .eq("id", result.quote_id)
-    .eq("organization_id", data.organizationId)
-    .single();
-  if (quoteError || !quote)
-    throw quoteError ?? new Error("Quote draft could not be loaded.");
+  const [quoteResult, versionResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select()
+      .eq("id", result.quote_id)
+      .eq("organization_id", data.organizationId)
+      .single(),
+    supabase
+      .from("quote_versions")
+      .select("id")
+      .eq("organization_id", data.organizationId)
+      .eq("quote_id", result.quote_id)
+      .eq("version", 1)
+      .single(),
+  ]);
+  if (quoteResult.error || !quoteResult.data)
+    throw quoteResult.error ?? new Error("Quote draft could not be loaded.");
+  if (versionResult.error || !versionResult.data)
+    throw versionResult.error ?? new Error("Quote version could not be loaded.");
+  const quote = quoteResult.data;
   await recordAuditEvent({
     organizationId: data.organizationId,
     eventType: "record.created",
@@ -1662,7 +1676,7 @@ export async function createQuoteDraft(input: QuoteDraftInput) {
       currency: quote.currency,
     },
   });
-  return quote;
+  return { quote, versionId: versionResult.data.id };
 }
 
 /** Appends an internal price and protected cost estimate; drafts are never overwritten. */
@@ -1680,14 +1694,26 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
     .single();
   if (error || !result)
     throw error ?? new Error("Quote revision was not created.");
-  const { data: quote, error: quoteError } = await supabase
-    .from("quotes")
-    .select()
-    .eq("id", data.quoteId)
-    .eq("organization_id", data.organizationId)
-    .single();
-  if (quoteError || !quote)
-    throw quoteError ?? new Error("Quote revision could not be loaded.");
+  const [quoteResult, versionResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select()
+      .eq("id", data.quoteId)
+      .eq("organization_id", data.organizationId)
+      .single(),
+    supabase
+      .from("quote_versions")
+      .select("id")
+      .eq("organization_id", data.organizationId)
+      .eq("quote_id", data.quoteId)
+      .eq("version", result.quote_version)
+      .single(),
+  ]);
+  if (quoteResult.error || !quoteResult.data)
+    throw quoteResult.error ?? new Error("Quote revision could not be loaded.");
+  if (versionResult.error || !versionResult.data)
+    throw versionResult.error ?? new Error("Quote version could not be loaded.");
+  const quote = quoteResult.data;
   await recordAuditEvent({
     organizationId: data.organizationId,
     eventType: "pricing.changed",
@@ -1699,7 +1725,11 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
       includes_internal_cost_estimate: true,
     },
   });
-  return { quote, version: result.quote_version };
+  return {
+    quote,
+    version: result.quote_version,
+    versionId: versionResult.data.id,
+  };
 }
 
 /** Appends one immutable, reconciled sell/tax/cost breakdown; it performs no external action. */
@@ -1819,6 +1849,39 @@ export async function reviseQuoteProposalContent(
     version: versionResult.data,
     cost: costResult.data,
     lines: lineResult.data ?? [],
+  };
+}
+
+/**
+ * Appends customer payment terms for the exact current quote version. This
+ * records no receivable, issues no invoice, collects no money, and sends
+ * nothing externally.
+ */
+export async function saveQuotePaymentSchedule(
+  input: QuotePaymentScheduleInput,
+) {
+  const data = quotePaymentScheduleInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, QUOTE_COMMERCIAL_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: schedule, error } = await supabase
+    .rpc("append_quote_payment_schedule", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+      target_items: data.items.map((item) => ({
+        kind: item.kind,
+        label: item.label,
+        amount: item.amount,
+        due_date: item.dueDate,
+      })),
+    })
+    .single();
+  if (error || !schedule)
+    throw new Error(
+      error?.message || "The quote payment schedule could not be saved.",
+    );
+  return {
+    ...schedule,
+    item_count: schedule.item_count ?? data.items.length,
   };
 }
 
