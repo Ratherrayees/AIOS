@@ -751,7 +751,12 @@ test.describe("authenticated owner workspace", () => {
       .locator(".lead-card")
       .filter({ hasText: "Kyoto discovery journey" });
     await expect(decisionCard).toBeVisible();
-    await decisionCard.dragTo(proposalColumn);
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await decisionCard.dispatchEvent("dragstart", { dataTransfer });
+    await expect(proposalColumn).toHaveClass(/drop-allowed/);
+    await proposalColumn.dispatchEvent("dragenter", { dataTransfer });
+    await proposalColumn.dispatchEvent("dragover", { dataTransfer });
+    await proposalColumn.dispatchEvent("drop", { dataTransfer });
     await expect(page.getByRole("status")).toContainText(
       "Kyoto discovery journey moved to Proposal",
     );
@@ -2431,6 +2436,34 @@ test.describe("authenticated owner workspace", () => {
           receivable.invoice_number === null,
       ),
     ).toBe(true);
+
+    await page.goto(`/leads/${dealId}`);
+    const commercialTruth = page.locator("#commercial-truth");
+    await expect(
+      commercialTruth.getByRole("heading", {
+        name: "Accepted value is linked through issuance",
+      }),
+    ).toBeVisible();
+    const evidenceTrail = commercialTruth.getByRole("list", {
+      name: "Commercial evidence trail",
+    });
+    await expect(evidenceTrail).toContainText(/Proposal.*Version 5.*accepted/s);
+    await expect(evidenceTrail).toContainText(/Customer commitment.*Accepted/s);
+    await expect(evidenceTrail).toContainText(/Finance evidence.*2 receivables issued/s);
+    await expect(evidenceTrail).toContainText(
+      /Pipeline decision.*human decision open/s,
+    );
+    await expect(commercialTruth).toContainText(/Customer total.*5,04,000/s);
+    await expect(commercialTruth).toContainText(/Net sell.*4,80,000/s);
+    await expect(commercialTruth).toContainText(/Gross margin estimate.*1,10,000.*22\.9%/s);
+    await expect(commercialTruth).toContainText(/After commission estimate.*86,000.*17\.9%/s);
+    await expect(commercialTruth).toContainText(/2 exact receivables.*5,04,000.*scheduled/s);
+    await expect(
+      commercialTruth.getByText("Review the Won transition", { exact: true }),
+    ).toBeVisible();
+    await expect(commercialTruth.getByText(/not prediction/i)).toBeVisible();
+    await expect(commercialTruth.getByText(/0 model calls/i)).toBeVisible();
+
     await page.goto("/quotes");
     await expect(quoteCard.locator(".quote-status")).toHaveText("accepted");
 

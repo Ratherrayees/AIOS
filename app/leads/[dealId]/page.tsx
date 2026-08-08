@@ -26,6 +26,15 @@ import { FeatureHeader } from "../../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
 import { buildSalesPriorityBrief, type PrioritySource } from "../../../lib/crm/sales-priority";
+import {
+  buildDealCommercialInsight,
+  selectPrimaryCommercialQuote,
+  type DealCommercialAcceptance,
+  type DealCommercialQuote,
+  type DealCommercialReceivable,
+  type DealCommercialTerms,
+  type DealCommercialVersion,
+} from "../../../lib/crm/deal-commercial-insight";
 import "./lead.css";
 
 type Stage = "new" | "qualified" | "proposal" | "decision" | "won" | "lost";
@@ -87,8 +96,14 @@ type FollowUpSequenceRun = {
   created_at: string;
 };
 type QuoteEvidence = {
+  id: string;
+  title: string;
   status: "draft" | "shared" | "accepted" | "rejected" | "expired" | "superseded";
+  currency: string;
+  current_version: number;
   valid_until: string | null;
+  accepted_at: string | null;
+  updated_at: string;
 };
 type TaskEvidence = {
   id: string;
@@ -97,6 +112,13 @@ type TaskEvidence = {
   due_at: string | null;
 };
 type Member = { id: string; name: string; role: string };
+type CommercialEvidence = {
+  quote: DealCommercialQuote | null;
+  version: DealCommercialVersion | null;
+  terms: DealCommercialTerms | null;
+  acceptance: DealCommercialAcceptance | null;
+  receivables: DealCommercialReceivable[];
+};
 
 const prioritySourceHref: Record<PrioritySource, string> = {
   commercial: "#commercial-signal",
@@ -125,6 +147,15 @@ function money(value: number | null, currency: string) {
         currency,
         maximumFractionDigits: 0,
       }).format(value);
+}
+
+function commercialMoney(value: number, currency: string) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function label(type: string) {
@@ -168,6 +199,16 @@ export default function LeadDetailPage() {
   const [followUpRuns, setFollowUpRuns] = useState<FollowUpSequenceRun[]>([]);
   const [quotes, setQuotes] = useState<QuoteEvidence[]>([]);
   const [tasks, setTasks] = useState<TaskEvidence[]>([]);
+  const [commercialEvidence, setCommercialEvidence] =
+    useState<CommercialEvidence>({
+      quote: null,
+      version: null,
+      terms: null,
+      acceptance: null,
+      receivables: [],
+    });
+  const [commercialEvidenceAvailable, setCommercialEvidenceAvailable] =
+    useState(false);
   const [priorityEvidenceAvailable, setPriorityEvidenceAvailable] =
     useState(false);
   const [members, setMembers] = useState<Member[]>([]);
@@ -180,6 +221,7 @@ export default function LeadDetailPage() {
     const load = async () => {
       setLoading(true);
       setPriorityEvidenceAvailable(false);
+      setCommercialEvidenceAvailable(false);
       const supabase = createSupabaseBrowserClient();
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
@@ -212,6 +254,7 @@ export default function LeadDetailPage() {
         { data: followUpRunRows },
         { data: quoteRows, error: quoteError },
         { data: taskRows, error: taskError },
+        { data: receivableRows, error: receivableError },
       ] = await Promise.all([
         dealRow.contact_id
           ? supabase
@@ -271,7 +314,9 @@ export default function LeadDetailPage() {
           .order("created_at", { ascending: false }),
         supabase
           .from("quotes")
-          .select("status, valid_until")
+          .select(
+            "id, title, status, currency, current_version, valid_until, accepted_at, updated_at",
+          )
           .eq("organization_id", membership.organization_id)
           .eq("deal_id", dealRow.id)
           .order("updated_at", { ascending: false })
@@ -283,7 +328,97 @@ export default function LeadDetailPage() {
           .eq("deal_id", dealRow.id)
           .order("created_at", { ascending: false })
           .limit(50),
+        supabase
+          .from("payments")
+          .select(
+            "quote_id, quote_version_id, quote_acceptance_id, invoice_issuance_id, direction, currency, amount, paid_amount, status",
+          )
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .eq("direction", "receivable")
+          .limit(100),
       ]);
+
+      const normalizedQuotes = ((quoteRows || []) as QuoteEvidence[]).map(
+        (quote) => ({
+          id: quote.id,
+          title: quote.title,
+          status: quote.status,
+          currency: quote.currency,
+          currentVersion: quote.current_version,
+          validUntil: quote.valid_until,
+          acceptedAt: quote.accepted_at,
+          updatedAt: quote.updated_at,
+        }),
+      );
+      const primaryQuote = selectPrimaryCommercialQuote(normalizedQuotes);
+      let exactVersion: DealCommercialVersion | null = null;
+      let exactTerms: DealCommercialTerms | null = null;
+      let exactAcceptance: DealCommercialAcceptance | null = null;
+      let commercialReadError = quoteError || receivableError;
+
+      if (primaryQuote) {
+        const { data: versionRow, error: versionError } = await supabase
+          .from("quote_versions")
+          .select("id, quote_id, version, net_amount, tax_amount, total_amount")
+          .eq("organization_id", membership.organization_id)
+          .eq("quote_id", primaryQuote.id)
+          .eq("version", primaryQuote.currentVersion)
+          .maybeSingle();
+        commercialReadError ||= versionError;
+
+        if (versionRow) {
+          exactVersion = {
+            id: versionRow.id,
+            quoteId: versionRow.quote_id,
+            version: versionRow.version,
+            netAmount: versionRow.net_amount,
+            taxAmount: versionRow.tax_amount,
+            totalAmount: versionRow.total_amount,
+          };
+          const [termsResult, acceptanceResult] = await Promise.all([
+            supabase
+              .from("quote_version_commercial_terms")
+              .select(
+                "quote_version_id, estimated_cost_amount, net_sell_amount, gross_markup_amount, gross_markup_percent, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+              )
+              .eq("organization_id", membership.organization_id)
+              .eq("quote_version_id", versionRow.id)
+              .maybeSingle(),
+            supabase
+              .from("quote_acceptances")
+              .select("id, quote_id, quote_version_id, accepted_at")
+              .eq("organization_id", membership.organization_id)
+              .eq("quote_id", primaryQuote.id)
+              .eq("quote_version_id", versionRow.id)
+              .maybeSingle(),
+          ]);
+          commercialReadError ||= termsResult.error || acceptanceResult.error;
+          if (termsResult.data) {
+            exactTerms = {
+              quoteVersionId: termsResult.data.quote_version_id,
+              estimatedCostAmount: termsResult.data.estimated_cost_amount,
+              netSellAmount: termsResult.data.net_sell_amount,
+              grossMarkupAmount: termsResult.data.gross_markup_amount,
+              grossMarkupPercent: termsResult.data.gross_markup_percent,
+              estimatedCommissionAmount:
+                termsResult.data.estimated_commission_amount,
+              postCommissionMarginAmount:
+                termsResult.data.post_commission_margin_amount,
+              postCommissionMarginPercent:
+                termsResult.data.post_commission_margin_percent,
+            };
+          }
+          if (acceptanceResult.data) {
+            exactAcceptance = {
+              id: acceptanceResult.data.id,
+              quoteId: acceptanceResult.data.quote_id,
+              quoteVersionId: acceptanceResult.data.quote_version_id,
+              acceptedAt: acceptanceResult.data.accepted_at,
+            };
+          }
+        }
+      }
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
         ? await supabase
@@ -317,6 +452,34 @@ export default function LeadDetailPage() {
       setFollowUpRuns((followUpRunRows || []) as FollowUpSequenceRun[]);
       setQuotes((quoteRows || []) as QuoteEvidence[]);
       setTasks((taskRows || []) as TaskEvidence[]);
+      setCommercialEvidence({
+        quote: primaryQuote,
+        version: exactVersion,
+        terms: exactTerms,
+        acceptance: exactAcceptance,
+        receivables: ((receivableRows || []) as Array<{
+          quote_id: string | null;
+          quote_version_id: string | null;
+          quote_acceptance_id: string | null;
+          invoice_issuance_id: string | null;
+          direction: string;
+          currency: string;
+          amount: number;
+          paid_amount: number;
+          status: string;
+        }>).map((payment) => ({
+          quoteId: payment.quote_id,
+          quoteVersionId: payment.quote_version_id,
+          quoteAcceptanceId: payment.quote_acceptance_id,
+          invoiceIssuanceId: payment.invoice_issuance_id,
+          direction: payment.direction,
+          currency: payment.currency,
+          amount: payment.amount,
+          paidAmount: payment.paid_amount,
+          status: payment.status,
+        })),
+      });
+      setCommercialEvidenceAvailable(!commercialReadError);
       setPriorityEvidenceAvailable(
         !contactError &&
           !qualificationCheckError &&
@@ -867,6 +1030,20 @@ export default function LeadDetailPage() {
         new Date(loadedAt),
       )
     : null;
+  const commercialInsight = buildDealCommercialInsight({
+    evidenceAvailable: commercialEvidenceAvailable,
+    deal: {
+      stage: deal.stage,
+      currency: deal.currency,
+      valueAmount: deal.value_amount,
+    },
+    quote: commercialEvidence.quote,
+    version: commercialEvidence.version,
+    terms: commercialEvidence.terms,
+    acceptance: commercialEvidence.acceptance,
+    receivables: commercialEvidence.receivables,
+    now: new Date(loadedAt),
+  });
   return (
     <main className="lead-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
@@ -987,6 +1164,174 @@ export default function LeadDetailPage() {
               </footer>
             </article>
           )}
+          <article
+            className={`lead-panel commercial-truth ${commercialInsight.tone}`}
+            id="commercial-truth"
+            aria-labelledby="commercial-truth-title"
+          >
+            <header>
+              <div>
+                <p>COMMERCIAL TRUTH</p>
+                <h2 id="commercial-truth-title">{commercialInsight.headline}</h2>
+              </div>
+              <span className="commercial-boundary">Evidence, not prediction</span>
+            </header>
+            <p className="commercial-truth-summary">{commercialInsight.summary}</p>
+            {commercialInsight.available ? (
+              <>
+                <ol className="commercial-progress" aria-label="Commercial evidence trail">
+                  {commercialInsight.progress.map((step) => (
+                    <li key={step.code} className={step.state}>
+                      <i aria-hidden="true" />
+                      <span>
+                        <b>{step.label}</b>
+                        <small>{step.detail}</small>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {commercialInsight.economics ? (
+                  <section
+                    className="commercial-economics"
+                    aria-labelledby="commercial-economics-title"
+                  >
+                    <div className="commercial-economics-heading">
+                      <div>
+                        <h3 id="commercial-economics-title">
+                          Exact current-version economics
+                        </h3>
+                        <p>
+                          Customer tax stays outside net sell and margin. Protected
+                          cost figures appear only for authorized commercial roles.
+                        </p>
+                      </div>
+                      <span>
+                        {commercialEvidence.quote
+                          ? `Quote v${commercialEvidence.quote.currentVersion}`
+                          : "Current quote"}
+                      </span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Customer total</dt>
+                        <dd>
+                          {commercialMoney(
+                            commercialInsight.economics.customerTotal,
+                            commercialInsight.economics.currency,
+                          )}
+                        </dd>
+                        <small>
+                          Includes {commercialMoney(
+                            commercialInsight.economics.tax,
+                            commercialInsight.economics.currency,
+                          )} tax
+                        </small>
+                      </div>
+                      <div>
+                        <dt>Net sell</dt>
+                        <dd>
+                          {commercialMoney(
+                            commercialInsight.economics.netSell,
+                            commercialInsight.economics.currency,
+                          )}
+                        </dd>
+                        <small>Customer tax excluded</small>
+                      </div>
+                      <div>
+                        <dt>Gross margin estimate</dt>
+                        <dd>
+                          {commercialInsight.economics.grossMargin === null
+                            ? "Role protected"
+                            : commercialMoney(
+                                commercialInsight.economics.grossMargin,
+                                commercialInsight.economics.currency,
+                              )}
+                        </dd>
+                        <small>
+                          {commercialInsight.economics.grossMarginPercent === null
+                            ? "Cost evidence is not visible"
+                            : `${commercialInsight.economics.grossMarginPercent.toFixed(1)}% of net sell`}
+                        </small>
+                      </div>
+                      <div>
+                        <dt>After commission estimate</dt>
+                        <dd>
+                          {commercialInsight.economics.postCommissionMargin === null
+                            ? "Role protected"
+                            : commercialMoney(
+                                commercialInsight.economics.postCommissionMargin,
+                                commercialInsight.economics.currency,
+                              )}
+                        </dd>
+                        <small>
+                          {commercialInsight.economics.postCommissionMarginPercent ===
+                          null
+                            ? "No protected commercial snapshot"
+                            : `${commercialInsight.economics.postCommissionMarginPercent.toFixed(1)}% after estimated commission`}
+                        </small>
+                      </div>
+                    </dl>
+                  </section>
+                ) : (
+                  <p className="commercial-empty">
+                    No exact current-version economics exist yet. Start in Quotes;
+                    AIOS will not estimate missing commercial facts.
+                  </p>
+                )}
+                {commercialInsight.receivables.count > 0 &&
+                  commercialInsight.economics && (
+                    <div className="commercial-receivables">
+                      <span>
+                        <b>{commercialInsight.receivables.count}</b> exact receivable
+                        {commercialInsight.receivables.count === 1 ? "" : "s"}
+                      </span>
+                      <span>
+                        <b>
+                          {commercialMoney(
+                            commercialInsight.receivables.total,
+                            commercialInsight.economics.currency,
+                          )}
+                        </b>{" "}
+                        scheduled
+                      </span>
+                      <span>
+                        <b>
+                          {commercialMoney(
+                            commercialInsight.receivables.paid,
+                            commercialInsight.economics.currency,
+                          )}
+                        </b>{" "}
+                        recorded paid
+                      </span>
+                    </div>
+                  )}
+                {commercialInsight.alerts.length > 0 && (
+                  <ul className="commercial-alerts" aria-label="Commercial evidence warnings">
+                    {commercialInsight.alerts.map((alert) => (
+                      <li key={alert}>{alert}</li>
+                    ))}
+                  </ul>
+                )}
+                <a className="commercial-next-action" href={commercialInsight.action.href}>
+                  <span>
+                    <small>NEXT EVIDENCE-BACKED ACTION</small>
+                    <b>{commercialInsight.action.label}</b>
+                    <em>{commercialInsight.action.detail}</em>
+                  </span>
+                  <strong aria-hidden="true">→</strong>
+                </a>
+              </>
+            ) : (
+              <p className="commercial-empty">
+                Reload before using this panel for a commercial decision. No
+                fallback totals or guessed margins are shown.
+              </p>
+            )}
+            <footer>
+              <span>Deterministic · tenant-authorized source records</span>
+              <span>0 model calls · 0 record changes · 0 external actions</span>
+            </footer>
+          </article>
           <article className="lead-panel qualification" id="commercial-signal">
             <header>
               <p>COMMERCIAL SIGNAL</p>
