@@ -32,6 +32,21 @@ Supabase credential. Run it only against a development or dedicated test
 project. The fixture is removed at the end of the suite; CI enables it only
 when all three `TEST_SUPABASE_*` repository secrets are present.
 
+On Docker Desktop, a database reset can occasionally restart Auth with a new
+container address while the already-running local gateway still holds its old
+DNS result. If Admin API calls return `502 Bad Gateway` after
+`npx supabase db reset`, refresh only this project's gateway and rerun the
+test:
+
+```text
+npm run local:supabase:refresh-gateway
+```
+
+The script derives the exact gateway container from `supabase/config.toml`,
+verifies that it is running, and restarts only that container. It does not
+enable Docker's TCP API, change the database, or affect another Supabase
+project.
+
 ## Local Supabase analytics
 
 Local Logflare analytics is intentionally disabled in `supabase/config.toml`. The database, Auth, REST, Realtime, Storage, Studio, and recovery/authorization tests do not depend on it. This avoids a Vector restart loop on Docker Desktop where the generated container otherwise expects an unauthenticated Docker Engine endpoint at `host.docker.internal:2375`.

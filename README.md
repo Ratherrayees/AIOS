@@ -27,6 +27,7 @@ npm run test:restore    # isolated native backup/restore; requires local Supabas
 npm run verify:supabase # requires a configured local .env.local
 npm run verify:authz    # creates and removes isolated test fixtures
 npm run db:types        # requires the local Supabase stack
+npm run local:supabase:refresh-gateway # repairs stale Docker DNS after a reset
 ```
 
 Set `RUN_AUTHENTICATED_E2E=true` for the browser suite to create a disposable
