@@ -114,6 +114,70 @@ test("discount and non-standard terms become explicit review exceptions", () => 
   assert.equal(result.canRequestReview, true);
 });
 
+test("markup and post-commission margin use distinct governed bases", () => {
+  const result = assessQuoteGuardrails(
+    {
+      status: "draft",
+      totalAmount: 120000,
+      netAmount: 120000,
+      estimatedCostAmount: 100000,
+      validUntil: "2026-08-15",
+      proposalContentReady: true,
+      commercialTerms: {
+        grossMarkupPercent: 20,
+        commissionBasis: "net_sell",
+        commissionPercent: 10,
+        postCommissionMarginPercent: 6.7,
+      },
+    },
+    {
+      ...DEFAULT_QUOTE_APPROVAL_POLICY,
+      minimumMarkupPercent: 25,
+      commissionBasis: "net_sell",
+      commissionPercent: 10,
+      minimumPostCommissionMarginPercent: 8,
+    },
+    now,
+  );
+
+  assert.equal(result.markupPercent, 20);
+  assert.equal(result.marginPercent, 16.7);
+  assert.equal(result.postCommissionMarginPercent, 6.7);
+  assert.deepEqual(result.riskCodes, [
+    "markup_below_floor",
+    "post_commission_margin_below_floor",
+  ]);
+});
+
+test("an older commission snapshot stays visible as a review exception", () => {
+  const result = assessQuoteGuardrails(
+    {
+      status: "draft",
+      totalAmount: 150000,
+      netAmount: 150000,
+      estimatedCostAmount: 100000,
+      validUntil: "2026-08-15",
+      proposalContentReady: true,
+      commercialTerms: {
+        grossMarkupPercent: 50,
+        commissionBasis: "gross_margin",
+        commissionPercent: 5,
+        postCommissionMarginPercent: 31.7,
+      },
+    },
+    {
+      ...DEFAULT_QUOTE_APPROVAL_POLICY,
+      commissionBasis: "net_sell",
+      commissionPercent: 8,
+    },
+    now,
+  );
+
+  assert.equal(result.commissionPolicyCurrent, false);
+  assert.deepEqual(result.riskCodes, ["commission_policy_stale"]);
+  assert.equal(result.canRequestReview, true);
+});
+
 test("standard-term comparison is case-insensitive and order-independent", () => {
   const result = assessQuoteGuardrails(
     {

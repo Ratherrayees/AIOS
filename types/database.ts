@@ -3406,11 +3406,15 @@ export type Database = {
       }
       quote_approval_policies: {
         Row: {
+          commission_basis: string
+          commission_percent: number
           created_at: string
           enforce_standard_terms: boolean
           maximum_discount_percent: number
           maximum_validity_days: number
           minimum_margin_percent: number
+          minimum_markup_percent: number
+          minimum_post_commission_margin_percent: number
           organization_id: string
           require_cost_estimate: boolean
           require_valid_until: boolean
@@ -3419,11 +3423,15 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          commission_basis?: string
+          commission_percent?: number
           created_at?: string
           enforce_standard_terms?: boolean
           maximum_discount_percent?: number
           maximum_validity_days?: number
           minimum_margin_percent?: number
+          minimum_markup_percent?: number
+          minimum_post_commission_margin_percent?: number
           organization_id: string
           require_cost_estimate?: boolean
           require_valid_until?: boolean
@@ -3432,11 +3440,15 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          commission_basis?: string
+          commission_percent?: number
           created_at?: string
           enforce_standard_terms?: boolean
           maximum_discount_percent?: number
           maximum_validity_days?: number
           minimum_margin_percent?: number
+          minimum_markup_percent?: number
+          minimum_post_commission_margin_percent?: number
           organization_id?: string
           require_cost_estimate?: boolean
           require_valid_until?: boolean
@@ -3979,6 +3991,82 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_version_commercial_terms: {
+        Row: {
+          commission_base_amount: number
+          commission_basis: string
+          commission_percent: number
+          created_at: string
+          created_by: string | null
+          estimated_commission_amount: number
+          estimated_cost_amount: number
+          gross_markup_amount: number
+          gross_markup_percent: number | null
+          net_sell_amount: number
+          organization_id: string
+          policy_updated_at: string
+          post_commission_margin_amount: number
+          post_commission_margin_percent: number | null
+          quote_version_id: string
+        }
+        Insert: {
+          commission_base_amount: number
+          commission_basis: string
+          commission_percent: number
+          created_at?: string
+          created_by?: string | null
+          estimated_commission_amount: number
+          estimated_cost_amount: number
+          gross_markup_amount: number
+          gross_markup_percent?: number | null
+          net_sell_amount: number
+          organization_id: string
+          policy_updated_at: string
+          post_commission_margin_amount: number
+          post_commission_margin_percent?: number | null
+          quote_version_id: string
+        }
+        Update: {
+          commission_base_amount?: number
+          commission_basis?: string
+          commission_percent?: number
+          created_at?: string
+          created_by?: string | null
+          estimated_commission_amount?: number
+          estimated_cost_amount?: number
+          gross_markup_amount?: number
+          gross_markup_percent?: number | null
+          net_sell_amount?: number
+          organization_id?: string
+          policy_updated_at?: string
+          post_commission_margin_amount?: number
+          post_commission_margin_percent?: number | null
+          quote_version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_version_commercial_terms_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_version_commercial_terms_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_version_commercial_terms_version_same_org_fkey"
+            columns: ["organization_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -6447,21 +6535,29 @@ export type Database = {
       }
       upsert_quote_approval_policy: {
         Args: {
+          target_commission_basis: string
+          target_commission_percent: number
           target_enforce_standard_terms: boolean
           target_maximum_discount_percent: number
           target_maximum_validity_days: number
           target_minimum_margin_percent: number
+          target_minimum_markup_percent: number
+          target_minimum_post_commission_margin_percent: number
           target_organization_id: string
           target_require_cost_estimate: boolean
           target_require_valid_until: boolean
           target_standard_terms: Json
         }
         Returns: {
+          commission_basis: string
+          commission_percent: number
           created_at: string
           enforce_standard_terms: boolean
           maximum_discount_percent: number
           maximum_validity_days: number
           minimum_margin_percent: number
+          minimum_markup_percent: number
+          minimum_post_commission_margin_percent: number
           organization_id: string
           require_cost_estimate: boolean
           require_valid_until: boolean

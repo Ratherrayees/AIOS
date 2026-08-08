@@ -984,6 +984,21 @@ test("quote approval policies enforce bounded commercial controls", () => {
     }).success,
     false,
   );
+  assert.equal(
+    quoteApprovalPolicyInputSchema.safeParse({
+      organizationId,
+      minimumMarginPercent: 20,
+      minimumMarkupPercent: 25,
+      requireCostEstimate: true,
+      requireValidUntil: true,
+      maximumValidityDays: 60,
+      maximumDiscountPercent: 5,
+      commissionBasis: "revenue_after_tax",
+      commissionPercent: 110,
+      minimumPostCommissionMarginPercent: 10,
+    }).success,
+    false,
+  );
 });
 
 test("trip drafts reject an inverted travel date range", () => {

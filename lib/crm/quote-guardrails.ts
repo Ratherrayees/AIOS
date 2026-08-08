@@ -1,9 +1,13 @@
 export type QuoteApprovalPolicy = {
   minimumMarginPercent: number;
+  minimumMarkupPercent: number;
   requireCostEstimate: boolean;
   requireValidUntil: boolean;
   maximumValidityDays: number;
   maximumDiscountPercent: number;
+  commissionBasis: "net_sell" | "gross_margin";
+  commissionPercent: number;
+  minimumPostCommissionMarginPercent: number;
   enforceStandardTerms: boolean;
   standardTerms: string[];
 };
@@ -18,14 +22,24 @@ export type QuoteCommercialEvidence = {
   listAmount?: number | null;
   discountAmount?: number | null;
   proposalTerms?: string[];
+  commercialTerms?: {
+    grossMarkupPercent: number | null;
+    commissionBasis: "net_sell" | "gross_margin";
+    commissionPercent: number;
+    postCommissionMarginPercent: number | null;
+  } | null;
 };
 
 export const DEFAULT_QUOTE_APPROVAL_POLICY: QuoteApprovalPolicy = {
   minimumMarginPercent: 15,
+  minimumMarkupPercent: 0,
   requireCostEstimate: true,
   requireValidUntil: true,
   maximumValidityDays: 45,
   maximumDiscountPercent: 100,
+  commissionBasis: "gross_margin",
+  commissionPercent: 0,
+  minimumPostCommissionMarginPercent: 0,
   enforceStandardTerms: false,
   standardTerms: [],
 };
@@ -81,6 +95,45 @@ export function assessQuoteGuardrails(
     marginBase !== null && marginBase > 0 && cost !== null && cost >= 0
       ? Math.round((((marginBase - cost) / marginBase) * 100) * 10) / 10
       : null;
+  const derivedMarkupPercent =
+    marginBase !== null && cost !== null && cost > 0
+      ? Math.round((((marginBase - cost) / cost) * 100) * 10) / 10
+      : null;
+  const markupPercent =
+    evidence.commercialTerms?.grossMarkupPercent ?? derivedMarkupPercent;
+  const commissionBasis =
+    evidence.commercialTerms?.commissionBasis ?? policy.commissionBasis;
+  const commissionPercent =
+    evidence.commercialTerms?.commissionPercent ?? policy.commissionPercent;
+  const derivedCommissionBase =
+    marginBase === null || cost === null
+      ? null
+      : commissionBasis === "net_sell"
+        ? marginBase
+        : Math.max(marginBase - cost, 0);
+  const derivedCommissionAmount =
+    derivedCommissionBase === null
+      ? null
+      : Math.round(
+          ((derivedCommissionBase * commissionPercent) / 100) * 100,
+        ) / 100;
+  const derivedPostCommissionMarginPercent =
+    marginBase !== null &&
+    marginBase > 0 &&
+    cost !== null &&
+    derivedCommissionAmount !== null
+      ? Math.round(
+          (((marginBase - cost - derivedCommissionAmount) / marginBase) * 100) *
+            10,
+        ) / 10
+      : null;
+  const postCommissionMarginPercent =
+    evidence.commercialTerms?.postCommissionMarginPercent ??
+    derivedPostCommissionMarginPercent;
+  const commissionPolicyCurrent =
+    !evidence.commercialTerms ||
+    (commissionBasis === policy.commissionBasis &&
+      commissionPercent === policy.commissionPercent);
 
   if (evidence.status !== "draft") {
     blockers.push({
@@ -142,6 +195,31 @@ export function assessQuoteGuardrails(
       detail: `${marginPercent.toFixed(1)}% margin; policy floor is ${policy.minimumMarginPercent.toFixed(1)}%.`,
     });
   }
+  if (markupPercent !== null && markupPercent < policy.minimumMarkupPercent) {
+    exceptions.push({
+      code: "markup_below_floor",
+      label: "Markup is below the review floor",
+      detail: `${markupPercent.toFixed(1)}% markup on cost; policy floor is ${policy.minimumMarkupPercent.toFixed(1)}%.`,
+    });
+  }
+  if (
+    postCommissionMarginPercent !== null &&
+    postCommissionMarginPercent < policy.minimumPostCommissionMarginPercent
+  ) {
+    exceptions.push({
+      code: "post_commission_margin_below_floor",
+      label: "Post-commission margin is below the floor",
+      detail: `${postCommissionMarginPercent.toFixed(1)}% after estimated commission; policy floor is ${policy.minimumPostCommissionMarginPercent.toFixed(1)}%.`,
+    });
+  }
+  if (!commissionPolicyCurrent) {
+    exceptions.push({
+      code: "commission_policy_stale",
+      label: "Commission snapshot uses an older policy",
+      detail:
+        "Create a new immutable quote version to apply the current commission basis and rate.",
+    });
+  }
   if (discountPercent > policy.maximumDiscountPercent) {
     exceptions.push({
       code: "discount_above_policy",
@@ -169,15 +247,25 @@ export function assessQuoteGuardrails(
     blockers,
     exceptions,
     marginPercent,
+    markupPercent,
+    commissionBasis,
+    commissionPercent,
+    postCommissionMarginPercent,
+    commissionPolicyCurrent,
     discountPercent,
     standardTermsMatch,
     canRequestReview: blockers.length === 0,
     policySnapshot: {
       minimum_margin_percent: policy.minimumMarginPercent,
+      minimum_markup_percent: policy.minimumMarkupPercent,
       require_cost_estimate: policy.requireCostEstimate,
       require_valid_until: policy.requireValidUntil,
       maximum_validity_days: policy.maximumValidityDays,
       maximum_discount_percent: policy.maximumDiscountPercent,
+      commission_basis: policy.commissionBasis,
+      commission_percent: policy.commissionPercent,
+      minimum_post_commission_margin_percent:
+        policy.minimumPostCommissionMarginPercent,
       enforce_standard_terms: policy.enforceStandardTerms,
       standard_term_count: policy.standardTerms.length,
     },

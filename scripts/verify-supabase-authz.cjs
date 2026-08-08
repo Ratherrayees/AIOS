@@ -230,7 +230,9 @@ async function verifyAuthorization() {
     const [ownerQuotePolicy, viewerForeignQuotePolicy] = await Promise.all([
       owner
         .from("quote_approval_policies")
-        .select("minimum_margin_percent, maximum_validity_days")
+        .select(
+          "minimum_margin_percent, minimum_markup_percent, maximum_validity_days, commission_basis, commission_percent, minimum_post_commission_margin_percent",
+        )
         .eq("organization_id", organizationA.id)
         .single(),
       viewer
@@ -242,7 +244,13 @@ async function verifyAuthorization() {
       "new workspaces receive bounded default quote guardrails",
       !ownerQuotePolicy.error &&
         Number(ownerQuotePolicy.data?.minimum_margin_percent) === 15 &&
-        ownerQuotePolicy.data?.maximum_validity_days === 45,
+        Number(ownerQuotePolicy.data?.minimum_markup_percent) === 0 &&
+        ownerQuotePolicy.data?.maximum_validity_days === 45 &&
+        ownerQuotePolicy.data?.commission_basis === "gross_margin" &&
+        Number(ownerQuotePolicy.data?.commission_percent) === 0 &&
+        Number(
+          ownerQuotePolicy.data?.minimum_post_commission_margin_percent,
+        ) === 0,
     );
     record(
       "quote guardrail policies remain tenant isolated",
@@ -272,6 +280,10 @@ async function verifyAuthorization() {
         target_maximum_discount_percent: 100,
         target_enforce_standard_terms: false,
         target_standard_terms: [],
+        target_minimum_markup_percent: 0,
+        target_commission_basis: "gross_margin",
+        target_commission_percent: 0,
+        target_minimum_post_commission_margin_percent: 0,
       },
     );
     record(
@@ -290,6 +302,10 @@ async function verifyAuthorization() {
         target_maximum_discount_percent: 100,
         target_enforce_standard_terms: false,
         target_standard_terms: [],
+        target_minimum_markup_percent: 0,
+        target_commission_basis: "gross_margin",
+        target_commission_percent: 0,
+        target_minimum_post_commission_margin_percent: 0,
       },
     );
     record(
@@ -308,6 +324,10 @@ async function verifyAuthorization() {
         target_maximum_discount_percent: 3,
         target_enforce_standard_terms: true,
         target_standard_terms: [],
+        target_minimum_markup_percent: 25,
+        target_commission_basis: "gross_margin",
+        target_commission_percent: 5,
+        target_minimum_post_commission_margin_percent: 15,
       },
     );
     record(
@@ -329,6 +349,10 @@ async function verifyAuthorization() {
           "Subject to availability",
           "subject to availability",
         ],
+        target_minimum_markup_percent: 25,
+        target_commission_basis: "gross_margin",
+        target_commission_percent: 5,
+        target_minimum_post_commission_margin_percent: 15,
       },
     );
     record(
@@ -347,6 +371,10 @@ async function verifyAuthorization() {
         target_maximum_discount_percent: 100,
         target_enforce_standard_terms: false,
         target_standard_terms: [],
+        target_minimum_markup_percent: 25,
+        target_commission_basis: "gross_margin",
+        target_commission_percent: 5,
+        target_minimum_post_commission_margin_percent: 15,
       },
     );
     record(
@@ -356,6 +384,12 @@ async function verifyAuthorization() {
         Number(updatedQuotePolicy.data[0].minimum_margin_percent) === 20 &&
         updatedQuotePolicy.data[0].maximum_validity_days === 60 &&
         Number(updatedQuotePolicy.data[0].maximum_discount_percent) === 100 &&
+        Number(updatedQuotePolicy.data[0].minimum_markup_percent) === 25 &&
+        updatedQuotePolicy.data[0].commission_basis === "gross_margin" &&
+        Number(updatedQuotePolicy.data[0].commission_percent) === 5 &&
+        Number(
+          updatedQuotePolicy.data[0].minimum_post_commission_margin_percent,
+        ) === 15 &&
         updatedQuotePolicy.data[0].enforce_standard_terms === false,
     );
     const { data: quotePolicyAudit } = await owner
@@ -369,7 +403,12 @@ async function verifyAuthorization() {
     record(
       "quote policy changes preserve content-free audit evidence",
       quotePolicyAudit?.metadata?.minimum_margin_percent === 20 &&
+        quotePolicyAudit.metadata.minimum_markup_percent === 25 &&
         quotePolicyAudit.metadata.maximum_validity_days === 60 &&
+        quotePolicyAudit.metadata.commission_basis === "gross_margin" &&
+        quotePolicyAudit.metadata.commission_percent === 5 &&
+        quotePolicyAudit.metadata.minimum_post_commission_margin_percent ===
+          15 &&
         quotePolicyAudit.metadata.standard_term_count === 0 &&
         quotePolicyAudit.metadata.standard_terms_sha256?.length === 64,
     );
@@ -611,6 +650,10 @@ async function verifyAuthorization() {
         target_maximum_discount_percent: 3,
         target_enforce_standard_terms: true,
         target_standard_terms: ["Subject to availability"],
+        target_minimum_markup_percent: 25,
+        target_commission_basis: "net_sell",
+        target_commission_percent: 5,
+        target_minimum_post_commission_margin_percent: 15,
       },
     );
     if (tightenedQuotePolicy.error)
@@ -665,6 +708,16 @@ async function verifyAuthorization() {
           revisionBoundApproval.data.payload?.guardrail_policy
             ?.minimum_margin_percent,
         ) === 21,
+    );
+    record(
+      "an older quote commission snapshot becomes an explicit exception",
+      revisionBoundApproval.data.payload?.guardrail_status ===
+        "exception_review" &&
+        revisionBoundApproval.data.payload?.risk_codes?.includes(
+          "commission_policy_stale",
+        ) &&
+        revisionBoundApproval.data.payload?.commercial_exceptions
+          ?.commission_policy_current === false,
     );
 
     const supersedingQuoteRevision = await owner.rpc(
@@ -1017,7 +1070,14 @@ async function verifyAuthorization() {
         Number(structuredSummary.estimated_cost_amount) === 370000 &&
         Number(structuredSummary.gross_margin_amount) === 110000,
     );
-    const [ownerLines, ownerCosts, viewerLines, viewerCosts] = await Promise.all([
+    const [
+      ownerLines,
+      ownerCosts,
+      ownerCommercialTerms,
+      viewerLines,
+      viewerCosts,
+      viewerCommercialTerms,
+    ] = await Promise.all([
       owner
         .from("quote_line_items")
         .select(
@@ -1029,6 +1089,14 @@ async function verifyAuthorization() {
         .from("quote_line_costs")
         .select("quote_line_item_id, unit_cost_amount, cost_amount")
         .eq("organization_id", organizationA.id),
+      owner
+        .from("quote_version_commercial_terms")
+        .select(
+          "gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, commission_base_amount, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+        )
+        .eq("organization_id", organizationA.id)
+        .eq("quote_version_id", structuredSummary.quote_version_id)
+        .single(),
       viewer
         .from("quote_line_items")
         .select("id")
@@ -1036,6 +1104,10 @@ async function verifyAuthorization() {
       viewer
         .from("quote_line_costs")
         .select("quote_line_item_id")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_version_commercial_terms")
+        .select("quote_version_id")
         .eq("organization_id", organizationA.id),
     ]);
     record(
@@ -1065,14 +1137,47 @@ async function verifyAuthorization() {
       !viewerLines.error &&
         viewerLines.data?.length === 2 &&
         !viewerCosts.error &&
-        viewerCosts.data?.length === 0,
+        viewerCosts.data?.length === 0 &&
+        !viewerCommercialTerms.error &&
+        viewerCommercialTerms.data?.length === 0,
+    );
+    record(
+      "costed quote versions freeze exact markup and commission evidence",
+      !ownerCommercialTerms.error &&
+        Number(ownerCommercialTerms.data?.gross_markup_amount) === 110000 &&
+        Number(ownerCommercialTerms.data?.gross_markup_percent) === 29.7297 &&
+        ownerCommercialTerms.data?.commission_basis === "net_sell" &&
+        Number(ownerCommercialTerms.data?.commission_percent) === 5 &&
+        Number(ownerCommercialTerms.data?.commission_base_amount) === 480000 &&
+        Number(ownerCommercialTerms.data?.estimated_commission_amount) ===
+          24000 &&
+        Number(ownerCommercialTerms.data?.post_commission_margin_amount) ===
+          86000 &&
+        Number(ownerCommercialTerms.data?.post_commission_margin_percent) ===
+          17.9167,
+    );
+    const directCommercialTermsRewrite = await owner
+      .from("quote_version_commercial_terms")
+      .update({ commission_percent: 0 })
+      .eq("quote_version_id", structuredSummary.quote_version_id)
+      .select("quote_version_id");
+    record(
+      "browser sessions cannot rewrite immutable quote economics",
+      Boolean(directCommercialTermsRewrite.error) ||
+        directCommercialTermsRewrite.data?.length === 0,
     );
     const { error: temporaryMembershipDeleteError } = await admin
       .from("memberships")
       .delete()
       .eq("id", temporaryViewerMembership.id);
     if (temporaryMembershipDeleteError) throw temporaryMembershipDeleteError;
-    const [foreignLines, foreignCosts, foreignProducts, foreignRates] =
+    const [
+      foreignLines,
+      foreignCosts,
+      foreignCommercialTerms,
+      foreignProducts,
+      foreignRates,
+    ] =
       await Promise.all([
       viewer
         .from("quote_line_items")
@@ -1081,6 +1186,10 @@ async function verifyAuthorization() {
       viewer
         .from("quote_line_costs")
         .select("quote_line_item_id")
+        .eq("organization_id", organizationA.id),
+      viewer
+        .from("quote_version_commercial_terms")
+        .select("quote_version_id")
         .eq("organization_id", organizationA.id),
       viewer
         .from("quote_catalog_products")
@@ -1097,6 +1206,8 @@ async function verifyAuthorization() {
         foreignLines.data?.length === 0 &&
         !foreignCosts.error &&
         foreignCosts.data?.length === 0 &&
+        !foreignCommercialTerms.error &&
+        foreignCommercialTerms.data?.length === 0 &&
         !foreignProducts.error &&
         foreignProducts.data?.length === 0 &&
         !foreignRates.error &&
@@ -1146,6 +1257,22 @@ async function verifyAuthorization() {
         structuredApproval.data.payload.commercial_exceptions
           ?.standard_terms_match === true &&
         Number(
+          structuredApproval.data.payload.commercial_exceptions
+            ?.gross_markup_percent,
+        ) === 29.7297 &&
+        structuredApproval.data.payload.commercial_exceptions
+          ?.commission_basis === "net_sell" &&
+        Number(
+          structuredApproval.data.payload.commercial_exceptions
+            ?.commission_percent,
+        ) === 5 &&
+        Number(
+          structuredApproval.data.payload.commercial_exceptions
+            ?.post_commission_margin_percent,
+        ) === 17.9167 &&
+        structuredApproval.data.payload.commercial_exceptions
+          ?.commission_policy_current === true &&
+        Number(
           structuredApproval.data.payload.guardrail_policy
             ?.maximum_discount_percent,
         ) === 3 &&
@@ -1153,6 +1280,12 @@ async function verifyAuthorization() {
           ?.standard_term_count === 1 &&
         structuredApproval.data.payload.guardrail_policy
           ?.standard_terms_sha256?.length === 64,
+    );
+    record(
+      "approval evidence exposes commercial rates but no protected amounts",
+      !JSON.stringify(structuredApproval.data?.payload).includes("110000") &&
+        !JSON.stringify(structuredApproval.data?.payload).includes("24000") &&
+        !JSON.stringify(structuredApproval.data?.payload).includes("86000"),
     );
     const revisedProposalContent = {
       schema_version: 1,

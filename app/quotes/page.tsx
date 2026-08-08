@@ -92,6 +92,16 @@ type QuoteCostEstimate = {
   quote_version_id: string;
   estimated_cost_amount: number;
 };
+type QuoteCommercialTerms = {
+  quote_version_id: string;
+  gross_markup_amount: number;
+  gross_markup_percent: number | null;
+  commission_basis: "net_sell" | "gross_margin";
+  commission_percent: number;
+  estimated_commission_amount: number;
+  post_commission_margin_amount: number;
+  post_commission_margin_percent: number | null;
+};
 type QuoteShareApproval = {
   id: string;
   entity_id: string | null;
@@ -112,10 +122,14 @@ type QuoteShareLink = {
 };
 type QuoteApprovalPolicyRow = {
   minimum_margin_percent: number;
+  minimum_markup_percent: number;
   require_cost_estimate: boolean;
   require_valid_until: boolean;
   maximum_validity_days: number;
   maximum_discount_percent: number;
+  commission_basis: "net_sell" | "gross_margin";
+  commission_percent: number;
+  minimum_post_commission_margin_percent: number;
   enforce_standard_terms: boolean;
   standard_terms: unknown;
 };
@@ -197,6 +211,9 @@ export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [versions, setVersions] = useState<QuoteVersion[]>([]);
   const [costEstimates, setCostEstimates] = useState<QuoteCostEstimate[]>([]);
+  const [commercialTerms, setCommercialTerms] = useState<
+    QuoteCommercialTerms[]
+  >([]);
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
   const [catalogProducts, setCatalogProducts] = useState<QuoteCatalogProduct[]>([]);
   const [catalogRates, setCatalogRates] = useState<QuoteCatalogRate[]>([]);
@@ -233,6 +250,7 @@ export default function QuotesPage() {
         { data: quoteRows },
         { data: versionRows },
         { data: costRows },
+        { data: commercialTermRows },
         { data: shareApprovalRows },
         { data: shareLinkRows },
         { data: approvalPolicyRow },
@@ -267,6 +285,12 @@ export default function QuotesPage() {
             .select("quote_version_id, estimated_cost_amount")
             .eq("organization_id", membership.organization_id),
           supabase
+            .from("quote_version_commercial_terms")
+            .select(
+              "quote_version_id, gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+            )
+            .eq("organization_id", membership.organization_id),
+          supabase
             .from("approval_requests")
             .select("id, entity_id, status, created_at, payload")
             .eq("organization_id", membership.organization_id)
@@ -279,7 +303,7 @@ export default function QuotesPage() {
           supabase
             .from("quote_approval_policies")
             .select(
-              "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, enforce_standard_terms, standard_terms",
+              "minimum_margin_percent, minimum_markup_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, commission_basis, commission_percent, minimum_post_commission_margin_percent, enforce_standard_terms, standard_terms",
             )
             .eq("organization_id", membership.organization_id)
             .maybeSingle(),
@@ -329,6 +353,9 @@ export default function QuotesPage() {
       setQuotes((quoteRows || []) as Quote[]);
       setVersions((versionRows || []) as QuoteVersion[]);
       setCostEstimates((costRows || []) as QuoteCostEstimate[]);
+      setCommercialTerms(
+        (commercialTermRows || []) as QuoteCommercialTerms[],
+      );
       setShareApprovals(
         (shareApprovalRows || []) as unknown as QuoteShareApproval[],
       );
@@ -349,10 +376,16 @@ export default function QuotesPage() {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
         setApprovalPolicy({
           minimumMarginPercent: Number(row.minimum_margin_percent),
+          minimumMarkupPercent: Number(row.minimum_markup_percent),
           requireCostEstimate: row.require_cost_estimate,
           requireValidUntil: row.require_valid_until,
           maximumValidityDays: row.maximum_validity_days,
           maximumDiscountPercent: Number(row.maximum_discount_percent),
+          commissionBasis: row.commission_basis,
+          commissionPercent: Number(row.commission_percent),
+          minimumPostCommissionMarginPercent: Number(
+            row.minimum_post_commission_margin_percent,
+          ),
           enforceStandardTerms: row.enforce_standard_terms,
           standardTerms: Array.isArray(row.standard_terms)
             ? row.standard_terms.filter(
@@ -406,6 +439,13 @@ export default function QuotesPage() {
         ]),
       ),
     [costEstimates],
+  );
+  const commercialTermsByVersion = useMemo(
+    () =>
+      new Map(
+        commercialTerms.map((terms) => [terms.quote_version_id, terms]),
+      ),
+    [commercialTerms],
   );
   const linesByVersion = useMemo(() => {
     const grouped = new Map<string, QuoteLineItem[]>();
@@ -516,6 +556,20 @@ export default function QuotesPage() {
                 0,
               ),
               proposalTerms: proposalContent.terms,
+              commercialTerms: versionId
+                ? (() => {
+                    const terms = commercialTermsByVersion.get(versionId);
+                    return terms
+                      ? {
+                          grossMarkupPercent: terms.gross_markup_percent,
+                          commissionBasis: terms.commission_basis,
+                          commissionPercent: Number(terms.commission_percent),
+                          postCommissionMarginPercent:
+                            terms.post_commission_margin_percent,
+                        }
+                      : null;
+                  })()
+                : null,
             },
             approvalPolicy,
           ),
@@ -525,6 +579,7 @@ export default function QuotesPage() {
   }, [
     approvalPolicy,
     canViewCosts,
+    commercialTermsByVersion,
     costs,
     linesByVersion,
     quotes,
@@ -627,6 +682,10 @@ export default function QuotesPage() {
             quote_version_id: updated.versionId,
             estimated_cost_amount: estimatedCostAmount,
           },
+          ...current,
+        ]);
+        setCommercialTerms((current) => [
+          updated.commercialTerms as QuoteCommercialTerms,
           ...current,
         ]);
         setNotice(
@@ -857,6 +916,10 @@ export default function QuotesPage() {
       ...(result.lines as QuoteLineItem[]),
       ...current,
     ]);
+    setCommercialTerms((current) => [
+      result.commercialTerms as QuoteCommercialTerms,
+      ...current,
+    ]);
   }
 
   function applyProposalRevision(
@@ -873,6 +936,12 @@ export default function QuotesPage() {
     if (result.cost) {
       setCostEstimates((current) => [
         result.cost as QuoteCostEstimate,
+        ...current,
+      ]);
+    }
+    if (result.commercialTerms) {
+      setCommercialTerms((current) => [
+        result.commercialTerms as QuoteCommercialTerms,
         ...current,
       ]);
     }
@@ -905,9 +974,17 @@ export default function QuotesPage() {
     if (!organizationId || pending || !canManagePolicy) return;
     const form = new FormData(event.currentTarget);
     const minimumMarginPercent = Number(form.get("minimumMarginPercent"));
+    const minimumMarkupPercent = Number(form.get("minimumMarkupPercent"));
     const maximumValidityDays = Number(form.get("maximumValidityDays"));
     const maximumDiscountPercent = Number(
       form.get("maximumDiscountPercent"),
+    );
+    const commissionBasis = String(form.get("commissionBasis")) as
+      | "net_sell"
+      | "gross_margin";
+    const commissionPercent = Number(form.get("commissionPercent"));
+    const minimumPostCommissionMarginPercent = Number(
+      form.get("minimumPostCommissionMarginPercent"),
     );
     const standardTerms = splitQuoteProposalLines(
       String(form.get("standardTerms") || ""),
@@ -917,19 +994,31 @@ export default function QuotesPage() {
         const policy = await updateQuoteApprovalPolicy({
           organizationId,
           minimumMarginPercent,
+          minimumMarkupPercent,
           maximumValidityDays,
           requireCostEstimate: form.get("requireCostEstimate") === "on",
           requireValidUntil: form.get("requireValidUntil") === "on",
           maximumDiscountPercent,
+          commissionBasis,
+          commissionPercent,
+          minimumPostCommissionMarginPercent,
           enforceStandardTerms: form.get("enforceStandardTerms") === "on",
           standardTerms,
         });
         setApprovalPolicy({
           minimumMarginPercent: Number(policy.minimum_margin_percent),
+          minimumMarkupPercent: Number(policy.minimum_markup_percent),
           requireCostEstimate: policy.require_cost_estimate,
           requireValidUntil: policy.require_valid_until,
           maximumValidityDays: policy.maximum_validity_days,
           maximumDiscountPercent: Number(policy.maximum_discount_percent),
+          commissionBasis: policy.commission_basis as
+            | "net_sell"
+            | "gross_margin",
+          commissionPercent: Number(policy.commission_percent),
+          minimumPostCommissionMarginPercent: Number(
+            policy.minimum_post_commission_margin_percent,
+          ),
           enforceStandardTerms: policy.enforce_standard_terms,
           standardTerms: Array.isArray(policy.standard_terms)
             ? policy.standard_terms.filter(
@@ -1025,6 +1114,18 @@ export default function QuotesPage() {
               />
             </label>
             <label>
+              Minimum markup on cost %
+              <input
+                name="minimumMarkupPercent"
+                type="number"
+                min="0"
+                max="1000"
+                step="0.1"
+                defaultValue={approvalPolicy.minimumMarkupPercent}
+                required
+              />
+            </label>
+            <label>
               Maximum validity days
               <input
                 name="maximumValidityDays"
@@ -1045,6 +1146,42 @@ export default function QuotesPage() {
                 max="100"
                 step="0.1"
                 defaultValue={approvalPolicy.maximumDiscountPercent}
+                required
+              />
+            </label>
+            <label>
+              Commission basis
+              <select
+                name="commissionBasis"
+                defaultValue={approvalPolicy.commissionBasis}
+              >
+                <option value="gross_margin">Gross markup amount</option>
+                <option value="net_sell">Net sell amount</option>
+              </select>
+            </label>
+            <label>
+              Estimated commission %
+              <input
+                name="commissionPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue={approvalPolicy.commissionPercent}
+                required
+              />
+            </label>
+            <label>
+              Minimum margin after commission %
+              <input
+                name="minimumPostCommissionMarginPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue={
+                  approvalPolicy.minimumPostCommissionMarginPercent
+                }
                 required
               />
             </label>
@@ -1088,9 +1225,12 @@ export default function QuotesPage() {
           </form>
         ) : (
           <p className="quote-policy-summary">
-            {approvalPolicy.minimumMarginPercent}% margin floor · up to{" "}
+            {approvalPolicy.minimumMarginPercent}% margin floor ·{" "}
+            {approvalPolicy.minimumMarkupPercent}% markup floor · up to{" "}
             {approvalPolicy.maximumDiscountPercent}% discount · up to{" "}
-            {approvalPolicy.maximumValidityDays} validity days
+            {approvalPolicy.maximumValidityDays} validity days ·{" "}
+            {approvalPolicy.commissionPercent}% commission on{" "}
+            {approvalPolicy.commissionBasis.replace("_", " ")}
             {approvalPolicy.enforceStandardTerms
               ? " · standard terms enforced"
               : ""}{" "}
@@ -1192,6 +1332,9 @@ export default function QuotesPage() {
             const currentLines = currentVersionId
               ? (linesByVersion.get(currentVersionId) ?? [])
               : [];
+            const currentCommercialTerms = currentVersionId
+              ? commercialTermsByVersion.get(currentVersionId)
+              : undefined;
             const shareApproval = latestShareApproval.get(quote.id);
             const shareLink = latestShareLink.get(quote.id);
             const paymentSchedule = activePaymentSchedules.get(quote.id) ?? null;
@@ -1276,6 +1419,71 @@ export default function QuotesPage() {
                         : `${formatMoney(cost, quote.currency)} estimated cost`;
                     })()}
                   </small>
+                )}
+                {canViewCosts && currentCommercialTerms && (
+                  <section
+                    className="quote-commercial-economics"
+                    aria-label="Protected markup and commission evidence"
+                  >
+                    <header>
+                      <div>
+                        <small>PROTECTED ECONOMICS</small>
+                        <strong>Markup and commission snapshot</strong>
+                      </div>
+                      <span>Version {quote.current_version}</span>
+                    </header>
+                    <dl>
+                      <div>
+                        <dt>Markup on cost</dt>
+                        <dd>
+                          {formatMoney(
+                            currentCommercialTerms.gross_markup_amount,
+                            quote.currency,
+                          )}{" "}
+                          ·{" "}
+                          {currentCommercialTerms.gross_markup_percent?.toFixed(
+                            1,
+                          ) ?? "N/A"}
+                          %
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Estimated commission</dt>
+                        <dd>
+                          {formatMoney(
+                            currentCommercialTerms.estimated_commission_amount,
+                            quote.currency,
+                          )}{" "}
+                          · {Number(
+                            currentCommercialTerms.commission_percent,
+                          ).toFixed(1)}
+                          % of{" "}
+                          {currentCommercialTerms.commission_basis.replace(
+                            "_",
+                            " ",
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Margin after commission</dt>
+                        <dd>
+                          {formatMoney(
+                            currentCommercialTerms.post_commission_margin_amount,
+                            quote.currency,
+                          )}{" "}
+                          ·{" "}
+                          {currentCommercialTerms.post_commission_margin_percent?.toFixed(
+                            1,
+                          ) ?? "N/A"}
+                          %
+                        </dd>
+                      </div>
+                    </dl>
+                    <p>
+                      Internal estimate only. No commission payable, settlement,
+                      invoice, or external action was created.
+                    </p>
+                  </section>
                 )}
                 <small>
                   {quote.valid_until
@@ -1480,6 +1688,17 @@ export default function QuotesPage() {
                     {guardrails.marginPercent !== null && (
                       <span>{guardrails.marginPercent.toFixed(1)}% evidenced margin</span>
                     )}
+                    {guardrails.markupPercent !== null && (
+                      <span>
+                        {guardrails.markupPercent.toFixed(1)}% markup on cost
+                      </span>
+                    )}
+                    {guardrails.postCommissionMarginPercent !== null && (
+                      <span>
+                        {guardrails.postCommissionMarginPercent.toFixed(1)}%
+                        margin after estimated commission
+                      </span>
+                    )}
                     {currentLines.length > 0 && (
                       <span>
                         {guardrails.discountPercent.toFixed(1)}% itemized discount
@@ -1543,6 +1762,7 @@ export default function QuotesPage() {
                     organizationId={organizationId!}
                     quoteId={quote.id}
                     currency={quote.currency}
+                    commercialPolicy={approvalPolicy}
                     catalogItems={effectiveCatalog.filter(
                       (item) => item.currency === quote.currency,
                     )}

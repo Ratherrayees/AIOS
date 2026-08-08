@@ -1716,6 +1716,19 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
   if (versionResult.error || !versionResult.data)
     throw versionResult.error ?? new Error("Quote version could not be loaded.");
   const quote = quoteResult.data;
+  const { data: commercialTerms, error: commercialTermsError } = await supabase
+    .from("quote_version_commercial_terms")
+    .select(
+      "quote_version_id, gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+    )
+    .eq("organization_id", data.organizationId)
+    .eq("quote_version_id", versionResult.data.id)
+    .single();
+  if (commercialTermsError || !commercialTerms)
+    throw (
+      commercialTermsError ??
+      new Error("Quote commercial terms could not be loaded.")
+    );
   await recordAuditEvent({
     organizationId: data.organizationId,
     eventType: "pricing.changed",
@@ -1731,6 +1744,7 @@ export async function reviseQuoteDraft(input: QuoteRevisionInput) {
     quote,
     version: result.quote_version,
     versionId: versionResult.data.id,
+    commercialTerms,
   };
 }
 
@@ -1761,7 +1775,11 @@ export async function reviseQuoteDraftWithLines(
     .single();
   if (error || !result)
     throw error ?? new Error("Structured quote pricing was not saved.");
-  const [{ data: quote, error: quoteError }, { data: lines, error: lineError }] =
+  const [
+    { data: quote, error: quoteError },
+    { data: lines, error: lineError },
+    { data: commercialTerms, error: commercialTermsError },
+  ] =
     await Promise.all([
       supabase
         .from("quotes")
@@ -1777,11 +1795,24 @@ export async function reviseQuoteDraftWithLines(
         .eq("organization_id", data.organizationId)
         .eq("quote_version_id", result.quote_version_id)
         .order("position"),
+      supabase
+        .from("quote_version_commercial_terms")
+        .select(
+          "quote_version_id, gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", result.quote_version_id)
+        .single(),
     ]);
   if (quoteError || !quote)
     throw quoteError ?? new Error("The revised quote could not be loaded.");
   if (lineError) throw lineError;
-  return { quote, summary: result, lines: lines ?? [] };
+  if (commercialTermsError || !commercialTerms)
+    throw (
+      commercialTermsError ??
+      new Error("Quote commercial terms could not be loaded.")
+    );
+  return { quote, summary: result, lines: lines ?? [], commercialTerms };
 }
 
 /**
@@ -1809,7 +1840,7 @@ export async function reviseQuoteProposalContent(
   if (error || !result)
     throw error ?? new Error("Proposal content was not saved.");
 
-  const [quoteResult, versionResult, costResult, lineResult] =
+  const [quoteResult, versionResult, costResult, lineResult, commercialResult] =
     await Promise.all([
       supabase
         .from("quotes")
@@ -1839,6 +1870,14 @@ export async function reviseQuoteProposalContent(
         .eq("organization_id", data.organizationId)
         .eq("quote_version_id", result.quote_version_id)
         .order("position"),
+      supabase
+        .from("quote_version_commercial_terms")
+        .select(
+          "quote_version_id, gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("quote_version_id", result.quote_version_id)
+        .maybeSingle(),
     ]);
   if (quoteResult.error || !quoteResult.data)
     throw quoteResult.error ?? new Error("The revised quote could not be loaded.");
@@ -1846,11 +1885,13 @@ export async function reviseQuoteProposalContent(
     throw versionResult.error ?? new Error("The proposal revision could not be loaded.");
   if (costResult.error) throw costResult.error;
   if (lineResult.error) throw lineResult.error;
+  if (commercialResult.error) throw commercialResult.error;
   return {
     quote: quoteResult.data,
     version: versionResult.data,
     cost: costResult.data,
     lines: lineResult.data ?? [],
+    commercialTerms: commercialResult.data,
   };
 }
 
@@ -1971,6 +2012,11 @@ export async function updateQuoteApprovalPolicy(
       target_require_valid_until: data.requireValidUntil,
       target_maximum_validity_days: data.maximumValidityDays,
       target_maximum_discount_percent: data.maximumDiscountPercent,
+      target_minimum_markup_percent: data.minimumMarkupPercent,
+      target_commission_basis: data.commissionBasis,
+      target_commission_percent: data.commissionPercent,
+      target_minimum_post_commission_margin_percent:
+        data.minimumPostCommissionMarginPercent,
       target_enforce_standard_terms: data.enforceStandardTerms,
       target_standard_terms: data.standardTerms,
     })
@@ -2010,7 +2056,7 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
     supabase
       .from("quote_approval_policies")
       .select(
-        "minimum_margin_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, enforce_standard_terms, standard_terms",
+        "minimum_margin_percent, minimum_markup_percent, require_cost_estimate, require_valid_until, maximum_validity_days, maximum_discount_percent, commission_basis, commission_percent, minimum_post_commission_margin_percent, enforce_standard_terms, standard_terms",
       )
       .eq("organization_id", data.organizationId)
       .maybeSingle(),
@@ -2057,11 +2103,21 @@ export async function requestQuoteShareApproval(input: QuoteShareApprovalInput) 
         minimumMarginPercent: Number(
           policyResult.data.minimum_margin_percent,
         ),
+        minimumMarkupPercent: Number(
+          policyResult.data.minimum_markup_percent,
+        ),
         requireCostEstimate: policyResult.data.require_cost_estimate,
         requireValidUntil: policyResult.data.require_valid_until,
         maximumValidityDays: policyResult.data.maximum_validity_days,
         maximumDiscountPercent: Number(
           policyResult.data.maximum_discount_percent,
+        ),
+        commissionBasis: policyResult.data.commission_basis as
+          | "net_sell"
+          | "gross_margin",
+        commissionPercent: Number(policyResult.data.commission_percent),
+        minimumPostCommissionMarginPercent: Number(
+          policyResult.data.minimum_post_commission_margin_percent,
         ),
         enforceStandardTerms: policyResult.data.enforce_standard_terms,
         standardTerms: Array.isArray(policyResult.data.standard_terms)

@@ -10,6 +10,7 @@ import {
   type QuoteLineCategory,
 } from "../../lib/crm/quote-pricing";
 import type { EffectiveQuoteCatalogItem } from "../../lib/crm/quote-catalog";
+import type { QuoteApprovalPolicy } from "../../lib/crm/quote-guardrails";
 
 type DraftLine = {
   key: string;
@@ -58,6 +59,7 @@ export function StructuredQuoteComposer({
   quoteId,
   currency,
   catalogItems,
+  commercialPolicy,
   onSaved,
   onNotice,
 }: {
@@ -65,6 +67,7 @@ export function StructuredQuoteComposer({
   quoteId: string;
   currency: string;
   catalogItems: EffectiveQuoteCatalogItem[];
+  commercialPolicy: QuoteApprovalPolicy;
   onSaved: (result: StructuredResult) => void;
   onNotice: (message: string) => void;
 }) {
@@ -88,6 +91,33 @@ export function StructuredQuoteComposer({
     () => calculateQuotePricing(parsedLines),
     [parsedLines],
   );
+  const commercialPreview = useMemo(() => {
+    const markupAmount = preview.netSellAmount - preview.estimatedCostAmount;
+    const markupPercent =
+      preview.estimatedCostAmount > 0
+        ? (markupAmount / preview.estimatedCostAmount) * 100
+        : null;
+    const commissionBase =
+      commercialPolicy.commissionBasis === "net_sell"
+        ? preview.netSellAmount
+        : Math.max(markupAmount, 0);
+    const commissionAmount =
+      Math.round(
+        ((commissionBase * commercialPolicy.commissionPercent) / 100) * 100,
+      ) / 100;
+    const postCommissionMarginAmount = markupAmount - commissionAmount;
+    const postCommissionMarginPercent =
+      preview.netSellAmount > 0
+        ? (postCommissionMarginAmount / preview.netSellAmount) * 100
+        : null;
+    return {
+      markupAmount,
+      markupPercent,
+      commissionAmount,
+      postCommissionMarginAmount,
+      postCommissionMarginPercent,
+    };
+  }, [commercialPolicy, preview]);
   const valid = parsedLines.every(
     (line) =>
       line.description.length > 0 &&
@@ -305,6 +335,18 @@ export function StructuredQuoteComposer({
           <strong>
             Margin {money(preview.grossMarginAmount, currency)} ·{" "}
             {preview.grossMarginPercent?.toFixed(1) ?? "—"}%
+          </strong>
+          <span>
+            Markup {money(commercialPreview.markupAmount, currency)} ·{" "}
+            {commercialPreview.markupPercent?.toFixed(1) ?? "N/A"}% on cost
+          </span>
+          <span>
+            Commission estimate {money(commercialPreview.commissionAmount, currency)}
+          </span>
+          <strong>
+            After commission{" "}
+            {money(commercialPreview.postCommissionMarginAmount, currency)} ·{" "}
+            {commercialPreview.postCommissionMarginPercent?.toFixed(1) ?? "N/A"}%
           </strong>
         </div>
         <button type="button" onClick={submit} disabled={pending || !valid}>

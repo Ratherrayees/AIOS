@@ -572,10 +572,19 @@ export const quoteApprovalPolicyInputSchema = z
   .object({
     organizationId: z.uuid(),
     minimumMarginPercent: z.number().finite().min(0).max(100),
+    minimumMarkupPercent: z.number().finite().min(0).max(1000).default(0),
     requireCostEstimate: z.boolean(),
     requireValidUntil: z.boolean(),
     maximumValidityDays: z.number().int().min(1).max(365),
     maximumDiscountPercent: z.number().finite().min(0).max(100).default(100),
+    commissionBasis: z.enum(["net_sell", "gross_margin"]).default("gross_margin"),
+    commissionPercent: z.number().finite().min(0).max(100).default(0),
+    minimumPostCommissionMarginPercent: z
+      .number()
+      .finite()
+      .min(0)
+      .max(100)
+      .default(0),
     enforceStandardTerms: z.boolean().default(false),
     standardTerms: quoteStandardTermsSchema.default([]),
   })

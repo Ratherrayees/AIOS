@@ -1428,8 +1428,12 @@ test.describe("authenticated owner workspace", () => {
     await page.goto("/quotes");
 
     await page.getByLabel("Minimum gross margin %").fill("20");
+    await page.getByLabel("Minimum markup on cost %").fill("25");
     await page.getByLabel("Maximum validity days").fill("60");
     await page.getByLabel("Maximum discount %").fill("3");
+    await page.getByLabel("Commission basis").selectOption("net_sell");
+    await page.getByLabel("Estimated commission %").fill("5");
+    await page.getByLabel("Minimum margin after commission %").fill("15");
     await page
       .getByLabel("Flag terms outside the standard set")
       .check();
@@ -1512,6 +1516,18 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       proposalPreview.getByText("Subject to availability"),
     ).toBeVisible();
+    const commercialEvidence = quoteCard.getByLabel(
+      "Protected markup and commission evidence",
+    );
+    await expect(commercialEvidence).toContainText(
+      /Markup on cost.*1,35,000.*32\.9%/s,
+    );
+    await expect(commercialEvidence).toContainText(
+      /Estimated commission.*27,250.*5\.0% of net sell/s,
+    );
+    await expect(commercialEvidence).toContainText(
+      /Margin after commission.*1,07,750.*19\.8%/s,
+    );
     await expect(quoteCard.getByText(/₹5,45,000/).first()).toBeVisible();
     await quoteCard
       .getByRole("button", { name: "Request human sharing review" })
@@ -1575,18 +1591,40 @@ test.describe("authenticated owner workspace", () => {
       },
       guardrail_policy: {
         minimum_margin_percent: 20,
+        minimum_markup_percent: 25,
         require_cost_estimate: true,
         require_valid_until: true,
         maximum_validity_days: 60,
         maximum_discount_percent: 3,
         enforce_standard_terms: true,
         standard_term_count: 1,
+        commission_basis: "net_sell",
+        commission_percent: 5,
+        minimum_post_commission_margin_percent: 15,
       },
       commercial_exceptions: {
         discount_percent: 0,
         standard_terms_match: false,
+        commission_basis: "net_sell",
+        commission_percent: 5,
+        commission_policy_current: true,
       },
     });
+    const approvalCommercialExceptions = (
+      shareApproval?.payload as {
+        commercial_exceptions?: {
+          gross_markup_percent?: number;
+          post_commission_margin_percent?: number;
+        };
+      }
+    ).commercial_exceptions;
+    expect(Number(approvalCommercialExceptions?.gross_markup_percent)).toBeCloseTo(
+      32.9268,
+      4,
+    );
+    expect(
+      Number(approvalCommercialExceptions?.post_commission_margin_percent),
+    ).toBeCloseTo(19.7706, 4);
     expect(JSON.stringify(shareApproval?.payload)).not.toContain("410000");
     expect(JSON.stringify(shareApproval?.payload)).not.toContain("545000");
     expect(JSON.stringify(shareApproval?.payload)).not.toContain(
@@ -1659,6 +1697,15 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       quoteCard.getByLabel("Structured quote preview"),
     ).toContainText(/Margin.*1,10,000.*22\.9%/);
+    await expect(
+      quoteCard.getByLabel("Structured quote preview"),
+    ).toContainText(/Markup.*1,10,000.*29\.7% on cost/);
+    await expect(
+      quoteCard.getByLabel("Structured quote preview"),
+    ).toContainText(/Commission estimate.*24,000/);
+    await expect(
+      quoteCard.getByLabel("Structured quote preview"),
+    ).toContainText(/After commission.*86,000.*17\.9%/);
     await quoteCard
       .getByRole("button", { name: "Save structured version" })
       .click();
@@ -1757,6 +1804,41 @@ test.describe("authenticated owner workspace", () => {
       .single();
     expect(structuredCostError).toBeNull();
     expect(structuredCost?.estimated_cost_amount).toBe(370000);
+    const { data: structuredCommercialTerms, error: structuredTermsError } =
+      await admin!
+        .from("quote_version_commercial_terms")
+        .select(
+          "estimated_cost_amount, net_sell_amount, gross_markup_amount, gross_markup_percent, commission_basis, commission_percent, commission_base_amount, estimated_commission_amount, post_commission_margin_amount, post_commission_margin_percent",
+        )
+        .eq("quote_version_id", structuredVersion!.id)
+        .single();
+    expect(structuredTermsError).toBeNull();
+    expect(structuredCommercialTerms).toMatchObject({
+      estimated_cost_amount: 370000,
+      net_sell_amount: 480000,
+      gross_markup_amount: 110000,
+      commission_basis: "net_sell",
+      commission_percent: 5,
+      commission_base_amount: 480000,
+      estimated_commission_amount: 24000,
+      post_commission_margin_amount: 86000,
+    });
+    expect(Number(structuredCommercialTerms?.gross_markup_percent)).toBeCloseTo(
+      29.7297,
+      4,
+    );
+    expect(
+      Number(structuredCommercialTerms?.post_commission_margin_percent),
+    ).toBeCloseTo(17.9167, 4);
+    await expect(commercialEvidence).toContainText(
+      /Markup on cost.*1,10,000.*29\.7%/s,
+    );
+    await expect(commercialEvidence).toContainText(
+      /Estimated commission.*24,000.*5\.0% of net sell/s,
+    );
+    await expect(commercialEvidence).toContainText(
+      /Margin after commission.*86,000.*17\.9%/s,
+    );
 
     await expect(quoteCard.getByLabel("Payment amount 1")).toHaveValue(
       "151200",

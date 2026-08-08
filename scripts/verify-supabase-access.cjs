@@ -21,6 +21,7 @@ const protectedTables = [
   "quotes",
   "quote_versions",
   "quote_cost_estimates",
+  "quote_version_commercial_terms",
   "quote_approval_policies",
   "quote_line_items",
   "quote_line_costs",
@@ -533,6 +534,10 @@ async function verify() {
       target_maximum_discount_percent: 100,
       target_enforce_standard_terms: false,
       target_standard_terms: [],
+      target_minimum_markup_percent: 0,
+      target_commission_basis: "gross_margin",
+      target_commission_percent: 0,
+      target_minimum_post_commission_margin_percent: 0,
     },
   );
   const { error: anonymousStructuredQuoteError } = await anonymous.rpc(
