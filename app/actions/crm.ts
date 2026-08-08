@@ -10,7 +10,10 @@ import {
 import {
   activityNoteInputSchema,
   acceptedQuoteReceivablesInputSchema,
+  approvedInvoiceIssuanceInputSchema,
   invoiceDraftPreparationInputSchema,
+  invoiceIssuanceApprovalInputSchema,
+  invoiceIssuerProfileInputSchema,
   invoiceNumberPolicyInputSchema,
   companyInputSchema,
   contactInputSchema,
@@ -85,7 +88,10 @@ import {
   supplierProfileInputSchema,
   type ActivityNoteInput,
   type AcceptedQuoteReceivablesInput,
+  type ApprovedInvoiceIssuanceInput,
   type InvoiceDraftPreparationInput,
+  type InvoiceIssuanceApprovalInput,
+  type InvoiceIssuerProfileInput,
   type InvoiceNumberPolicyInput,
   type CompanyInput,
   type ContactInput,
@@ -3190,6 +3196,76 @@ export async function prepareAcceptedQuoteInvoiceDraft(
       error?.message || "The invoice draft could not be prepared.",
     );
   return summary;
+}
+
+/** Saves the seller identity that will be frozen into approved issuance. */
+export async function updateInvoiceIssuerProfile(
+  input: InvoiceIssuerProfileInput,
+) {
+  const data = invoiceIssuerProfileInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: profile, error } = await supabase
+    .rpc("upsert_invoice_issuer_profile", {
+      target_organization_id: data.organizationId,
+      target_legal_name: data.legalName,
+      target_registered_address: data.registeredAddress,
+      target_jurisdiction_country_code: data.jurisdictionCountryCode,
+      ...(data.taxRegistrationId
+        ? { target_tax_registration_id: data.taxRegistrationId }
+        : {}),
+    })
+    .single();
+  if (error || !profile)
+    throw new Error(
+      error?.message || "The invoice issuer identity could not be saved.",
+    );
+  return profile;
+}
+
+/** Routes one exact immutable draft and issuer snapshot to a human gate. */
+export async function requestInvoiceIssuanceApproval(
+  input: InvoiceIssuanceApprovalInput,
+) {
+  const data = invoiceIssuanceApprovalInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: approval, error } = await supabase
+    .rpc("request_invoice_issuance_approval", {
+      target_organization_id: data.organizationId,
+      target_invoice_draft_id: data.invoiceDraftId,
+      target_rationale: data.rationale,
+    })
+    .single();
+  if (error || !approval)
+    throw new Error(
+      error?.message || "The invoice issuance review could not be requested.",
+    );
+  return approval;
+}
+
+/**
+ * Atomically consumes one permanent number after exact human approval. It
+ * records issuance but does not render, deliver, message, link, or collect.
+ */
+export async function issueApprovedInvoice(
+  input: ApprovedInvoiceIssuanceInput,
+) {
+  const data = approvedInvoiceIssuanceInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: issuance, error } = await supabase
+    .rpc("issue_approved_invoice", {
+      target_organization_id: data.organizationId,
+      target_invoice_draft_id: data.invoiceDraftId,
+      target_approval_request_id: data.approvalRequestId,
+    })
+    .single();
+  if (error || !issuance)
+    throw new Error(
+      error?.message || "The approved invoice could not be issued.",
+    );
+  return issuance;
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

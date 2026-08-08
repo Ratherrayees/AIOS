@@ -1160,6 +1160,12 @@
   margin-top: 16px;
 }
 
+.invoice-control-stack {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
 .invoice-policy-form,
 .invoice-draft-card {
   border: 1px solid rgb(255 255 255 / 9%);
@@ -1206,6 +1212,12 @@
   color: #06241c;
   font: 750 10px inherit;
   cursor: pointer;
+}
+
+.invoice-policy-form textarea,
+.invoice-approval-form textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 
 .invoice-draft-list {
@@ -1277,6 +1289,47 @@
 .invoice-zero-effect {
   border-top: 1px solid rgb(255 255 255 / 8%);
   padding-top: 10px;
+}
+
+.invoice-approval-form,
+.invoice-approval-state,
+.invoice-issued-evidence {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 3%);
+  padding: 11px;
+}
+
+.invoice-approval-form label {
+  display: grid;
+  gap: 6px;
+  color: #a8c5c0;
+  font-size: 10px;
+}
+
+.invoice-approval-state a {
+  color: #67e7cd;
+  font-size: 10px;
+}
+
+.invoice-approval-state.approved {
+  border-color: rgb(51 209 176 / 25%);
+}
+
+.invoice-approval-state.pending {
+  border-color: rgb(239 181 73 / 25%);
+}
+
+.invoice-issued-evidence {
+  border-color: rgb(51 209 176 / 26%);
+  background: rgb(51 209 176 / 7%);
+}
+
+.invoice-issued-evidence span {
+  color: #a8efdf;
+  font-size: 10px;
 }
 
 @media (max-width: 900px) {

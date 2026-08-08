@@ -1418,7 +1418,7 @@ export default function AiosControlPage() {
           ))
         )}
       </section>
-      <section className="aios-approvals">
+      <section className="aios-approvals" id="approval-queue">
         <header>
           <div>
             <p>HUMAN DECISION QUEUE</p>

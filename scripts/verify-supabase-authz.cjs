@@ -2210,6 +2210,396 @@ async function verifyAuthorization() {
           JSON.stringify(invoiceAuditMetadata),
         ),
     );
+    const revisedInvoiceDraftRow = revisedInvoiceDraft.data?.[0];
+    if (!revisedInvoiceDraftRow)
+      throw new Error("Revised invoice draft evidence is unavailable.");
+    const approvalWithoutIssuer = await owner.rpc(
+      "request_invoice_issuance_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+        target_rationale:
+          "Finance reviewed the exact accepted quote before issuance.",
+      },
+    );
+    record(
+      "invoice issuance approval requires configured issuer identity",
+      Boolean(approvalWithoutIssuer.error),
+    );
+    const foreignIssuerUpdate = await viewer.rpc(
+      "upsert_invoice_issuer_profile",
+      {
+        target_organization_id: organizationA.id,
+        target_legal_name: "Foreign issuer",
+        target_registered_address: "Foreign registered address",
+        target_jurisdiction_country_code: "IN",
+        target_tax_registration_id: "29ABCDE1234F1Z5",
+      },
+    );
+    record(
+      "foreign tenants cannot configure another invoice issuer identity",
+      Boolean(foreignIssuerUpdate.error),
+    );
+    const configuredIssuer = await owner.rpc("upsert_invoice_issuer_profile", {
+      target_organization_id: organizationA.id,
+      target_legal_name: "Alpha Travel Private Limited",
+      target_registered_address:
+        "12 Fictional Market Road, Bengaluru, Karnataka 560001",
+      target_jurisdiction_country_code: "IN",
+      target_tax_registration_id: "29ABCDE1234F1Z5",
+    });
+    record(
+      "finance authority configures bounded invoice issuer identity",
+      !configuredIssuer.error &&
+        configuredIssuer.data?.[0]?.legal_name ===
+          "Alpha Travel Private Limited" &&
+        configuredIssuer.data?.[0]?.jurisdiction_country_code === "IN" &&
+        configuredIssuer.data?.[0]?.tax_registration_id ===
+          "29ABCDE1234F1Z5",
+    );
+    const hiddenForeignIssuer = await viewer
+      .from("invoice_issuer_profiles")
+      .select("organization_id")
+      .eq("organization_id", organizationA.id);
+    record(
+      "invoice issuer identity remains hidden from foreign tenants",
+      !hiddenForeignIssuer.error && hiddenForeignIssuer.data?.length === 0,
+    );
+    const forgedIssuance = await owner.from("invoice_issuances").insert({
+      organization_id: organizationA.id,
+      invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      approval_request_id: publishApproval.data.id,
+      quote_id: guardedQuoteId,
+      quote_version_id: storedProposal.data?.quote_version_id,
+      quote_acceptance_id: acceptedProposalRow.acceptance_id,
+      quote_payment_schedule_id: revisedScheduleRow.id,
+      deal_id: governedDeal.id,
+      draft_revision: 2,
+      source_content_sha256: "0".repeat(64),
+      invoice_number: "INV/2027-00043",
+      sequence_value: 43,
+      number_prefix: "INV/2027-",
+      number_padding: 5,
+      number_policy_updated_at: new Date().toISOString(),
+      issuer_profile_updated_at: new Date().toISOString(),
+      issuer_legal_name: "Forged issuer",
+      issuer_registered_address: "Forged registered address",
+      issuer_jurisdiction_country_code: "IN",
+      issuer_tax_registration_id: "29ABCDE1234F1Z5",
+      bill_to_name: "Forged bill to",
+      currency: "INR",
+      net_amount: 480000,
+      tax_amount: 24000,
+      total_amount: 504000,
+      line_items: storedInvoiceDraft.data?.line_items,
+      payment_terms: storedInvoiceDraft.data?.payment_terms,
+      approved_by: ownerUser.id,
+      approved_at: new Date().toISOString(),
+      issued_by: ownerUser.id,
+    });
+    record(
+      "browser clients cannot forge immutable invoice issuance evidence",
+      Boolean(forgedIssuance.error),
+    );
+    const issuanceApproval = await owner.rpc(
+      "request_invoice_issuance_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+        target_rationale:
+          "Finance verified the exact quote, customer totals, payment terms, and issuer identity.",
+      },
+    );
+    const issuanceApprovalRow = issuanceApproval.data?.[0];
+    if (issuanceApproval.error || !issuanceApprovalRow)
+      throw issuanceApproval.error ??
+        new Error("Invoice issuance approval was not requested.");
+    const [storedIssuanceApproval, issuanceApprovalAudit] = await Promise.all([
+      owner
+        .from("approval_requests")
+        .select("status, action, entity_type, entity_id, payload, expires_at")
+        .eq("id", issuanceApprovalRow.approval_request_id)
+        .single(),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", issuanceApprovalRow.approval_request_id)
+        .eq("metadata->>event", "finance.invoice_issuance_requested")
+        .single(),
+    ]);
+    record(
+      "invoice issuance review is canonical and exact-draft bound",
+      !storedIssuanceApproval.error &&
+        storedIssuanceApproval.data?.status === "pending" &&
+        storedIssuanceApproval.data?.action === "invoice.issue" &&
+        storedIssuanceApproval.data?.entity_type === "invoice_draft" &&
+        storedIssuanceApproval.data?.entity_id ===
+          revisedInvoiceDraftRow.invoice_draft_id &&
+        storedIssuanceApproval.data?.payload?.draft_revision === 2 &&
+        storedIssuanceApproval.data?.payload?.draft_content_sha256?.length ===
+          64 &&
+        storedIssuanceApproval.data?.payload?.issuer_profile_sha256?.length ===
+          64 &&
+        storedIssuanceApproval.data?.payload?.number_preview ===
+          "INV/2027-00043" &&
+        storedIssuanceApproval.data?.payload?.invoice_number_allocated ===
+          false &&
+        storedIssuanceApproval.data?.payload?.invoice_issued === false &&
+        storedIssuanceApproval.data?.payload?.invoice_delivered === false &&
+        storedIssuanceApproval.data?.payload?.external_action_performed ===
+          false,
+    );
+    const retriedIssuanceApproval = await owner.rpc(
+      "request_invoice_issuance_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+        target_rationale:
+          "Finance verified the exact quote, customer totals, payment terms, and issuer identity.",
+      },
+    );
+    record(
+      "exact invoice issuance review retries are idempotent",
+      !retriedIssuanceApproval.error &&
+        retriedIssuanceApproval.data?.[0]?.already_requested === true &&
+        retriedIssuanceApproval.data?.[0]?.approval_request_id ===
+          issuanceApprovalRow.approval_request_id,
+    );
+    const prematureIssuance = await owner.rpc("issue_approved_invoice", {
+      target_organization_id: organizationA.id,
+      target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      target_approval_request_id: issuanceApprovalRow.approval_request_id,
+    });
+    record(
+      "invoice numbering cannot execute before the human approval",
+      Boolean(prematureIssuance.error),
+    );
+    const resolvedIssuanceApproval = await owner.rpc(
+      "resolve_approval_request",
+      {
+        target_organization_id: organizationA.id,
+        target_approval_id: issuanceApprovalRow.approval_request_id,
+        target_decision: "approved",
+      },
+    );
+    record(
+      "human resolution approves one exact invoice draft",
+      !resolvedIssuanceApproval.error &&
+        resolvedIssuanceApproval.data?.[0]?.resolved_status === "approved",
+    );
+    await owner.rpc("upsert_invoice_issuer_profile", {
+      target_organization_id: organizationA.id,
+      target_legal_name: "Alpha Travel Private Limited",
+      target_registered_address:
+        "14 Fictional Market Road, Bengaluru, Karnataka 560001",
+      target_jurisdiction_country_code: "IN",
+      target_tax_registration_id: "29ABCDE1234F1Z5",
+    });
+    const expiredApprovedIssuance = await owner
+      .from("approval_requests")
+      .select("status")
+      .eq("id", issuanceApprovalRow.approval_request_id)
+      .single();
+    record(
+      "issuer changes expire an approved but unexecuted invoice gate",
+      expiredApprovedIssuance.data?.status === "expired",
+    );
+    const staleApprovedIssuance = await owner.rpc("issue_approved_invoice", {
+      target_organization_id: organizationA.id,
+      target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      target_approval_request_id: issuanceApprovalRow.approval_request_id,
+    });
+    record(
+      "stale approved issuer evidence cannot allocate an invoice number",
+      Boolean(staleApprovedIssuance.error),
+    );
+    const renewedIssuanceApproval = await owner.rpc(
+      "request_invoice_issuance_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+        target_rationale:
+          "Finance rechecked the exact draft after the issuer identity update.",
+      },
+    );
+    const executableApprovalId =
+      renewedIssuanceApproval.data?.[0]?.approval_request_id;
+    if (renewedIssuanceApproval.error || !executableApprovalId)
+      throw renewedIssuanceApproval.error ??
+        new Error("Renewed invoice approval is unavailable.");
+    const resolvedRenewedIssuance = await owner.rpc(
+      "resolve_approval_request",
+      {
+        target_organization_id: organizationA.id,
+        target_approval_id: executableApprovalId,
+        target_decision: "approved",
+      },
+    );
+    record(
+      "changed issuer evidence requires a fresh human approval",
+      !resolvedRenewedIssuance.error &&
+        resolvedRenewedIssuance.data?.[0]?.resolved_status === "approved",
+    );
+    const foreignIssuance = await viewer.rpc("issue_approved_invoice", {
+      target_organization_id: organizationA.id,
+      target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      target_approval_request_id: executableApprovalId,
+    });
+    record(
+      "foreign tenants cannot execute another workspace invoice approval",
+      Boolean(foreignIssuance.error),
+    );
+    const issuedInvoice = await owner.rpc("issue_approved_invoice", {
+      target_organization_id: organizationA.id,
+      target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      target_approval_request_id: executableApprovalId,
+    });
+    const issuedInvoiceRow = issuedInvoice.data?.[0];
+    if (issuedInvoice.error || !issuedInvoiceRow)
+      throw issuedInvoice.error ?? new Error("Invoice was not issued.");
+    const [
+      storedIssuance,
+      issuedDraft,
+      policyAfterIssuance,
+      linkedReceivables,
+      hiddenForeignIssuance,
+      issuanceAudit,
+    ] = await Promise.all([
+      owner
+        .from("invoice_issuances")
+        .select(
+          "id, invoice_draft_id, approval_request_id, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, draft_revision, source_content_sha256, invoice_number, sequence_value, number_prefix, number_padding, issuer_legal_name, issuer_jurisdiction_country_code, issuer_tax_registration_id, bill_to_name, currency, net_amount, tax_amount, total_amount, line_count, payment_term_count, issuance_sha256",
+        )
+        .eq("id", issuedInvoiceRow.invoice_issuance_id)
+        .single(),
+      owner
+        .from("invoice_drafts")
+        .select("status")
+        .eq("id", revisedInvoiceDraftRow.invoice_draft_id)
+        .single(),
+      owner
+        .from("invoice_number_policies")
+        .select("next_number")
+        .eq("organization_id", organizationA.id)
+        .single(),
+      owner
+        .from("payments")
+        .select("invoice_issuance_id, invoice_number")
+        .eq("quote_acceptance_id", acceptedProposalRow.acceptance_id),
+      viewer
+        .from("invoice_issuances")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", issuedInvoiceRow.invoice_issuance_id)
+        .eq("metadata->>event", "finance.invoice_issued")
+        .single(),
+    ]);
+    record(
+      "approved issuance atomically freezes exact invoice evidence",
+      !storedIssuance.error &&
+        storedIssuance.data?.invoice_draft_id ===
+          revisedInvoiceDraftRow.invoice_draft_id &&
+        storedIssuance.data?.approval_request_id ===
+          executableApprovalId &&
+        storedIssuance.data?.quote_id === guardedQuoteId &&
+        storedIssuance.data?.quote_acceptance_id ===
+          acceptedProposalRow.acceptance_id &&
+        storedIssuance.data?.draft_revision === 2 &&
+        storedIssuance.data?.invoice_number === "INV/2027-00043" &&
+        Number(storedIssuance.data?.sequence_value) === 43 &&
+        storedIssuance.data?.issuer_legal_name ===
+          "Alpha Travel Private Limited" &&
+        storedIssuance.data?.issuer_jurisdiction_country_code === "IN" &&
+        storedIssuance.data?.bill_to_name === "Alpha traveller" &&
+        Number(storedIssuance.data?.net_amount) === 480000 &&
+        Number(storedIssuance.data?.tax_amount) === 24000 &&
+        Number(storedIssuance.data?.total_amount) === 504000 &&
+        storedIssuance.data?.line_count === 2 &&
+        storedIssuance.data?.payment_term_count === 2 &&
+        storedIssuance.data?.source_content_sha256?.length === 64 &&
+        storedIssuance.data?.issuance_sha256?.length === 64,
+    );
+    record(
+      "issuance consumes one number and links every exact receivable atomically",
+      issuedDraft.data?.status === "issued" &&
+        Number(policyAfterIssuance.data?.next_number) === 44 &&
+        linkedReceivables.data?.length === 2 &&
+        linkedReceivables.data?.every(
+          (receivable) =>
+            receivable.invoice_issuance_id ===
+              issuedInvoiceRow.invoice_issuance_id &&
+            receivable.invoice_number === null,
+        ),
+    );
+    record(
+      "issued invoice evidence remains hidden from foreign tenants",
+      !hiddenForeignIssuance.error && hiddenForeignIssuance.data?.length === 0,
+    );
+    const forgedIssuanceRewrite = await owner
+      .from("invoice_issuances")
+      .update({ invoice_number: "FORGED-999" })
+      .eq("id", issuedInvoiceRow.invoice_issuance_id);
+    record(
+      "browser clients cannot rewrite issued invoice evidence",
+      Boolean(forgedIssuanceRewrite.error),
+    );
+    const issuanceRetry = await owner.rpc("issue_approved_invoice", {
+      target_organization_id: organizationA.id,
+      target_invoice_draft_id: revisedInvoiceDraftRow.invoice_draft_id,
+      target_approval_request_id: executableApprovalId,
+    });
+    record(
+      "approved invoice issuance retries consume no second number",
+      !issuanceRetry.error &&
+        issuanceRetry.data?.[0]?.already_issued === true &&
+        issuanceRetry.data?.[0]?.invoice_issuance_id ===
+          issuedInvoiceRow.invoice_issuance_id &&
+        issuanceRetry.data?.[0]?.invoice_number === "INV/2027-00043",
+    );
+    const rewoundInvoicePolicy = await owner.rpc(
+      "upsert_invoice_number_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_number_prefix: "INV/2027-",
+        target_next_number: 43,
+        target_number_padding: 5,
+      },
+    );
+    record(
+      "issued invoice sequences cannot be rewound",
+      Boolean(rewoundInvoicePolicy.error),
+    );
+    const postIssuanceDraft = await owner.rpc(
+      "prepare_accepted_quote_invoice_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    record(
+      "an issued acceptance cannot create a competing invoice draft",
+      Boolean(postIssuanceDraft.error),
+    );
+    const issuanceAuditMetadata = issuanceAudit.data?.metadata;
+    record(
+      "invoice issuance audit is exact and delivery-safe",
+      !issuanceApprovalAudit.error &&
+        !issuanceAudit.error &&
+        issuanceAuditMetadata?.invoice_number === "INV/2027-00043" &&
+        issuanceAuditMetadata?.invoice_number_allocated === true &&
+        issuanceAuditMetadata?.invoice_issued === true &&
+        issuanceAuditMetadata?.invoice_rendered === false &&
+        issuanceAuditMetadata?.invoice_delivered === false &&
+        issuanceAuditMetadata?.payment_link_created === false &&
+        issuanceAuditMetadata?.payment_collected === false &&
+        issuanceAuditMetadata?.external_action_performed === false &&
+        !/Alpha Travel|Alpha traveller|Two rooms|Final balance|29ABCDE/.test(
+          JSON.stringify(issuanceAuditMetadata),
+        ),
+    );
     const reusedApproval = await owner.rpc("publish_quote_share", {
       target_organization_id: organizationA.id,
       target_quote_id: guardedQuoteId,

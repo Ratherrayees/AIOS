@@ -2278,7 +2278,7 @@ test.describe("authenticated owner workspace", () => {
     const { data: invoiceDraftHistory, error: invoiceDraftHistoryError } =
       await admin!
         .from("invoice_drafts")
-        .select("revision, status, number_preview, superseded_at")
+        .select("id, revision, status, number_preview, superseded_at")
         .eq("quote_id", quote!.id)
         .order("revision");
     expect(invoiceDraftHistoryError).toBeNull();
@@ -2287,6 +2287,9 @@ test.describe("authenticated owner workspace", () => {
       { revision: 2, status: "ready", number_preview: "INV/2027-00043" },
     ]);
     expect(invoiceDraftHistory?.[0]?.superseded_at).toBeTruthy();
+    const revisedInvoiceDraftId = invoiceDraftHistory?.[1]?.id;
+    if (!revisedInvoiceDraftId)
+      throw new Error("Revised invoice draft fixture is unavailable.");
     const { data: unchangedQuoteReceivables } = await admin!
       .from("payments")
       .select("invoice_number")
@@ -2294,6 +2297,138 @@ test.describe("authenticated owner workspace", () => {
     expect(
       unchangedQuoteReceivables?.every(
         (receivable) => receivable.invoice_number === null,
+      ),
+    ).toBe(true);
+    await page
+      .getByLabel("Legal business name")
+      .fill("StateAI Travel Private Limited");
+    await page
+      .getByLabel("Registered address")
+      .fill("12 Fictional Market Road, Bengaluru, Karnataka 560001");
+    await page.getByLabel("Country code").fill("IN");
+    await page.getByLabel("Tax registration ID").fill("29ABCDE1234F1Z5");
+    await page.getByRole("button", { name: "Save issuer identity" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Invoice issuer identity saved",
+    );
+    await invoiceDraftCard
+      .getByLabel("Issuance review rationale")
+      .fill(
+        "Finance verified the exact accepted quote, customer totals, payment milestones, bill-to identity, and issuer identity.",
+      );
+    await invoiceDraftCard
+      .getByRole("button", { name: "Request human issuance approval" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Exact invoice issuance review requested",
+    );
+    await expect(
+      invoiceDraftCard.getByRole("link", {
+        name: "Open AIOS approval queue",
+      }),
+    ).toHaveAttribute("href", "/aios#approval-queue");
+    const { data: invoiceApproval, error: invoiceApprovalError } = await admin!
+      .from("approval_requests")
+      .select("id, status, action, entity_id, payload")
+      .eq("action", "invoice.issue")
+      .eq("entity_id", revisedInvoiceDraftId)
+      .single();
+    expect(invoiceApprovalError).toBeNull();
+    expect(invoiceApproval).toMatchObject({
+      status: "pending",
+      action: "invoice.issue",
+      entity_id: revisedInvoiceDraftId,
+    });
+    expect(invoiceApproval?.payload).toMatchObject({
+      draft_revision: 2,
+      number_preview: "INV/2027-00043",
+      invoice_number_allocated: false,
+      invoice_issued: false,
+      invoice_delivered: false,
+      external_action_performed: false,
+    });
+    expect(
+      (invoiceApproval?.payload as { draft_content_sha256?: string })
+        .draft_content_sha256,
+    ).toHaveLength(64);
+    expect(
+      (invoiceApproval?.payload as { issuer_profile_sha256?: string })
+        .issuer_profile_sha256,
+    ).toHaveLength(64);
+    await page.goto("/aios#approval-queue");
+    const invoiceApprovalCard = page
+      .locator(".aios-approvals article")
+      .filter({ hasText: "invoice issue" });
+    await expect(invoiceApprovalCard).toContainText(
+      "Finance verified the exact accepted quote",
+    );
+    await invoiceApprovalCard.getByRole("button", { name: "Approve" }).click();
+    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await page.goto("/finance");
+    const approvedInvoiceDraftCard = page
+      .locator(".invoice-draft-card")
+      .filter({ hasText: "INV/2027-00043" });
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "Human approval recorded for this exact hash",
+    );
+    await approvedInvoiceDraftCard
+      .getByRole("button", { name: "Allocate number and issue record" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Invoice INV/2027-00043 issued atomically",
+    );
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "permanent issuance evidence recorded",
+    );
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "no rendered document, delivery, message, payment link, charge, or settlement",
+    );
+    const { data: issuedInvoice, error: issuedInvoiceError } = await admin!
+      .from("invoice_issuances")
+      .select(
+        "id, invoice_draft_id, approval_request_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, draft_revision, invoice_number, sequence_value, issuer_legal_name, issuer_registered_address, issuer_jurisdiction_country_code, issuer_tax_registration_id, bill_to_name, currency, net_amount, tax_amount, total_amount, line_count, payment_term_count, source_content_sha256, issuance_sha256",
+      )
+      .eq("quote_id", quote!.id)
+      .single();
+    expect(issuedInvoiceError).toBeNull();
+    expect(issuedInvoice).toMatchObject({
+      invoice_draft_id: revisedInvoiceDraftId,
+      approval_request_id: invoiceApproval!.id,
+      quote_version_id: paymentSchedule!.quote_version_id,
+      quote_acceptance_id: acceptanceEvidence.data!.id,
+      quote_payment_schedule_id: paymentSchedule!.id,
+      draft_revision: 2,
+      invoice_number: "INV/2027-00043",
+      sequence_value: 43,
+      issuer_legal_name: "StateAI Travel Private Limited",
+      issuer_jurisdiction_country_code: "IN",
+      issuer_tax_registration_id: "29ABCDE1234F1Z5",
+      bill_to_name: "Aarav Sharma",
+      currency: "INR",
+      net_amount: 480000,
+      tax_amount: 24000,
+      total_amount: 504000,
+      line_count: 2,
+      payment_term_count: 2,
+    });
+    expect(issuedInvoice?.source_content_sha256).toHaveLength(64);
+    expect(issuedInvoice?.issuance_sha256).toHaveLength(64);
+    const { data: policyAfterIssuance } = await admin!
+      .from("invoice_number_policies")
+      .select("next_number")
+      .eq("organization_id", organizationIds[0])
+      .single();
+    expect(Number(policyAfterIssuance?.next_number)).toBe(44);
+    const { data: linkedInvoiceReceivables } = await admin!
+      .from("payments")
+      .select("invoice_issuance_id, invoice_number")
+      .eq("quote_id", quote!.id);
+    expect(linkedInvoiceReceivables).toHaveLength(2);
+    expect(
+      linkedInvoiceReceivables?.every(
+        (receivable) =>
+          receivable.invoice_issuance_id === issuedInvoice!.id &&
+          receivable.invoice_number === null,
       ),
     ).toBe(true);
     await page.goto("/quotes");

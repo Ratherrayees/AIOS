@@ -29,7 +29,10 @@ import {
   quoteShareRevokeSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
+  approvedInvoiceIssuanceInputSchema,
   invoiceDraftPreparationInputSchema,
+  invoiceIssuanceApprovalInputSchema,
+  invoiceIssuerProfileInputSchema,
   invoiceNumberPolicyInputSchema,
   paymentAllocationInputSchema,
   paymentObligationInputSchema,
@@ -1301,6 +1304,53 @@ test("invoice draft readiness accepts only bounded numbering controls", () => {
     invoiceDraftPreparationInputSchema.safeParse({
       organizationId,
       quoteId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+});
+
+test("invoice issuance requires bounded issuer identity and exact human evidence", () => {
+  const invoiceDraftId = crypto.randomUUID();
+  assert.equal(
+    invoiceIssuerProfileInputSchema.safeParse({
+      organizationId,
+      legalName: "StateAI Travel Private Limited",
+      registeredAddress: "12 Fictional Market Road, Bengaluru 560001",
+      jurisdictionCountryCode: "in",
+      taxRegistrationId: "29abcde1234f1z5",
+    }).success,
+    true,
+  );
+  assert.equal(
+    invoiceIssuerProfileInputSchema.safeParse({
+      organizationId,
+      legalName: "A",
+      registeredAddress: "short",
+      jurisdictionCountryCode: "IND",
+    }).success,
+    false,
+  );
+  assert.equal(
+    invoiceIssuanceApprovalInputSchema.safeParse({
+      organizationId,
+      invoiceDraftId,
+      rationale: "Finance checked the exact immutable invoice evidence.",
+    }).success,
+    true,
+  );
+  assert.equal(
+    invoiceIssuanceApprovalInputSchema.safeParse({
+      organizationId,
+      invoiceDraftId,
+      rationale: "short",
+    }).success,
+    false,
+  );
+  assert.equal(
+    approvedInvoiceIssuanceInputSchema.safeParse({
+      organizationId,
+      invoiceDraftId,
+      approvalRequestId: crypto.randomUUID(),
     }).success,
     true,
   );

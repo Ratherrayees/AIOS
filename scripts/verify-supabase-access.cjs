@@ -32,6 +32,8 @@ const protectedTables = [
   "quote_acceptances",
   "invoice_number_policies",
   "invoice_drafts",
+  "invoice_issuer_profiles",
+  "invoice_issuances",
   "conversations",
   "messages",
   "approval_requests",
@@ -301,6 +303,32 @@ async function verify() {
     {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
       target_quote_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
+  const { error: anonymousInvoiceIssuerError } = await anonymous.rpc(
+    "upsert_invoice_issuer_profile",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_legal_name: "Blocked issuer",
+      target_registered_address: "Blocked registered address",
+      target_jurisdiction_country_code: "IN",
+      target_tax_registration_id: "BLOCKED-TAX-ID",
+    },
+  );
+  const { error: anonymousInvoiceApprovalError } = await anonymous.rpc(
+    "request_invoice_issuance_approval",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_invoice_draft_id: "22222222-2222-4222-8222-222222222222",
+      target_rationale: "Blocked anonymous issuance review request.",
+    },
+  );
+  const { error: anonymousInvoiceIssuanceError } = await anonymous.rpc(
+    "issue_approved_invoice",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_invoice_draft_id: "22222222-2222-4222-8222-222222222222",
+      target_approval_request_id: "33333333-3333-4333-8333-333333333333",
     },
   );
   const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
@@ -855,6 +883,21 @@ async function verify() {
       function: "prepare_accepted_quote_invoice_draft",
       anonymousExecutionBlocked: Boolean(anonymousInvoiceDraftError),
       anonymousErrorCode: anonymousInvoiceDraftError?.code ?? null,
+    },
+    {
+      function: "upsert_invoice_issuer_profile",
+      anonymousExecutionBlocked: Boolean(anonymousInvoiceIssuerError),
+      anonymousErrorCode: anonymousInvoiceIssuerError?.code ?? null,
+    },
+    {
+      function: "request_invoice_issuance_approval",
+      anonymousExecutionBlocked: Boolean(anonymousInvoiceApprovalError),
+      anonymousErrorCode: anonymousInvoiceApprovalError?.code ?? null,
+    },
+    {
+      function: "issue_approved_invoice",
+      anonymousExecutionBlocked: Boolean(anonymousInvoiceIssuanceError),
+      anonymousErrorCode: anonymousInvoiceIssuanceError?.code ?? null,
     },
     {
       function: "classify_trip_document",

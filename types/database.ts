@@ -1854,6 +1854,221 @@ export type Database = {
           },
         ]
       }
+      invoice_issuances: {
+        Row: {
+          approval_request_id: string
+          approved_at: string
+          approved_by: string
+          bill_to_name: string
+          currency: string
+          deal_id: string
+          draft_revision: number
+          id: string
+          invoice_draft_id: string
+          invoice_number: string
+          issuance_sha256: string
+          issued_at: string
+          issued_by: string
+          issuer_jurisdiction_country_code: string
+          issuer_legal_name: string
+          issuer_profile_updated_at: string
+          issuer_registered_address: string
+          issuer_tax_registration_id: string | null
+          line_count: number | null
+          line_items: Json
+          net_amount: number
+          number_padding: number
+          number_policy_updated_at: string
+          number_prefix: string
+          organization_id: string
+          payment_term_count: number | null
+          payment_terms: Json
+          quote_acceptance_id: string
+          quote_id: string
+          quote_payment_schedule_id: string
+          quote_version_id: string
+          sequence_value: number
+          source_content_sha256: string
+          tax_amount: number
+          total_amount: number
+        }
+        Insert: {
+          approval_request_id: string
+          approved_at: string
+          approved_by: string
+          bill_to_name: string
+          currency: string
+          deal_id: string
+          draft_revision: number
+          id?: string
+          invoice_draft_id: string
+          invoice_number: string
+          issuance_sha256?: string
+          issued_at?: string
+          issued_by: string
+          issuer_jurisdiction_country_code: string
+          issuer_legal_name: string
+          issuer_profile_updated_at: string
+          issuer_registered_address: string
+          issuer_tax_registration_id?: string | null
+          line_count?: number | null
+          line_items: Json
+          net_amount: number
+          number_padding: number
+          number_policy_updated_at: string
+          number_prefix: string
+          organization_id: string
+          payment_term_count?: number | null
+          payment_terms: Json
+          quote_acceptance_id: string
+          quote_id: string
+          quote_payment_schedule_id: string
+          quote_version_id: string
+          sequence_value: number
+          source_content_sha256: string
+          tax_amount: number
+          total_amount: number
+        }
+        Update: {
+          approval_request_id?: string
+          approved_at?: string
+          approved_by?: string
+          bill_to_name?: string
+          currency?: string
+          deal_id?: string
+          draft_revision?: number
+          id?: string
+          invoice_draft_id?: string
+          invoice_number?: string
+          issuance_sha256?: string
+          issued_at?: string
+          issued_by?: string
+          issuer_jurisdiction_country_code?: string
+          issuer_legal_name?: string
+          issuer_profile_updated_at?: string
+          issuer_registered_address?: string
+          issuer_tax_registration_id?: string | null
+          line_count?: number | null
+          line_items?: Json
+          net_amount?: number
+          number_padding?: number
+          number_policy_updated_at?: string
+          number_prefix?: string
+          organization_id?: string
+          payment_term_count?: number | null
+          payment_terms?: Json
+          quote_acceptance_id?: string
+          quote_id?: string
+          quote_payment_schedule_id?: string
+          quote_version_id?: string
+          sequence_value?: number
+          source_content_sha256?: string
+          tax_amount?: number
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_issuances_approval_same_organization_fkey"
+            columns: ["organization_id", "approval_request_id"]
+            isOneToOne: false
+            referencedRelation: "approval_requests"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "invoice_issuances_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_issuances_exact_draft_fkey"
+            columns: [
+              "organization_id",
+              "invoice_draft_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_acceptance_id",
+              "quote_payment_schedule_id",
+              "deal_id",
+              "draft_revision",
+              "source_content_sha256",
+            ]
+            isOneToOne: false
+            referencedRelation: "invoice_drafts"
+            referencedColumns: [
+              "organization_id",
+              "id",
+              "quote_id",
+              "quote_version_id",
+              "quote_acceptance_id",
+              "quote_payment_schedule_id",
+              "deal_id",
+              "revision",
+              "content_sha256",
+            ]
+          },
+          {
+            foreignKeyName: "invoice_issuances_issued_by_fkey"
+            columns: ["issued_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_issuances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_issuer_profiles: {
+        Row: {
+          jurisdiction_country_code: string
+          legal_name: string
+          organization_id: string
+          registered_address: string
+          tax_registration_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          jurisdiction_country_code: string
+          legal_name: string
+          organization_id: string
+          registered_address: string
+          tax_registration_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          jurisdiction_country_code?: string
+          legal_name?: string
+          organization_id?: string
+          registered_address?: string
+          tax_registration_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_issuer_profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_issuer_profiles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_number_policies: {
         Row: {
           next_number: number
@@ -3259,6 +3474,7 @@ export type Database = {
           direction: string
           due_at: string | null
           id: string
+          invoice_issuance_id: string | null
           invoice_number: string | null
           organization_id: string
           paid_amount: number
@@ -3288,6 +3504,7 @@ export type Database = {
           direction: string
           due_at?: string | null
           id?: string
+          invoice_issuance_id?: string | null
           invoice_number?: string | null
           organization_id: string
           paid_amount?: number
@@ -3317,6 +3534,7 @@ export type Database = {
           direction?: string
           due_at?: string | null
           id?: string
+          invoice_issuance_id?: string | null
           invoice_number?: string | null
           organization_id?: string
           paid_amount?: number
@@ -3349,6 +3567,13 @@ export type Database = {
             columns: ["organization_id", "deal_id"]
             isOneToOne: false
             referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payments_invoice_issuance_same_organization_fkey"
+            columns: ["organization_id", "invoice_issuance_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuances"
             referencedColumns: ["organization_id", "id"]
           },
           {
@@ -5606,6 +5831,7 @@ export type Database = {
           direction: string
           due_at: string | null
           id: string
+          invoice_issuance_id: string | null
           invoice_number: string | null
           organization_id: string
           paid_amount: number
@@ -5804,6 +6030,23 @@ export type Database = {
         Args: { target_organization_id: string }
         Returns: boolean
       }
+      issue_approved_invoice: {
+        Args: {
+          target_approval_request_id: string
+          target_invoice_draft_id: string
+          target_organization_id: string
+        }
+        Returns: {
+          already_issued: boolean
+          currency: string
+          invoice_issuance_id: string
+          invoice_number: string
+          issuance_sha256: string
+          issued_at: string
+          linked_receivable_count: number
+          total_amount: number
+        }[]
+      }
       list_quote_share_links: {
         Args: { target_organization_id: string }
         Returns: {
@@ -5924,6 +6167,7 @@ export type Database = {
           direction: string
           due_at: string | null
           id: string
+          invoice_issuance_id: string | null
           invoice_number: string | null
           organization_id: string
           paid_amount: number
@@ -6073,6 +6317,19 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      request_invoice_issuance_approval: {
+        Args: {
+          target_invoice_draft_id: string
+          target_organization_id: string
+          target_rationale: string
+        }
+        Returns: {
+          already_requested: boolean
+          approval_request_id: string
+          approval_status: Database["public"]["Enums"]["approval_status"]
+          expires_at: string
+        }[]
       }
       requeue_ai_job: {
         Args: { target_job_id: string }
@@ -6664,6 +6921,30 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      upsert_invoice_issuer_profile: {
+        Args: {
+          target_jurisdiction_country_code: string
+          target_legal_name: string
+          target_organization_id: string
+          target_registered_address: string
+          target_tax_registration_id?: string
+        }
+        Returns: {
+          jurisdiction_country_code: string
+          legal_name: string
+          organization_id: string
+          registered_address: string
+          tax_registration_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "invoice_issuer_profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       upsert_invoice_number_policy: {
         Args: {
           target_next_number: number
@@ -6874,6 +7155,7 @@ export type Database = {
           direction: string
           due_at: string | null
           id: string
+          invoice_issuance_id: string | null
           invoice_number: string | null
           organization_id: string
           paid_amount: number

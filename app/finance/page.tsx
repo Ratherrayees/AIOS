@@ -14,9 +14,12 @@ import {
   createSupplierContact,
   createSupplierContract,
   createSupplierProfile,
+  issueApprovedInvoice,
   prepareAcceptedQuoteInvoiceDraft,
   recordPaymentAllocation,
   refreshPaymentStatuses,
+  requestInvoiceIssuanceApproval,
+  updateInvoiceIssuerProfile,
   updateInvoiceNumberPolicy,
   voidPaymentObligation,
 } from "../actions/crm";
@@ -92,6 +95,7 @@ type Payment = {
   quote_acceptance_id: string | null;
   quote_payment_schedule_id: string | null;
   quote_schedule_item_position: number | null;
+  invoice_issuance_id: string | null;
 };
 
 type PaymentAllocation = {
@@ -116,7 +120,7 @@ type InvoiceDraft = {
   quote_id: string;
   quote_acceptance_id: string;
   revision: number;
-  status: "ready" | "superseded";
+  status: "ready" | "superseded" | "issued";
   number_preview: string;
   number_policy_updated_at: string;
   bill_to_name: string;
@@ -128,6 +132,32 @@ type InvoiceDraft = {
   payment_term_count: number;
   content_sha256: string;
   created_at: string;
+};
+
+type InvoiceIssuerProfile = {
+  legal_name: string;
+  registered_address: string;
+  jurisdiction_country_code: string;
+  tax_registration_id: string | null;
+  updated_at: string;
+};
+
+type InvoiceIssuanceApproval = {
+  id: string;
+  entity_id: string | null;
+  status: "pending" | "approved";
+  expires_at: string | null;
+  resolved_at: string | null;
+};
+
+type InvoiceIssuance = {
+  id: string;
+  invoice_draft_id: string;
+  invoice_number: string;
+  currency: string;
+  total_amount: number;
+  issued_at: string;
+  issuance_sha256: string;
 };
 
 type TripOption = {
@@ -199,6 +229,14 @@ export default function FinancePage() {
   const [invoicePolicy, setInvoicePolicy] =
     useState<InvoiceNumberPolicy | null>(null);
   const [invoiceDrafts, setInvoiceDrafts] = useState<InvoiceDraft[]>([]);
+  const [invoiceIssuerProfile, setInvoiceIssuerProfile] =
+    useState<InvoiceIssuerProfile | null>(null);
+  const [invoiceApprovals, setInvoiceApprovals] = useState<
+    InvoiceIssuanceApproval[]
+  >([]);
+  const [invoiceIssuances, setInvoiceIssuances] = useState<InvoiceIssuance[]>(
+    [],
+  );
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [filter, setFilter] = useState<LedgerFilter>("open");
   const [query, setQuery] = useState("");
@@ -221,6 +259,9 @@ export default function FinancePage() {
       dealResult,
       invoicePolicyResult,
       invoiceDraftResult,
+      invoiceIssuerResult,
+      invoiceApprovalResult,
+      invoiceIssuanceResult,
     ] = await Promise.all([
       supabase
         .from("suppliers")
@@ -246,7 +287,7 @@ export default function FinancePage() {
       supabase
         .from("payments")
         .select(
-          "id, deal_id, trip_id, supplier_id, direction, status, title, invoice_number, description, amount, paid_amount, currency, due_at, paid_at, status_note, created_at, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position",
+          "id, deal_id, trip_id, supplier_id, direction, status, title, invoice_number, description, amount, paid_amount, currency, due_at, paid_at, status_note, created_at, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, invoice_issuance_id",
         )
         .eq("organization_id", targetOrganizationId)
         .order("created_at", { ascending: false }),
@@ -281,6 +322,27 @@ export default function FinancePage() {
         )
         .eq("organization_id", targetOrganizationId)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("invoice_issuer_profiles")
+        .select(
+          "legal_name, registered_address, jurisdiction_country_code, tax_registration_id, updated_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .maybeSingle(),
+      supabase
+        .from("approval_requests")
+        .select("id, entity_id, status, expires_at, resolved_at")
+        .eq("organization_id", targetOrganizationId)
+        .eq("action", "invoice.issue")
+        .in("status", ["pending", "approved"])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("invoice_issuances")
+        .select(
+          "id, invoice_draft_id, invoice_number, currency, total_amount, issued_at, issuance_sha256",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("issued_at", { ascending: false }),
     ]);
 
     const error =
@@ -292,7 +354,10 @@ export default function FinancePage() {
       tripResult.error ??
       dealResult.error ??
       invoicePolicyResult.error ??
-      invoiceDraftResult.error;
+      invoiceDraftResult.error ??
+      invoiceIssuerResult.error ??
+      invoiceApprovalResult.error ??
+      invoiceIssuanceResult.error;
     if (error) throw error;
 
     const nextSuppliers = (supplierResult.data ?? []) as Supplier[];
@@ -307,6 +372,15 @@ export default function FinancePage() {
       (invoicePolicyResult.data as InvoiceNumberPolicy | null) ?? null,
     );
     setInvoiceDrafts((invoiceDraftResult.data ?? []) as InvoiceDraft[]);
+    setInvoiceIssuerProfile(
+      (invoiceIssuerResult.data as InvoiceIssuerProfile | null) ?? null,
+    );
+    setInvoiceApprovals(
+      (invoiceApprovalResult.data ?? []) as InvoiceIssuanceApproval[],
+    );
+    setInvoiceIssuances(
+      (invoiceIssuanceResult.data ?? []) as InvoiceIssuance[],
+    );
     setSelectedSupplierId((current) =>
       nextSuppliers.some((supplier) => supplier.id === current)
         ? current
@@ -479,6 +553,95 @@ export default function FinancePage() {
           error instanceof Error
             ? error.message
             : "The invoice draft could not be prepared.",
+        );
+      }
+    });
+  }
+
+  function submitInvoiceIssuer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        await updateInvoiceIssuerProfile({
+          organizationId,
+          legalName: String(formData.get("issuerLegalName") || ""),
+          registeredAddress: String(
+            formData.get("issuerRegisteredAddress") || "",
+          ),
+          jurisdictionCountryCode: String(
+            formData.get("issuerCountryCode") || "",
+          ),
+          taxRegistrationId: nullableText(formData, "issuerTaxId"),
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          "Invoice issuer identity saved. Any older pending issuance review is now expired.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The invoice issuer identity could not be saved.",
+        );
+      }
+    });
+  }
+
+  function submitInvoiceApproval(
+    event: FormEvent<HTMLFormElement>,
+    invoiceDraftId: string,
+  ) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await requestInvoiceIssuanceApproval({
+          organizationId,
+          invoiceDraftId,
+          rationale: String(formData.get("issuanceRationale") || ""),
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_requested
+            ? "This exact invoice draft is already waiting for a human decision."
+            : "Exact invoice issuance review requested. No number was allocated.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The invoice issuance review could not be requested.",
+        );
+      }
+    });
+  }
+
+  function issueInvoice(invoiceDraftId: string, approvalRequestId: string) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await issueApprovedInvoice({
+          organizationId,
+          invoiceDraftId,
+          approvalRequestId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_issued
+            ? `Invoice ${result.invoice_number} was already issued; no second number was consumed.`
+            : `Invoice ${result.invoice_number} issued atomically. Rendering and delivery have not occurred.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The approved invoice could not be issued.",
         );
       }
     });
@@ -1249,7 +1412,8 @@ export default function FinancePage() {
           </header>
 
           <div className="invoice-readiness-grid">
-            <form className="invoice-policy-form" onSubmit={submitInvoicePolicy}>
+            <div className="invoice-control-stack">
+              <form className="invoice-policy-form" onSubmit={submitInvoicePolicy}>
               <div>
                 <small>NUMBER PREVIEW POLICY</small>
                 <strong>
@@ -1299,7 +1463,70 @@ export default function FinancePage() {
                 Saving this policy does not reserve or allocate an invoice
                 number. Issuance will require a separate exact-draft approval.
               </small>
-            </form>
+              </form>
+
+              <form className="invoice-policy-form" onSubmit={submitInvoiceIssuer}>
+                <div>
+                  <small>LEGAL ISSUER IDENTITY</small>
+                  <strong>
+                    {invoiceIssuerProfile?.legal_name ?? "Not configured"}
+                  </strong>
+                </div>
+                <label>
+                  Legal business name
+                  <input
+                    name="issuerLegalName"
+                    defaultValue={invoiceIssuerProfile?.legal_name ?? ""}
+                    minLength={2}
+                    maxLength={180}
+                    required
+                  />
+                </label>
+                <label>
+                  Registered address
+                  <textarea
+                    name="issuerRegisteredAddress"
+                    defaultValue={
+                      invoiceIssuerProfile?.registered_address ?? ""
+                    }
+                    minLength={10}
+                    maxLength={500}
+                    required
+                  />
+                </label>
+                <div>
+                  <label>
+                    Country code
+                    <input
+                      name="issuerCountryCode"
+                      defaultValue={
+                        invoiceIssuerProfile?.jurisdiction_country_code ?? "IN"
+                      }
+                      pattern="[A-Za-z]{2}"
+                      maxLength={2}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Tax registration ID
+                    <input
+                      name="issuerTaxId"
+                      defaultValue={
+                        invoiceIssuerProfile?.tax_registration_id ?? ""
+                      }
+                      maxLength={80}
+                    />
+                  </label>
+                </div>
+                <button type="submit" disabled={pending}>
+                  {pending ? "Saving..." : "Save issuer identity"}
+                </button>
+                <small>
+                  Taxed invoices require a tax-registration ID. Identity
+                  changes expire older pending issuance reviews.
+                </small>
+              </form>
+            </div>
 
             <div className="invoice-draft-list">
               {acceptedQuoteReceivableGroups.length === 0 ? (
@@ -1312,10 +1539,21 @@ export default function FinancePage() {
                   const draft = invoiceDrafts.find(
                     (candidate) =>
                       candidate.quote_id === group.quoteId &&
-                      candidate.status === "ready",
+                      candidate.status !== "superseded",
                   );
+                  const issuance = draft
+                    ? invoiceIssuances.find(
+                        (candidate) =>
+                          candidate.invoice_draft_id === draft.id,
+                      )
+                    : null;
+                  const approval = draft
+                    ? invoiceApprovals.find(
+                        (candidate) => candidate.entity_id === draft.id,
+                      )
+                    : null;
                   const policyCurrent =
-                    draft && invoicePolicy
+                    draft?.status === "ready" && invoicePolicy
                       ? draft.number_policy_updated_at === invoicePolicy.updated_at
                       : false;
                   return (
@@ -1331,8 +1569,12 @@ export default function FinancePage() {
                         <>
                           <div className="invoice-draft-facts">
                             <span>
-                              <small>NUMBER PREVIEW</small>
-                              <b>{draft.number_preview}</b>
+                              <small>
+                                {issuance ? "ISSUED NUMBER" : "NUMBER PREVIEW"}
+                              </small>
+                              <b>
+                                {issuance?.invoice_number ?? draft.number_preview}
+                              </b>
                             </span>
                             <span>
                               <small>BILL TO</small>
@@ -1353,20 +1595,96 @@ export default function FinancePage() {
                               </b>
                             </span>
                           </div>
-                          <p className={policyCurrent ? "draft-current" : "draft-stale"}>
-                            Revision {draft.revision} · {policyCurrent
-                              ? "current preview policy"
-                              : "preview policy changed; prepare a new revision"}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => prepareInvoiceDraft(group.quoteId)}
-                            disabled={pending}
+                          <p
+                            className={
+                              issuance || policyCurrent
+                                ? "draft-current"
+                                : "draft-stale"
+                            }
                           >
-                            {policyCurrent
-                              ? "Verify exact draft"
-                              : "Prepare revised draft"}
-                          </button>
+                            Revision {draft.revision} · {issuance
+                              ? "permanent issuance evidence recorded"
+                              : policyCurrent
+                                ? "current preview policy"
+                                : "preview policy changed; prepare a new revision"}
+                          </p>
+                          {issuance ? (
+                            <div className="invoice-issued-evidence">
+                              <strong>
+                                Issued {new Date(issuance.issued_at).toLocaleString()}
+                              </strong>
+                              <span>
+                                {money(issuance.total_amount, issuance.currency)} ·
+                                evidence {issuance.issuance_sha256.slice(0, 12)}…
+                              </span>
+                              <small>
+                                Permanent number allocated. Rendering, delivery,
+                                messaging, payment links and collection remain
+                                incomplete.
+                              </small>
+                            </div>
+                          ) : !policyCurrent ? (
+                            <button
+                              type="button"
+                              onClick={() => prepareInvoiceDraft(group.quoteId)}
+                              disabled={pending}
+                            >
+                              Prepare revised draft
+                            </button>
+                          ) : approval?.status === "approved" ? (
+                            <div className="invoice-approval-state approved">
+                              <span>Human approval recorded for this exact hash.</span>
+                              <button
+                                type="button"
+                                onClick={() => issueInvoice(draft.id, approval.id)}
+                                disabled={pending}
+                              >
+                                Allocate number and issue record
+                              </button>
+                              <small>
+                                This irreversible step consumes {draft.number_preview}
+                                atomically; it still performs no delivery or charge.
+                              </small>
+                            </div>
+                          ) : approval?.status === "pending" ? (
+                            <div className="invoice-approval-state pending">
+                              <span>Waiting for a human issuance decision.</span>
+                              <Link href="/aios#approval-queue">
+                                Open AIOS approval queue
+                              </Link>
+                              <small>
+                                Expires {approval.expires_at
+                                  ? new Date(approval.expires_at).toLocaleString()
+                                  : "after review"}
+                              </small>
+                            </div>
+                          ) : invoiceIssuerProfile ? (
+                            <form
+                              className="invoice-approval-form"
+                              onSubmit={(event) =>
+                                submitInvoiceApproval(event, draft.id)
+                              }
+                            >
+                              <label>
+                                Issuance review rationale
+                                <textarea
+                                  name="issuanceRationale"
+                                  defaultValue="Finance verified the accepted quote, customer totals, payment milestones, bill-to identity, and issuer identity."
+                                  minLength={12}
+                                  maxLength={1000}
+                                  required
+                                />
+                              </label>
+                              <button type="submit" disabled={pending}>
+                                Request human issuance approval
+                              </button>
+                            </form>
+                          ) : (
+                            <p className="draft-stale">
+                              Save the legal issuer identity before requesting
+                              issuance approval.
+                            </p>
+                          )}
                         </>
                       ) : (
                         <button
@@ -1378,8 +1696,9 @@ export default function FinancePage() {
                         </button>
                       )}
                       <small className="invoice-zero-effect">
-                        Internal evidence only · no legal number, document,
-                        delivery, message, charge, or settlement.
+                        {issuance
+                          ? "Issuance evidence only · no rendered document, delivery, message, payment link, charge, or settlement."
+                          : "Internal evidence only · no legal number, document, delivery, message, charge, or settlement."}
                       </small>
                     </article>
                   );

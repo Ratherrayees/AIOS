@@ -1077,6 +1077,37 @@ export const invoiceDraftPreparationInputSchema = z.object({
   quoteId: z.uuid(),
 });
 
+export const invoiceIssuerProfileInputSchema = z.object({
+  organizationId: z.uuid(),
+  legalName: z.string().trim().min(2).max(180),
+  registeredAddress: z.string().trim().min(10).max(500),
+  jurisdictionCountryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/),
+  taxRegistrationId: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(2)
+    .max(80)
+    .nullable()
+    .optional(),
+});
+
+export const invoiceIssuanceApprovalInputSchema = z.object({
+  organizationId: z.uuid(),
+  invoiceDraftId: z.uuid(),
+  rationale: z.string().trim().min(12).max(1_000),
+});
+
+export const approvedInvoiceIssuanceInputSchema = z.object({
+  organizationId: z.uuid(),
+  invoiceDraftId: z.uuid(),
+  approvalRequestId: z.uuid(),
+});
+
 export const paymentAllocationInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1292,6 +1323,15 @@ export type InvoiceNumberPolicyInput = z.infer<
 >;
 export type InvoiceDraftPreparationInput = z.infer<
   typeof invoiceDraftPreparationInputSchema
+>;
+export type InvoiceIssuerProfileInput = z.infer<
+  typeof invoiceIssuerProfileInputSchema
+>;
+export type InvoiceIssuanceApprovalInput = z.infer<
+  typeof invoiceIssuanceApprovalInputSchema
+>;
+export type ApprovedInvoiceIssuanceInput = z.infer<
+  typeof approvedInvoiceIssuanceInputSchema
 >;
 export type PaymentAllocationInput = z.infer<
   typeof paymentAllocationInputSchema
