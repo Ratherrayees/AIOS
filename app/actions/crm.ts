@@ -10,6 +10,8 @@ import {
 import {
   activityNoteInputSchema,
   acceptedQuoteReceivablesInputSchema,
+  invoiceDraftPreparationInputSchema,
+  invoiceNumberPolicyInputSchema,
   companyInputSchema,
   contactInputSchema,
   contactMergeInputSchema,
@@ -83,6 +85,8 @@ import {
   supplierProfileInputSchema,
   type ActivityNoteInput,
   type AcceptedQuoteReceivablesInput,
+  type InvoiceDraftPreparationInput,
+  type InvoiceNumberPolicyInput,
   type CompanyInput,
   type ContactInput,
   type ContactMergeInput,
@@ -3141,6 +3145,51 @@ export async function createAcceptedQuoteReceivables(
     throw new Error("The receivables were created but could not be reloaded.");
 
   return { summary, receivables };
+}
+
+/** Configures the next-number preview only; it allocates no legal number. */
+export async function updateInvoiceNumberPolicy(
+  input: InvoiceNumberPolicyInput,
+) {
+  const data = invoiceNumberPolicyInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: policy, error } = await supabase
+    .rpc("upsert_invoice_number_policy", {
+      target_organization_id: data.organizationId,
+      target_number_prefix: data.numberPrefix,
+      target_next_number: data.nextNumber,
+      target_number_padding: data.numberPadding,
+    })
+    .single();
+  if (error || !policy)
+    throw new Error(
+      error?.message || "The invoice numbering policy could not be saved.",
+    );
+  return policy;
+}
+
+/**
+ * Freezes an internal pre-issuance invoice pack from accepted quote evidence.
+ * It allocates no invoice number, issues no document, and performs no delivery.
+ */
+export async function prepareAcceptedQuoteInvoiceDraft(
+  input: InvoiceDraftPreparationInput,
+) {
+  const data = invoiceDraftPreparationInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: summary, error } = await supabase
+    .rpc("prepare_accepted_quote_invoice_draft", {
+      target_organization_id: data.organizationId,
+      target_quote_id: data.quoteId,
+    })
+    .single();
+  if (error || !summary)
+    throw new Error(
+      error?.message || "The invoice draft could not be prepared.",
+    );
+  return summary;
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

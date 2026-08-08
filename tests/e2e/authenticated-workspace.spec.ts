@@ -2203,6 +2203,99 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       depositReceivable.getByRole("link", { name: "Review quote evidence" }),
     ).toHaveAttribute("href", "/quotes");
+    await page.getByLabel("Invoice number prefix").fill("INV/2027-");
+    await page.getByLabel("Next preview number").fill("42");
+    await page.getByLabel("Number padding").fill("5");
+    await page.getByRole("button", { name: "Save preview policy" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "No legal number was allocated",
+    );
+    const invoiceDraftCard = page
+      .locator(".invoice-draft-card")
+      .filter({ hasText: "ACCEPTED QUOTE" });
+    await expect(invoiceDraftCard).toContainText("2 MILESTONES");
+    await invoiceDraftCard
+      .getByRole("button", { name: "Prepare exact invoice draft" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Invoice draft revision 1 prepared",
+    );
+    await expect(invoiceDraftCard).toContainText("INV/2027-00042");
+    await expect(invoiceDraftCard).toContainText("Aarav Sharma");
+    await expect(invoiceDraftCard).toContainText("2 lines · 2 terms");
+    await expect(invoiceDraftCard).toContainText("current preview policy");
+    await expect(invoiceDraftCard).toContainText(
+      "no legal number, document, delivery, message, charge, or settlement",
+    );
+    const { data: firstInvoiceDraft, error: firstInvoiceDraftError } =
+      await admin!
+        .from("invoice_drafts")
+        .select(
+          "id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, revision, status, number_preview, bill_to_name, currency, net_amount, tax_amount, total_amount, line_count, payment_term_count, line_items, payment_terms, content_sha256",
+        )
+        .eq("quote_id", quote!.id)
+        .eq("status", "ready")
+        .single();
+    expect(firstInvoiceDraftError).toBeNull();
+    expect(firstInvoiceDraft).toMatchObject({
+      quote_version_id: paymentSchedule!.quote_version_id,
+      quote_acceptance_id: acceptanceEvidence.data!.id,
+      quote_payment_schedule_id: paymentSchedule!.id,
+      revision: 1,
+      status: "ready",
+      number_preview: "INV/2027-00042",
+      bill_to_name: "Aarav Sharma",
+      currency: "INR",
+      net_amount: 480000,
+      tax_amount: 24000,
+      total_amount: 504000,
+      line_count: 2,
+      payment_term_count: 2,
+    });
+    expect(firstInvoiceDraft?.content_sha256).toHaveLength(64);
+    expect(firstInvoiceDraft?.line_items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ description: "Two rooms" }),
+        expect.objectContaining({ description: "Private experiences" }),
+      ]),
+    );
+    expect(firstInvoiceDraft?.payment_terms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Booking deposit" }),
+        expect.objectContaining({ label: "Final balance" }),
+      ]),
+    );
+    await page.getByLabel("Next preview number").fill("43");
+    await page.getByRole("button", { name: "Save preview policy" }).click();
+    await expect(invoiceDraftCard).toContainText("preview policy changed");
+    await invoiceDraftCard
+      .getByRole("button", { name: "Prepare revised draft" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Invoice draft revision 2 prepared",
+    );
+    await expect(invoiceDraftCard).toContainText("INV/2027-00043");
+    const { data: invoiceDraftHistory, error: invoiceDraftHistoryError } =
+      await admin!
+        .from("invoice_drafts")
+        .select("revision, status, number_preview, superseded_at")
+        .eq("quote_id", quote!.id)
+        .order("revision");
+    expect(invoiceDraftHistoryError).toBeNull();
+    expect(invoiceDraftHistory).toMatchObject([
+      { revision: 1, status: "superseded", number_preview: "INV/2027-00042" },
+      { revision: 2, status: "ready", number_preview: "INV/2027-00043" },
+    ]);
+    expect(invoiceDraftHistory?.[0]?.superseded_at).toBeTruthy();
+    const { data: unchangedQuoteReceivables } = await admin!
+      .from("payments")
+      .select("invoice_number")
+      .eq("quote_id", quote!.id);
+    expect(
+      unchangedQuoteReceivables?.every(
+        (receivable) => receivable.invoice_number === null,
+      ),
+    ).toBe(true);
     await page.goto("/quotes");
     await expect(quoteCard.locator(".quote-status")).toHaveText("accepted");
 

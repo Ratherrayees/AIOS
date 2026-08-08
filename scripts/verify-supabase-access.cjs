@@ -30,6 +30,8 @@ const protectedTables = [
   "quote_share_links",
   "quote_payment_schedules",
   "quote_acceptances",
+  "invoice_number_policies",
+  "invoice_drafts",
   "conversations",
   "messages",
   "approval_requests",
@@ -283,6 +285,22 @@ async function verify() {
     "refresh_payment_obligation_statuses",
     {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
+    },
+  );
+  const { error: anonymousInvoicePolicyError } = await anonymous.rpc(
+    "upsert_invoice_number_policy",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_number_prefix: "INV-",
+      target_next_number: 1,
+      target_number_padding: 4,
+    },
+  );
+  const { error: anonymousInvoiceDraftError } = await anonymous.rpc(
+    "prepare_accepted_quote_invoice_draft",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_quote_id: "22222222-2222-4222-8222-222222222222",
     },
   );
   const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
@@ -827,6 +845,16 @@ async function verify() {
       function: "refresh_payment_obligation_statuses",
       anonymousExecutionBlocked: Boolean(anonymousPaymentRefreshError),
       anonymousErrorCode: anonymousPaymentRefreshError?.code ?? null,
+    },
+    {
+      function: "upsert_invoice_number_policy",
+      anonymousExecutionBlocked: Boolean(anonymousInvoicePolicyError),
+      anonymousErrorCode: anonymousInvoicePolicyError?.code ?? null,
+    },
+    {
+      function: "prepare_accepted_quote_invoice_draft",
+      anonymousExecutionBlocked: Boolean(anonymousInvoiceDraftError),
+      anonymousErrorCode: anonymousInvoiceDraftError?.code ?? null,
     },
     {
       function: "classify_trip_document",

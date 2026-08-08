@@ -29,6 +29,8 @@ import {
   quoteShareRevokeSchema,
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
+  invoiceDraftPreparationInputSchema,
+  invoiceNumberPolicyInputSchema,
   paymentAllocationInputSchema,
   paymentObligationInputSchema,
   paymentVoidInputSchema,
@@ -1273,6 +1275,34 @@ test("payment obligations require positive currency-safe amounts", () => {
       currency: "YEN",
     }).success,
     false,
+  );
+});
+
+test("invoice draft readiness accepts only bounded numbering controls", () => {
+  assert.equal(
+    invoiceNumberPolicyInputSchema.safeParse({
+      organizationId,
+      numberPrefix: "inv/2027-",
+      nextNumber: 42,
+      numberPadding: 5,
+    }).success,
+    true,
+  );
+  assert.equal(
+    invoiceNumberPolicyInputSchema.safeParse({
+      organizationId,
+      numberPrefix: "Invoice # ",
+      nextNumber: 0,
+      numberPadding: 2,
+    }).success,
+    false,
+  );
+  assert.equal(
+    invoiceDraftPreparationInputSchema.safeParse({
+      organizationId,
+      quoteId: crypto.randomUUID(),
+    }).success,
+    true,
   );
 });
 

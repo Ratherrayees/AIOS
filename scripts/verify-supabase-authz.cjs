@@ -1995,6 +1995,221 @@ async function verifyAuthorization() {
         quoteReceivables.data?.length === 2 &&
         receivableAudit.data?.length === 1,
     );
+    const defaultInvoicePolicy = await owner
+      .from("invoice_number_policies")
+      .select("number_prefix, next_number, number_padding")
+      .eq("organization_id", organizationA.id)
+      .single();
+    record(
+      "new workspaces receive a bounded invoice number preview policy",
+      !defaultInvoicePolicy.error &&
+        defaultInvoicePolicy.data?.number_prefix === "INV-" &&
+        Number(defaultInvoicePolicy.data?.next_number) === 1 &&
+        defaultInvoicePolicy.data?.number_padding === 4,
+    );
+    const foreignInvoicePolicyWrite = await viewer.rpc(
+      "upsert_invoice_number_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_number_prefix: "EVIL-",
+        target_next_number: 1,
+        target_number_padding: 4,
+      },
+    );
+    record(
+      "foreign tenants cannot configure invoice number previews",
+      Boolean(foreignInvoicePolicyWrite.error),
+    );
+    const configuredInvoicePolicy = await owner.rpc(
+      "upsert_invoice_number_policy",
+      {
+        target_organization_id: organizationA.id,
+        target_number_prefix: "INV/2027-",
+        target_next_number: 42,
+        target_number_padding: 5,
+      },
+    );
+    record(
+      "finance authority configures bounded invoice preview identity",
+      !configuredInvoicePolicy.error &&
+        configuredInvoicePolicy.data?.[0]?.number_prefix === "INV/2027-" &&
+        Number(configuredInvoicePolicy.data?.[0]?.next_number) === 42 &&
+        configuredInvoicePolicy.data?.[0]?.number_padding === 5,
+    );
+    const foreignInvoicePreparation = await viewer.rpc(
+      "prepare_accepted_quote_invoice_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    record(
+      "foreign tenants cannot prepare another workspace invoice draft",
+      Boolean(foreignInvoicePreparation.error),
+    );
+    const forgedInvoiceDraft = await owner.from("invoice_drafts").insert({
+      organization_id: organizationA.id,
+      quote_id: guardedQuoteId,
+      quote_version_id: storedProposal.data?.quote_version_id,
+      quote_acceptance_id: acceptedProposalRow.acceptance_id,
+      quote_payment_schedule_id: revisedScheduleRow.id,
+      deal_id: governedDeal.id,
+      revision: 1,
+      number_preview: "FORGED-0001",
+      number_policy_updated_at: new Date().toISOString(),
+      bill_to_name: "Forged Customer",
+      currency: "INR",
+      net_amount: 480000,
+      tax_amount: 24000,
+      total_amount: 504000,
+      line_items: [],
+      payment_terms: revisedScheduleRow.items,
+    });
+    record(
+      "browser clients cannot forge invoice draft evidence",
+      Boolean(forgedInvoiceDraft.error),
+    );
+    const preparedInvoice = await owner.rpc(
+      "prepare_accepted_quote_invoice_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    const preparedInvoiceRow = preparedInvoice.data?.[0];
+    if (preparedInvoice.error || !preparedInvoiceRow)
+      throw preparedInvoice.error ?? new Error("Invoice draft was not prepared.");
+    const [storedInvoiceDraft, invoiceDraftAudit, hiddenForeignInvoiceDraft] =
+      await Promise.all([
+        owner
+          .from("invoice_drafts")
+          .select(
+            "id, quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, deal_id, contact_id, revision, status, number_preview, number_policy_updated_at, bill_to_name, currency, net_amount, tax_amount, total_amount, line_items, payment_terms, line_count, payment_term_count, content_sha256",
+          )
+          .eq("id", preparedInvoiceRow.invoice_draft_id)
+          .single(),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("entity_id", preparedInvoiceRow.invoice_draft_id)
+          .eq("metadata->>event", "finance.invoice_draft_prepared")
+          .single(),
+        viewer
+          .from("invoice_drafts")
+          .select("id")
+          .eq("organization_id", organizationA.id),
+      ]);
+    record(
+      "accepted quote evidence creates an exact pre-issuance invoice draft",
+      !storedInvoiceDraft.error &&
+        storedInvoiceDraft.data?.quote_id === guardedQuoteId &&
+        storedInvoiceDraft.data?.quote_version_id ===
+          storedProposal.data?.quote_version_id &&
+        storedInvoiceDraft.data?.quote_acceptance_id ===
+          acceptedProposalRow.acceptance_id &&
+        storedInvoiceDraft.data?.quote_payment_schedule_id ===
+          revisedScheduleRow.id &&
+        storedInvoiceDraft.data?.deal_id === governedDeal.id &&
+        storedInvoiceDraft.data?.revision === 1 &&
+        storedInvoiceDraft.data?.status === "ready" &&
+        storedInvoiceDraft.data?.number_preview === "INV/2027-00042" &&
+        storedInvoiceDraft.data?.bill_to_name === "Alpha traveller" &&
+        Number(storedInvoiceDraft.data?.net_amount) === 480000 &&
+        Number(storedInvoiceDraft.data?.tax_amount) === 24000 &&
+        Number(storedInvoiceDraft.data?.total_amount) === 504000 &&
+        storedInvoiceDraft.data?.line_count === 2 &&
+        storedInvoiceDraft.data?.payment_term_count === 2 &&
+        storedInvoiceDraft.data?.line_items?.[0]?.description === "Two rooms" &&
+        storedInvoiceDraft.data?.payment_terms?.[1]?.label === "Final balance" &&
+        storedInvoiceDraft.data?.content_sha256?.length === 64,
+    );
+    record(
+      "invoice draft evidence remains hidden from foreign tenants",
+      !hiddenForeignInvoiceDraft.error &&
+        hiddenForeignInvoiceDraft.data?.length === 0,
+    );
+    const forgedInvoiceRewrite = await owner
+      .from("invoice_drafts")
+      .update({ total_amount: 1 })
+      .eq("id", preparedInvoiceRow.invoice_draft_id);
+    record(
+      "browser clients cannot rewrite immutable invoice draft evidence",
+      Boolean(forgedInvoiceRewrite.error),
+    );
+    const retriedInvoiceDraft = await owner.rpc(
+      "prepare_accepted_quote_invoice_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    record(
+      "exact invoice draft preparation is idempotent",
+      !retriedInvoiceDraft.error &&
+        retriedInvoiceDraft.data?.[0]?.already_prepared === true &&
+        retriedInvoiceDraft.data?.[0]?.invoice_draft_id ===
+          preparedInvoiceRow.invoice_draft_id,
+    );
+    await owner.rpc("upsert_invoice_number_policy", {
+      target_organization_id: organizationA.id,
+      target_number_prefix: "INV/2027-",
+      target_next_number: 43,
+      target_number_padding: 5,
+    });
+    const revisedInvoiceDraft = await owner.rpc(
+      "prepare_accepted_quote_invoice_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_quote_id: guardedQuoteId,
+      },
+    );
+    const invoiceDraftHistory = await owner
+      .from("invoice_drafts")
+      .select("id, revision, status, number_preview, superseded_at")
+      .eq("quote_acceptance_id", acceptedProposalRow.acceptance_id)
+      .order("revision");
+    record(
+      "invoice preview policy changes append rather than rewrite draft evidence",
+      !revisedInvoiceDraft.error &&
+        revisedInvoiceDraft.data?.[0]?.revision === 2 &&
+        revisedInvoiceDraft.data?.[0]?.number_preview === "INV/2027-00043" &&
+        invoiceDraftHistory.data?.length === 2 &&
+        invoiceDraftHistory.data?.[0]?.status === "superseded" &&
+        Boolean(invoiceDraftHistory.data?.[0]?.superseded_at) &&
+        invoiceDraftHistory.data?.[1]?.status === "ready",
+    );
+    const invoicePolicyAfterDrafts = await owner
+      .from("invoice_number_policies")
+      .select("next_number")
+      .eq("organization_id", organizationA.id)
+      .single();
+    const quoteReceivablesAfterDraft = await owner
+      .from("payments")
+      .select("invoice_number")
+      .eq("quote_acceptance_id", acceptedProposalRow.acceptance_id);
+    record(
+      "invoice drafts allocate no number and alter no receivable",
+      Number(invoicePolicyAfterDrafts.data?.next_number) === 43 &&
+        quoteReceivablesAfterDraft.data?.every(
+          (receivable) => receivable.invoice_number === null,
+        ),
+    );
+    const invoiceAuditMetadata = invoiceDraftAudit.data?.metadata;
+    record(
+      "invoice draft audit is content-safe and external-effect explicit",
+      !invoiceDraftAudit.error &&
+        invoiceAuditMetadata?.line_count === 2 &&
+        invoiceAuditMetadata?.payment_term_count === 2 &&
+        invoiceAuditMetadata?.content_sha256?.length === 64 &&
+        invoiceAuditMetadata?.invoice_number_allocated === false &&
+        invoiceAuditMetadata?.invoice_issued === false &&
+        invoiceAuditMetadata?.invoice_delivered === false &&
+        invoiceAuditMetadata?.payment_collected === false &&
+        invoiceAuditMetadata?.external_action_performed === false &&
+        !/Alpha traveller|Two rooms|Final balance/.test(
+          JSON.stringify(invoiceAuditMetadata),
+        ),
+    );
     const reusedApproval = await owner.rpc("publish_quote_share", {
       target_organization_id: organizationA.id,
       target_quote_id: guardedQuoteId,

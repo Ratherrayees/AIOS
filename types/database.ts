@@ -1690,6 +1690,212 @@ export type Database = {
           },
         ]
       }
+      invoice_drafts: {
+        Row: {
+          bill_to_name: string
+          contact_id: string | null
+          content_sha256: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          deal_id: string
+          id: string
+          line_count: number | null
+          line_items: Json
+          net_amount: number
+          number_policy_updated_at: string
+          number_preview: string
+          organization_id: string
+          payment_term_count: number | null
+          payment_terms: Json
+          quote_acceptance_id: string
+          quote_id: string
+          quote_payment_schedule_id: string
+          quote_version_id: string
+          revision: number
+          status: string
+          superseded_at: string | null
+          superseded_by: string | null
+          tax_amount: number
+          total_amount: number
+        }
+        Insert: {
+          bill_to_name: string
+          contact_id?: string | null
+          content_sha256?: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          deal_id: string
+          id?: string
+          line_count?: number | null
+          line_items: Json
+          net_amount: number
+          number_policy_updated_at: string
+          number_preview: string
+          organization_id: string
+          payment_term_count?: number | null
+          payment_terms: Json
+          quote_acceptance_id: string
+          quote_id: string
+          quote_payment_schedule_id: string
+          quote_version_id: string
+          revision: number
+          status?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          tax_amount: number
+          total_amount: number
+        }
+        Update: {
+          bill_to_name?: string
+          contact_id?: string | null
+          content_sha256?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deal_id?: string
+          id?: string
+          line_count?: number | null
+          line_items?: Json
+          net_amount?: number
+          number_policy_updated_at?: string
+          number_preview?: string
+          organization_id?: string
+          payment_term_count?: number | null
+          payment_terms?: Json
+          quote_acceptance_id?: string
+          quote_id?: string
+          quote_payment_schedule_id?: string
+          quote_version_id?: string
+          revision?: number
+          status?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          tax_amount?: number
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_drafts_acceptance_exact_version_fkey"
+            columns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_acceptance_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quote_acceptances"
+            referencedColumns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "id",
+            ]
+          },
+          {
+            foreignKeyName: "invoice_drafts_contact_same_organization_fkey"
+            columns: ["organization_id", "contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "invoice_drafts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_drafts_deal_same_organization_fkey"
+            columns: ["organization_id", "deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "invoice_drafts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_drafts_schedule_exact_version_fkey"
+            columns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "quote_payment_schedule_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quote_payment_schedules"
+            referencedColumns: [
+              "organization_id",
+              "quote_id",
+              "quote_version_id",
+              "id",
+            ]
+          },
+          {
+            foreignKeyName: "invoice_drafts_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_drafts_version_same_organization_fkey"
+            columns: ["organization_id", "quote_id", "quote_version_id"]
+            isOneToOne: false
+            referencedRelation: "quote_versions"
+            referencedColumns: ["organization_id", "quote_id", "id"]
+          },
+        ]
+      }
+      invoice_number_policies: {
+        Row: {
+          next_number: number
+          number_padding: number
+          number_prefix: string
+          organization_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          next_number?: number
+          number_padding?: number
+          number_prefix?: string
+          organization_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          next_number?: number
+          number_padding?: number
+          number_prefix?: string
+          organization_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_number_policies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_number_policies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       itinerary_comments: {
         Row: {
           body: string
@@ -5624,6 +5830,19 @@ export type Database = {
           surviving_contact_id: string
         }[]
       }
+      prepare_accepted_quote_invoice_draft: {
+        Args: { target_organization_id: string; target_quote_id: string }
+        Returns: {
+          already_prepared: boolean
+          currency: string
+          invoice_draft_id: string
+          line_count: number
+          number_preview: string
+          payment_term_count: number
+          revision: number
+          total_amount: number
+        }[]
+      }
       publish_quote_catalog_rate: {
         Args: {
           target_organization_id: string
@@ -6441,6 +6660,28 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "analytics_targets"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      upsert_invoice_number_policy: {
+        Args: {
+          target_next_number: number
+          target_number_padding: number
+          target_number_prefix: string
+          target_organization_id: string
+        }
+        Returns: {
+          next_number: number
+          number_padding: number
+          number_prefix: string
+          organization_id: string
+          updated_at: string
+          updated_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "invoice_number_policies"
           isOneToOne: false
           isSetofReturn: true
         }

@@ -1059,6 +1059,24 @@ export const acceptedQuoteReceivablesInputSchema = z.object({
   quoteId: z.uuid(),
 });
 
+export const invoiceNumberPolicyInputSchema = z.object({
+  organizationId: z.uuid(),
+  numberPrefix: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(1)
+    .max(24)
+    .regex(/^[A-Z0-9][A-Z0-9/-]{0,23}$/),
+  nextNumber: z.number().int().min(1).max(999_999_999),
+  numberPadding: z.number().int().min(3).max(10),
+});
+
+export const invoiceDraftPreparationInputSchema = z.object({
+  organizationId: z.uuid(),
+  quoteId: z.uuid(),
+});
+
 export const paymentAllocationInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1268,6 +1286,12 @@ export type PaymentObligationInput = z.infer<
 >;
 export type AcceptedQuoteReceivablesInput = z.infer<
   typeof acceptedQuoteReceivablesInputSchema
+>;
+export type InvoiceNumberPolicyInput = z.infer<
+  typeof invoiceNumberPolicyInputSchema
+>;
+export type InvoiceDraftPreparationInput = z.infer<
+  typeof invoiceDraftPreparationInputSchema
 >;
 export type PaymentAllocationInput = z.infer<
   typeof paymentAllocationInputSchema

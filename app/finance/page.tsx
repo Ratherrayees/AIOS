@@ -14,8 +14,10 @@ import {
   createSupplierContact,
   createSupplierContract,
   createSupplierProfile,
+  prepareAcceptedQuoteInvoiceDraft,
   recordPaymentAllocation,
   refreshPaymentStatuses,
+  updateInvoiceNumberPolicy,
   voidPaymentObligation,
 } from "../actions/crm";
 import { EmptyState, LoadingState } from "../../components/ui/empty-state";
@@ -102,6 +104,32 @@ type PaymentAllocation = {
   note: string | null;
 };
 
+type InvoiceNumberPolicy = {
+  number_prefix: string;
+  next_number: number;
+  number_padding: number;
+  updated_at: string;
+};
+
+type InvoiceDraft = {
+  id: string;
+  quote_id: string;
+  quote_acceptance_id: string;
+  revision: number;
+  status: "ready" | "superseded";
+  number_preview: string;
+  number_policy_updated_at: string;
+  bill_to_name: string;
+  currency: string;
+  net_amount: number;
+  tax_amount: number;
+  total_amount: number;
+  line_count: number;
+  payment_term_count: number;
+  content_sha256: string;
+  created_at: string;
+};
+
 type TripOption = {
   id: string;
   name: string;
@@ -168,6 +196,9 @@ export default function FinancePage() {
   const [allocations, setAllocations] = useState<PaymentAllocation[]>([]);
   const [trips, setTrips] = useState<TripOption[]>([]);
   const [deals, setDeals] = useState<DealOption[]>([]);
+  const [invoicePolicy, setInvoicePolicy] =
+    useState<InvoiceNumberPolicy | null>(null);
+  const [invoiceDrafts, setInvoiceDrafts] = useState<InvoiceDraft[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [filter, setFilter] = useState<LedgerFilter>("open");
   const [query, setQuery] = useState("");
@@ -188,6 +219,8 @@ export default function FinancePage() {
       allocationResult,
       tripResult,
       dealResult,
+      invoicePolicyResult,
+      invoiceDraftResult,
     ] = await Promise.all([
       supabase
         .from("suppliers")
@@ -236,6 +269,18 @@ export default function FinancePage() {
         .eq("organization_id", targetOrganizationId)
         .is("archived_at", null)
         .order("updated_at", { ascending: false }),
+      supabase
+        .from("invoice_number_policies")
+        .select("number_prefix, next_number, number_padding, updated_at")
+        .eq("organization_id", targetOrganizationId)
+        .maybeSingle(),
+      supabase
+        .from("invoice_drafts")
+        .select(
+          "id, quote_id, quote_acceptance_id, revision, status, number_preview, number_policy_updated_at, bill_to_name, currency, net_amount, tax_amount, total_amount, line_count, payment_term_count, content_sha256, created_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("created_at", { ascending: false }),
     ]);
 
     const error =
@@ -245,7 +290,9 @@ export default function FinancePage() {
       paymentResult.error ??
       allocationResult.error ??
       tripResult.error ??
-      dealResult.error;
+      dealResult.error ??
+      invoicePolicyResult.error ??
+      invoiceDraftResult.error;
     if (error) throw error;
 
     const nextSuppliers = (supplierResult.data ?? []) as Supplier[];
@@ -256,6 +303,10 @@ export default function FinancePage() {
     setAllocations((allocationResult.data ?? []) as PaymentAllocation[]);
     setTrips((tripResult.data ?? []) as TripOption[]);
     setDeals((dealResult.data ?? []) as DealOption[]);
+    setInvoicePolicy(
+      (invoicePolicyResult.data as InvoiceNumberPolicy | null) ?? null,
+    );
+    setInvoiceDrafts((invoiceDraftResult.data ?? []) as InvoiceDraft[]);
     setSelectedSupplierId((current) =>
       nextSuppliers.some((supplier) => supplier.id === current)
         ? current
@@ -353,6 +404,85 @@ export default function FinancePage() {
       left.localeCompare(right),
     );
   }, [payments]);
+
+  const acceptedQuoteReceivableGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        quoteId: string;
+        acceptanceId: string;
+        currency: string;
+        total: number;
+        count: number;
+      }
+    >();
+    for (const payment of payments) {
+      if (!payment.quote_id || !payment.quote_acceptance_id) continue;
+      const current = groups.get(payment.quote_id) ?? {
+        quoteId: payment.quote_id,
+        acceptanceId: payment.quote_acceptance_id,
+        currency: payment.currency,
+        total: 0,
+        count: 0,
+      };
+      current.total += payment.amount;
+      current.count += 1;
+      groups.set(payment.quote_id, current);
+    }
+    return [...groups.values()];
+  }, [payments]);
+
+  function submitInvoicePolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        await updateInvoiceNumberPolicy({
+          organizationId,
+          numberPrefix: String(formData.get("numberPrefix") || ""),
+          nextNumber: Number(formData.get("nextNumber")),
+          numberPadding: Number(formData.get("numberPadding")),
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          "Invoice preview policy saved. No legal number was allocated.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The invoice preview policy could not be saved.",
+        );
+      }
+    });
+  }
+
+  function prepareInvoiceDraft(quoteId: string) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await prepareAcceptedQuoteInvoiceDraft({
+          organizationId,
+          quoteId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_prepared
+            ? "The exact invoice draft was already prepared. Nothing was issued."
+            : `Invoice draft revision ${result.revision} prepared. No number was allocated or delivered.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The invoice draft could not be prepared.",
+        );
+      }
+    });
+  }
 
   function submitSupplier(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1100,6 +1230,165 @@ export default function FinancePage() {
           )}
         </aside>
       </section>
+
+      {canManageFinance ? (
+        <section
+          className="invoice-readiness-workspace"
+          aria-labelledby="invoice-readiness-title"
+        >
+          <header className="finance-section-heading">
+            <div>
+              <p>PRE-ISSUANCE CONTROL</p>
+              <h2 id="invoice-readiness-title">Invoice draft readiness</h2>
+              <span>
+                Freeze customer-safe line and payment evidence before a legal
+                number, issue date, or delivery channel is approved.
+              </span>
+            </div>
+            <span>{invoiceDrafts.filter((draft) => draft.status === "ready").length} ready</span>
+          </header>
+
+          <div className="invoice-readiness-grid">
+            <form className="invoice-policy-form" onSubmit={submitInvoicePolicy}>
+              <div>
+                <small>NUMBER PREVIEW POLICY</small>
+                <strong>
+                  Next preview: {invoicePolicy
+                    ? `${invoicePolicy.number_prefix}${String(invoicePolicy.next_number).padStart(invoicePolicy.number_padding, "0")}`
+                    : "Unavailable"}
+                </strong>
+              </div>
+              <label>
+                Invoice number prefix
+                <input
+                  name="numberPrefix"
+                  defaultValue={invoicePolicy?.number_prefix ?? "INV-"}
+                  pattern={String.raw`[A-Z0-9][A-Z0-9\/\-]{0,23}`}
+                  maxLength={24}
+                  required
+                />
+              </label>
+              <div>
+                <label>
+                  Next preview number
+                  <input
+                    name="nextNumber"
+                    type="number"
+                    min={1}
+                    max={999999999}
+                    defaultValue={invoicePolicy?.next_number ?? 1}
+                    required
+                  />
+                </label>
+                <label>
+                  Number padding
+                  <input
+                    name="numberPadding"
+                    type="number"
+                    min={3}
+                    max={10}
+                    defaultValue={invoicePolicy?.number_padding ?? 4}
+                    required
+                  />
+                </label>
+              </div>
+              <button type="submit" disabled={pending}>
+                {pending ? "Saving..." : "Save preview policy"}
+              </button>
+              <small>
+                Saving this policy does not reserve or allocate an invoice
+                number. Issuance will require a separate exact-draft approval.
+              </small>
+            </form>
+
+            <div className="invoice-draft-list">
+              {acceptedQuoteReceivableGroups.length === 0 ? (
+                <EmptyState
+                  title="No accepted quote is invoice-ready"
+                  description="Create the accepted quote's exact receivables first. Structured lines and a reconciled payment schedule are also required."
+                />
+              ) : (
+                acceptedQuoteReceivableGroups.map((group) => {
+                  const draft = invoiceDrafts.find(
+                    (candidate) =>
+                      candidate.quote_id === group.quoteId &&
+                      candidate.status === "ready",
+                  );
+                  const policyCurrent =
+                    draft && invoicePolicy
+                      ? draft.number_policy_updated_at === invoicePolicy.updated_at
+                      : false;
+                  return (
+                    <article className="invoice-draft-card" key={group.quoteId}>
+                      <header>
+                        <div>
+                          <small>ACCEPTED QUOTE · {group.count} MILESTONES</small>
+                          <strong>{money(group.total, group.currency)}</strong>
+                        </div>
+                        <Link href="/quotes">Source quote</Link>
+                      </header>
+                      {draft ? (
+                        <>
+                          <div className="invoice-draft-facts">
+                            <span>
+                              <small>NUMBER PREVIEW</small>
+                              <b>{draft.number_preview}</b>
+                            </span>
+                            <span>
+                              <small>BILL TO</small>
+                              <b>{draft.bill_to_name}</b>
+                            </span>
+                            <span>
+                              <small>NET + TAX</small>
+                              <b>
+                                {money(draft.net_amount, draft.currency)} +{" "}
+                                {money(draft.tax_amount, draft.currency)}
+                              </b>
+                            </span>
+                            <span>
+                              <small>EVIDENCE</small>
+                              <b>
+                                {draft.line_count} lines · {draft.payment_term_count}{" "}
+                                terms
+                              </b>
+                            </span>
+                          </div>
+                          <p className={policyCurrent ? "draft-current" : "draft-stale"}>
+                            Revision {draft.revision} · {policyCurrent
+                              ? "current preview policy"
+                              : "preview policy changed; prepare a new revision"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => prepareInvoiceDraft(group.quoteId)}
+                            disabled={pending}
+                          >
+                            {policyCurrent
+                              ? "Verify exact draft"
+                              : "Prepare revised draft"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => prepareInvoiceDraft(group.quoteId)}
+                          disabled={pending}
+                        >
+                          Prepare exact invoice draft
+                        </button>
+                      )}
+                      <small className="invoice-zero-effect">
+                        Internal evidence only · no legal number, document,
+                        delivery, message, charge, or settlement.
+                      </small>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <QuoteCatalogPanel
         organizationId={organizationId}
