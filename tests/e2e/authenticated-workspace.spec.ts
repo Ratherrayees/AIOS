@@ -3360,6 +3360,32 @@ test.describe("authenticated owner workspace", () => {
       },
     ]);
 
+    const accountingDownload = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download accounting CSV" })
+      .click();
+    const downloadedAccountingLedger = await accountingDownload;
+    expect(downloadedAccountingLedger.suggestedFilename()).toMatch(
+      /^aios-accounting-ledger-\d{4}-\d{2}-\d{2}\.csv$/,
+    );
+    const accountingStream = await downloadedAccountingLedger.createReadStream();
+    expect(accountingStream).not.toBeNull();
+    const accountingChunks: Buffer[] = [];
+    for await (const chunk of accountingStream!) {
+      accountingChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const accountingCsv = Buffer.concat(accountingChunks).toString("utf8");
+    expect(accountingCsv).toContain(
+      '"export_metadata","authority_boundary"',
+    );
+    expect(accountingCsv).toContain(`"payment_obligation","${payment!.id}"`);
+    expect(accountingCsv).toContain(paymentTitle);
+    expect(accountingCsv).toContain(settlementReference);
+    expect(accountingCsv).toContain("INV/2027-00043");
+    await expect(page.getByRole("status")).toContainText(
+      "No upload, payment, message, or provider action occurred",
+    );
+
     await page.goto(`/trips/${operationalTripId}`);
     await page
       .locator(".operations-radar")

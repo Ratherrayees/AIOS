@@ -106,6 +106,7 @@
 .finance-pulse,
 .currency-strip,
 .finance-layout,
+.accounting-export,
 .payment-ledger {
   max-width: 1176px;
   margin-right: auto;
@@ -596,6 +597,99 @@
   line-height: 1.6;
 }
 
+.accounting-export {
+  display: grid;
+  margin-top: 22px;
+  margin-bottom: 6px;
+  padding: 24px 26px;
+  border: 1px solid rgb(101 230 205 / 16%);
+  border-radius: 18px;
+  background:
+    linear-gradient(120deg, rgb(22 86 76 / 16%), transparent 58%),
+    rgb(7 24 30 / 74%);
+  grid-template-columns: minmax(0, 1.4fr) auto auto;
+  gap: 22px;
+  align-items: center;
+}
+
+.accounting-export p {
+  margin: 0 0 8px;
+  color: #65e6cd;
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.accounting-export h2 {
+  margin: 0;
+  color: #f3fbff;
+  font-size: 1.3rem;
+}
+
+.accounting-export > div > span {
+  display: block;
+  max-width: 610px;
+  margin-top: 8px;
+  color: #8ca4af;
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.accounting-export dl {
+  display: grid;
+  min-width: 230px;
+  margin: 0;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.accounting-export dl div {
+  padding: 10px;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 3%);
+  text-align: center;
+}
+
+.accounting-export dt {
+  color: #69808b;
+  font-size: 0.57rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.accounting-export dd {
+  margin: 5px 0 0;
+  color: #e9f8f5;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.accounting-export button {
+  padding: 12px 15px;
+  border: 0;
+  border-radius: 10px;
+  color: #05211d;
+  background: #65e6cd;
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.accounting-export button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.accounting-export > small {
+  grid-column: 1 / -1;
+  color: #69808b;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
 .payment-ledger {
   padding: 26px;
 }
@@ -864,6 +958,7 @@
   .finance-pulse,
   .currency-strip,
   .finance-layout,
+  .accounting-export,
   .payment-ledger {
     margin-right: 16px;
     margin-left: 16px;
@@ -872,6 +967,18 @@
   .finance-boundary {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .accounting-export {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-export dl {
+    min-width: 0;
+  }
+
+  .accounting-export button {
+    justify-self: start;
   }
 
   .finance-pulse {

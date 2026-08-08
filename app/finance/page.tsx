@@ -27,6 +27,10 @@ import { EmptyState, LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import {
+  accountingExportFilename,
+  createAccountingExportCsv,
+} from "../../lib/finance/accounting-export";
 import { QuoteCatalogPanel } from "./quote-catalog-panel";
 import "./finance.css";
 
@@ -531,6 +535,86 @@ export default function FinancePage() {
         );
       }
     });
+  }
+
+  function downloadAccountingLedger() {
+    if (!canManageFinance) {
+      setNotice("Only an owner, admin, or finance member can export the ledger.");
+      return;
+    }
+    if (loading) {
+      setNotice("Finance evidence is still loading.");
+      return;
+    }
+
+    try {
+      const generatedAt = new Date();
+      const csv = createAccountingExportCsv({
+        generatedAt,
+        workspaceName,
+        payments: payments.map((payment) => ({
+          id: payment.id,
+          dealId: payment.deal_id,
+          tripId: payment.trip_id,
+          supplierId: payment.supplier_id,
+          direction: payment.direction,
+          status: payment.status,
+          title: payment.title,
+          description: payment.description,
+          amount: payment.amount,
+          paidAmount: payment.paid_amount,
+          currency: payment.currency,
+          dueAt: payment.due_at,
+          paidAt: payment.paid_at,
+          createdAt: payment.created_at,
+          invoiceNumber: payment.invoice_number,
+          invoiceIssuanceId: payment.invoice_issuance_id,
+          quoteId: payment.quote_id,
+          quoteVersionId: payment.quote_version_id,
+          quoteAcceptanceId: payment.quote_acceptance_id,
+        })),
+        allocations: allocations.map((allocation) => ({
+          id: allocation.id,
+          paymentId: allocation.payment_id,
+          amount: allocation.amount,
+          currency: allocation.currency,
+          occurredAt: allocation.occurred_at,
+          reference: allocation.reference,
+          note: allocation.note,
+        })),
+        issuances: invoiceIssuances.map((issuance) => ({
+          id: issuance.id,
+          invoiceNumber: issuance.invoice_number,
+          issuanceSha256: issuance.issuance_sha256,
+        })),
+        suppliers: suppliers.map((supplier) => ({
+          id: supplier.id,
+          name: supplier.name,
+        })),
+        deals: deals.map((deal) => ({ id: deal.id, title: deal.title })),
+        trips: trips.map((trip) => ({ id: trip.id, name: trip.name })),
+      });
+      const url = URL.createObjectURL(
+        new Blob([csv], { type: "text/csv;charset=utf-8" }),
+      );
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = accountingExportFilename(generatedAt);
+      anchor.hidden = true;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setNotice(
+        "Accounting ledger downloaded locally. No upload, payment, message, or provider action occurred.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "The accounting ledger could not be exported safely.",
+      );
+    }
   }
 
   function prepareInvoiceDraft(quoteId: string) {
@@ -1714,6 +1798,45 @@ export default function FinancePage() {
         canManage={canManageSuppliers}
         suppliers={suppliers.map(({ id, name }) => ({ id, name }))}
       />
+
+      {canManageFinance ? (
+        <section
+          className="accounting-export"
+          aria-labelledby="accounting-export-title"
+        >
+          <div>
+            <p>ACCOUNTING HANDOFF</p>
+            <h2 id="accounting-export-title">Export facts, not a second ledger.</h2>
+            <span>
+              Download every visible obligation and immutable settlement as
+              separate formula-safe CSV rows. Currencies are never combined, and
+              exact quote and issuance references stay attached.
+            </span>
+          </div>
+          <dl>
+            <div>
+              <dt>Obligations</dt>
+              <dd>{payments.length}</dd>
+            </div>
+            <div>
+              <dt>Settlements</dt>
+              <dd>{allocations.length}</dd>
+            </div>
+            <div>
+              <dt>Currencies</dt>
+              <dd>{new Set(payments.map((payment) => payment.currency)).size}</dd>
+            </div>
+          </dl>
+          <button type="button" onClick={downloadAccountingLedger} disabled={loading}>
+            Download accounting CSV
+          </button>
+          <small>
+            Finance role only · includes internal identifiers and free-text ledger
+            details · filters do not narrow the export · no accounting upload or
+            external effect
+          </small>
+        </section>
+      ) : null}
 
       <section className="payment-ledger" aria-labelledby="payment-ledger-title">
         <div className="finance-section-heading ledger-heading">
