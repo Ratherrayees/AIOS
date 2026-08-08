@@ -2437,6 +2437,135 @@ test.describe("authenticated owner workspace", () => {
       ),
     ).toBe(true);
 
+    const collectionControl = page
+      .locator(".payment-card")
+      .filter({ hasText: "Booking deposit" })
+      .locator(".payment-link-readiness");
+    await expect(collectionControl).toContainText(
+      "Prepare an exact payment request",
+    );
+    await expect(collectionControl).toContainText(
+      "No provider link · no customer message · no charge · no settlement",
+    );
+    await collectionControl
+      .getByRole("button", { name: "Prepare exact payment request" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Payment-request revision 1 prepared",
+    );
+    await expect(collectionControl).toContainText("Exact balance");
+    await expect(collectionControl).toContainText("INV/2027-00043");
+    await collectionControl
+      .getByLabel("Collection review rationale")
+      .fill(
+        "Finance verified the permanent invoice, currency, due date, and exact current outstanding balance.",
+      );
+    await collectionControl
+      .getByRole("button", {
+        name: "Request human payment-link approval",
+      })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Payment-link review requested",
+    );
+    await expect(
+      collectionControl.getByRole("link", { name: "Open AIOS approval queue" }),
+    ).toHaveAttribute("href", "/aios#approval-queue");
+    const { data: paymentLinkDraft, error: paymentLinkDraftError } =
+      await admin!
+        .from("payment_link_drafts")
+        .select(
+          "id, payment_id, invoice_issuance_id, revision, status, currency, requested_amount, invoice_number, source_issuance_sha256, evidence_sha256",
+        )
+        .eq("invoice_issuance_id", issuedInvoice!.id)
+        .eq("status", "ready")
+        .order("created_at")
+        .limit(1)
+        .single();
+    expect(paymentLinkDraftError).toBeNull();
+    expect(paymentLinkDraft).toMatchObject({
+      invoice_issuance_id: issuedInvoice!.id,
+      revision: 1,
+      status: "ready",
+      currency: "INR",
+      requested_amount: 151200,
+      invoice_number: "INV/2027-00043",
+    });
+    expect(paymentLinkDraft?.source_issuance_sha256).toBe(
+      issuedInvoice!.issuance_sha256,
+    );
+    expect(paymentLinkDraft?.evidence_sha256).toHaveLength(64);
+    const { data: paymentLinkApproval, error: paymentLinkApprovalError } =
+      await admin!
+        .from("approval_requests")
+        .select("id, action, entity_type, entity_id, status, payload")
+        .eq("action", "payment.link.create")
+        .eq("entity_id", paymentLinkDraft!.id)
+        .single();
+    expect(paymentLinkApprovalError).toBeNull();
+    expect(paymentLinkApproval).toMatchObject({
+      action: "payment.link.create",
+      entity_type: "payment_link_draft",
+      entity_id: paymentLinkDraft!.id,
+      status: "pending",
+      payload: {
+        payment_link_draft_id: paymentLinkDraft!.id,
+        payment_id: paymentLinkDraft!.payment_id,
+        invoice_issuance_id: issuedInvoice!.id,
+        invoice_number: "INV/2027-00043",
+        revision: 1,
+        currency: "INR",
+        requested_amount: 151200,
+        evidence_sha256: paymentLinkDraft!.evidence_sha256,
+        provider_link_created: false,
+        message_sent: false,
+        payment_collected: false,
+        external_action_performed: false,
+      },
+    });
+    await page.goto("/aios#approval-queue");
+    const paymentLinkApprovalCard = page
+      .locator(".aios-approvals article")
+      .filter({ hasText: "payment link create" });
+    await expect(paymentLinkApprovalCard).toContainText(
+      "Finance verified the permanent invoice",
+    );
+    await paymentLinkApprovalCard
+      .getByRole("button", { name: "Approve" })
+      .click();
+    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await page.goto("/finance");
+    const approvedCollectionControl = page
+      .locator(".payment-card")
+      .filter({ hasText: "Booking deposit" })
+      .locator(".payment-link-readiness");
+    await expect(approvedCollectionControl).toContainText(
+      "Human approval recorded for this exact hash",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "Provider handoff ready",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "Live payment-link creation remains disabled",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "No provider link · no customer message · no charge · no settlement",
+    );
+    const { data: approvedPaymentLinkEvidence } = await admin!
+      .from("approval_requests")
+      .select("status, payload")
+      .eq("id", paymentLinkApproval!.id)
+      .single();
+    expect(approvedPaymentLinkEvidence).toMatchObject({
+      status: "approved",
+      payload: {
+        provider_link_created: false,
+        message_sent: false,
+        payment_collected: false,
+        external_action_performed: false,
+      },
+    });
+
     await page.goto(`/leads/${dealId}`);
     const commercialTruth = page.locator("#commercial-truth");
     await expect(

@@ -1108,6 +1108,17 @@ export const approvedInvoiceIssuanceInputSchema = z.object({
   approvalRequestId: z.uuid(),
 });
 
+export const paymentLinkDraftPreparationInputSchema = z.object({
+  organizationId: z.uuid(),
+  paymentId: z.uuid(),
+});
+
+export const paymentLinkApprovalInputSchema = z.object({
+  organizationId: z.uuid(),
+  paymentLinkDraftId: z.uuid(),
+  rationale: z.string().trim().min(12).max(1_000),
+});
+
 export const paymentAllocationInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1332,6 +1343,12 @@ export type InvoiceIssuanceApprovalInput = z.infer<
 >;
 export type ApprovedInvoiceIssuanceInput = z.infer<
   typeof approvedInvoiceIssuanceInputSchema
+>;
+export type PaymentLinkDraftPreparationInput = z.infer<
+  typeof paymentLinkDraftPreparationInputSchema
+>;
+export type PaymentLinkApprovalInput = z.infer<
+  typeof paymentLinkApprovalInputSchema
 >;
 export type PaymentAllocationInput = z.infer<
   typeof paymentAllocationInputSchema

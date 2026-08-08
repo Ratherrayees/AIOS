@@ -34,6 +34,7 @@ const protectedTables = [
   "invoice_drafts",
   "invoice_issuer_profiles",
   "invoice_issuances",
+  "payment_link_drafts",
   "conversations",
   "messages",
   "approval_requests",
@@ -329,6 +330,22 @@ async function verify() {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
       target_invoice_draft_id: "22222222-2222-4222-8222-222222222222",
       target_approval_request_id: "33333333-3333-4333-8333-333333333333",
+    },
+  );
+  const { error: anonymousPaymentLinkDraftError } = await anonymous.rpc(
+    "prepare_payment_link_draft",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
+  const { error: anonymousPaymentLinkApprovalError } = await anonymous.rpc(
+    "request_payment_link_approval",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_link_draft_id:
+        "22222222-2222-4222-8222-222222222222",
+      target_rationale: "Blocked anonymous payment-link approval request.",
     },
   );
   const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
@@ -898,6 +915,16 @@ async function verify() {
       function: "issue_approved_invoice",
       anonymousExecutionBlocked: Boolean(anonymousInvoiceIssuanceError),
       anonymousErrorCode: anonymousInvoiceIssuanceError?.code ?? null,
+    },
+    {
+      function: "prepare_payment_link_draft",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentLinkDraftError),
+      anonymousErrorCode: anonymousPaymentLinkDraftError?.code ?? null,
+    },
+    {
+      function: "request_payment_link_approval",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentLinkApprovalError),
+      anonymousErrorCode: anonymousPaymentLinkApprovalError?.code ?? null,
     },
     {
       function: "classify_trip_document",

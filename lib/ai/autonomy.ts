@@ -117,6 +117,22 @@ export const AIOS_ACTION_CATALOG = [
     hardApproval: true,
   },
   {
+    action: "invoice.issue",
+    title: "Issue permanent invoices",
+    description:
+      "Allocate a permanent invoice number against one exact approved evidence pack.",
+    defaultMode: "approval_required",
+    hardApproval: true,
+  },
+  {
+    action: "payment.link.create",
+    title: "Create customer payment links",
+    description:
+      "Create a provider payment link for one exact approved receivable balance.",
+    defaultMode: "approval_required",
+    hardApproval: true,
+  },
+  {
     action: "payment.refund",
     title: "Refund a payment",
     description: "Issue or instruct a customer payment refund.",

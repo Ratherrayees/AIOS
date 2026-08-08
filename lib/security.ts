@@ -27,6 +27,8 @@ export const APPROVAL_ACTIONS = [
   "quote.share",
   "pricing.override",
   "booking.confirm",
+  "invoice.issue",
+  "payment.link.create",
   "payment.refund",
   "document.share",
 ] as const;

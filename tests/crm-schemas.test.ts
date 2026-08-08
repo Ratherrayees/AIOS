@@ -35,6 +35,8 @@ import {
   invoiceIssuerProfileInputSchema,
   invoiceNumberPolicyInputSchema,
   paymentAllocationInputSchema,
+  paymentLinkApprovalInputSchema,
+  paymentLinkDraftPreparationInputSchema,
   paymentObligationInputSchema,
   paymentVoidInputSchema,
   supplierContactInputSchema,
@@ -1353,6 +1355,35 @@ test("invoice issuance requires bounded issuer identity and exact human evidence
       approvalRequestId: crypto.randomUUID(),
     }).success,
     true,
+  );
+});
+
+test("payment-link readiness binds exact receivable evidence to human review", () => {
+  const paymentId = crypto.randomUUID();
+  const paymentLinkDraftId = crypto.randomUUID();
+  assert.equal(
+    paymentLinkDraftPreparationInputSchema.safeParse({
+      organizationId,
+      paymentId,
+    }).success,
+    true,
+  );
+  assert.equal(
+    paymentLinkApprovalInputSchema.safeParse({
+      organizationId,
+      paymentLinkDraftId,
+      rationale:
+        "Finance verified the invoice and exact current outstanding balance.",
+    }).success,
+    true,
+  );
+  assert.equal(
+    paymentLinkApprovalInputSchema.safeParse({
+      organizationId,
+      paymentLinkDraftId,
+      rationale: "too short",
+    }).success,
+    false,
   );
 });
 

@@ -39,6 +39,12 @@ import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import "./aios.css";
 
+const financeApprovalActions = new Set([
+  "invoice.issue",
+  "payment.link.create",
+  "payment.refund",
+]);
+
 const modes: { value: AutonomyMode; label: string; help: string }[] = [
   { value: "observe", label: "Observe", help: "Monitor and recommend only" },
   { value: "assist", label: "Assist", help: "Prepare work for people" },
@@ -721,6 +727,12 @@ export default function AiosControlPage() {
 
   const canManage = role === "owner" || role === "admin";
   const canApprove = canManage || role === "operations" || role === "finance";
+  const canResolveApproval = (action: string) =>
+    canApprove &&
+    (!financeApprovalActions.has(action) ||
+      role === "owner" ||
+      role === "admin" ||
+      role === "finance");
   const inputTokensToday = todayModelUsage.reduce(
     (total, run) => total + (run.input_tokens || 0),
     0,
@@ -1449,7 +1461,7 @@ export default function AiosControlPage() {
                 <button
                   type="button"
                   className="approve"
-                  disabled={!canApprove || pending}
+                  disabled={!canResolveApproval(approval.action) || pending}
                   onClick={() => resolveApproval(approval.id, "approved")}
                 >
                   Approve
@@ -1457,7 +1469,7 @@ export default function AiosControlPage() {
                 <button
                   type="button"
                   className="reject"
-                  disabled={!canApprove || pending}
+                  disabled={!canResolveApproval(approval.action) || pending}
                   onClick={() => resolveApproval(approval.id, "rejected")}
                 >
                   Reject

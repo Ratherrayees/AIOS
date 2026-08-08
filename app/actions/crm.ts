@@ -80,6 +80,8 @@ import {
   messageTemplateInputSchema,
   messageTemplateStatusUpdateSchema,
   paymentAllocationInputSchema,
+  paymentLinkApprovalInputSchema,
+  paymentLinkDraftPreparationInputSchema,
   paymentObligationInputSchema,
   paymentStatusRefreshSchema,
   paymentVoidInputSchema,
@@ -158,6 +160,8 @@ import {
   type MessageTemplateInput,
   type MessageTemplateStatusUpdateInput,
   type PaymentAllocationInput,
+  type PaymentLinkApprovalInput,
+  type PaymentLinkDraftPreparationInput,
   type PaymentObligationInput,
   type PaymentStatusRefreshInput,
   type PaymentVoidInput,
@@ -3266,6 +3270,53 @@ export async function issueApprovedInvoice(
       error?.message || "The approved invoice could not be issued.",
     );
   return issuance;
+}
+
+/**
+ * Freezes the full current balance of one issued receivable. It creates only
+ * internal evidence: no provider link, message, charge, or settlement.
+ */
+export async function preparePaymentLinkDraft(
+  input: PaymentLinkDraftPreparationInput,
+) {
+  const data = paymentLinkDraftPreparationInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: draft, error } = await supabase
+    .rpc("prepare_payment_link_draft", {
+      target_organization_id: data.organizationId,
+      target_payment_id: data.paymentId,
+    })
+    .single();
+  if (error || !draft)
+    throw new Error(
+      error?.message || "The exact payment request could not be prepared.",
+    );
+  return draft;
+}
+
+/**
+ * Routes one immutable payment-request draft to a finance human. Approval is
+ * evidence for a later provider handoff and performs no external effect.
+ */
+export async function requestPaymentLinkApproval(
+  input: PaymentLinkApprovalInput,
+) {
+  const data = paymentLinkApprovalInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: approval, error } = await supabase
+    .rpc("request_payment_link_approval", {
+      target_organization_id: data.organizationId,
+      target_payment_link_draft_id: data.paymentLinkDraftId,
+      target_rationale: data.rationale,
+    })
+    .single();
+  if (error || !approval)
+    throw new Error(
+      error?.message || "The payment-link review could not be requested.",
+    );
+  return approval;
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

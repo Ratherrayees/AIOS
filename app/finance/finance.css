@@ -881,6 +881,116 @@
   font-size: 0.64rem;
 }
 
+.payment-link-readiness {
+  display: grid;
+  gap: 11px;
+  margin-top: 14px;
+  border: 1px solid rgb(51 209 176 / 20%);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0, rgb(51 209 176 / 11%), transparent 45%),
+    rgb(5 25 32 / 76%);
+  padding: 14px;
+}
+
+.payment-link-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.payment-link-heading span {
+  color: #69dec8;
+  font-size: 0.59rem;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+}
+
+.payment-link-heading strong {
+  color: #ebfffa;
+  font-size: 0.86rem;
+}
+
+.payment-link-readiness p {
+  margin: 0;
+  color: #8aa4ac;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.payment-link-readiness button {
+  width: fit-content;
+  border: 0;
+  border-radius: 8px;
+  background: #33d1b0;
+  padding: 9px 12px;
+  color: #06241c;
+  font: 750 0.67rem inherit;
+  cursor: pointer;
+}
+
+.payment-link-approved,
+.payment-link-pending,
+.payment-link-approval-form {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 3%);
+  padding: 11px;
+}
+
+.payment-link-approved {
+  border-color: rgb(51 209 176 / 28%);
+}
+
+.payment-link-approved > span,
+.payment-link-pending > span {
+  color: #acd8d0;
+  font-size: 0.68rem;
+}
+
+.payment-link-approved > strong {
+  color: #73e8d0;
+  font-size: 0.81rem;
+}
+
+.payment-link-pending {
+  border-color: rgb(239 181 73 / 26%);
+}
+
+.payment-link-pending a {
+  color: #67e7cd;
+  font-size: 0.69rem;
+  font-weight: 750;
+}
+
+.payment-link-pending small,
+.payment-link-evidence,
+.payment-link-zero-effect {
+  color: #7f9aa2;
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+
+.payment-link-approval-form label {
+  display: grid;
+  gap: 6px;
+  color: #a8c5c0;
+  font-size: 0.67rem;
+}
+
+.payment-link-approval-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.payment-link-zero-effect {
+  border-top: 1px solid rgb(255 255 255 / 7%);
+  padding-top: 9px;
+  color: #79b9ac;
+  font-weight: 700;
+}
+
 .payment-note {
   padding: 9px 11px;
   border-radius: 8px;

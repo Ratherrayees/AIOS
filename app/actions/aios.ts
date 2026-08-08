@@ -18,7 +18,8 @@ export async function setAutonomyMode(input: z.infer<typeof policyInputSchema>) 
   const data = policyInputSchema.parse(input);
   const action = getAiosAction(data.action);
   if (!action) throw new Error("Unknown AIOS action.");
-  if (action.hardApproval && data.mode === "auto") throw new Error("This action requires human approval.");
+  if (action.hardApproval && data.mode !== "approval_required")
+    throw new Error("This action requires human approval.");
 
   await requireOrganizationRole(data.organizationId, ["owner", "admin"]);
   const supabase = await createSupabaseServerClient();

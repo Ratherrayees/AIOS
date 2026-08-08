@@ -3463,6 +3463,101 @@ export type Database = {
           },
         ]
       }
+      payment_link_drafts: {
+        Row: {
+          created_at: string
+          currency: string
+          due_at: string | null
+          evidence_sha256: string
+          id: string
+          invoice_issuance_id: string
+          invoice_number: string
+          organization_id: string
+          paid_amount: number
+          payment_amount: number
+          payment_id: string
+          payment_status: Database["public"]["Enums"]["payment_status"]
+          payment_updated_at: string
+          prepared_by: string
+          requested_amount: number
+          revision: number
+          source_issuance_sha256: string
+          status: string
+          superseded_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          due_at?: string | null
+          evidence_sha256: string
+          id?: string
+          invoice_issuance_id: string
+          invoice_number: string
+          organization_id: string
+          paid_amount: number
+          payment_amount: number
+          payment_id: string
+          payment_status: Database["public"]["Enums"]["payment_status"]
+          payment_updated_at: string
+          prepared_by: string
+          requested_amount: number
+          revision: number
+          source_issuance_sha256: string
+          status?: string
+          superseded_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          due_at?: string | null
+          evidence_sha256?: string
+          id?: string
+          invoice_issuance_id?: string
+          invoice_number?: string
+          organization_id?: string
+          paid_amount?: number
+          payment_amount?: number
+          payment_id?: string
+          payment_status?: Database["public"]["Enums"]["payment_status"]
+          payment_updated_at?: string
+          prepared_by?: string
+          requested_amount?: number
+          revision?: number
+          source_issuance_sha256?: string
+          status?: string
+          superseded_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_link_drafts_issuance_same_organization_fkey"
+            columns: ["organization_id", "invoice_issuance_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuances"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_link_drafts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_link_drafts_payment_same_organization_fkey"
+            columns: ["organization_id", "payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_link_drafts_prepared_by_fkey"
+            columns: ["prepared_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -6086,6 +6181,17 @@ export type Database = {
           total_amount: number
         }[]
       }
+      prepare_payment_link_draft: {
+        Args: { target_organization_id: string; target_payment_id: string }
+        Returns: {
+          already_prepared: boolean
+          currency: string
+          evidence_sha256: string
+          payment_link_draft_id: string
+          requested_amount: number
+          revision: number
+        }[]
+      }
       publish_quote_catalog_rate: {
         Args: {
           target_organization_id: string
@@ -6322,6 +6428,19 @@ export type Database = {
         Args: {
           target_invoice_draft_id: string
           target_organization_id: string
+          target_rationale: string
+        }
+        Returns: {
+          already_requested: boolean
+          approval_request_id: string
+          approval_status: Database["public"]["Enums"]["approval_status"]
+          expires_at: string
+        }[]
+      }
+      request_payment_link_approval: {
+        Args: {
+          target_organization_id: string
+          target_payment_link_draft_id: string
           target_rationale: string
         }
         Returns: {

@@ -2484,7 +2484,9 @@ async function verifyAuthorization() {
         .single(),
       owner
         .from("payments")
-        .select("invoice_issuance_id, invoice_number")
+        .select(
+          "id, direction, status, amount, paid_amount, currency, due_at, invoice_issuance_id, invoice_number, quote_schedule_item_position",
+        )
         .eq("quote_acceptance_id", acceptedProposalRow.acceptance_id),
       viewer
         .from("invoice_issuances")
@@ -2599,6 +2601,365 @@ async function verifyAuthorization() {
         !/Alpha Travel|Alpha traveller|Two rooms|Final balance|29ABCDE/.test(
           JSON.stringify(issuanceAuditMetadata),
         ),
+    );
+    const collectionReceivable = linkedReceivables.data
+      ?.slice()
+      .sort(
+        (left, right) =>
+          Number(left.quote_schedule_item_position) -
+          Number(right.quote_schedule_item_position),
+      )[0];
+    if (!collectionReceivable)
+      throw new Error("An issued receivable is unavailable for collection tests.");
+
+    const foreignPaymentLinkDraft = await viewer.rpc(
+      "prepare_payment_link_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: collectionReceivable.id,
+      },
+    );
+    record(
+      "foreign tenants cannot prepare another workspace payment request",
+      Boolean(foreignPaymentLinkDraft.error),
+    );
+    const unissuedReceivable = await owner.rpc("create_payment_obligation", {
+      target_organization_id: organizationA.id,
+      target_direction: "receivable",
+      target_title: "Unissued collection fixture",
+      target_amount: 2500,
+      target_currency: "INR",
+      target_due_at: "2027-03-01",
+    });
+    const unissuedPaymentLinkDraft = await owner.rpc(
+      "prepare_payment_link_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: unissuedReceivable.data?.[0]?.id ?? randomUUID(),
+      },
+    );
+    record(
+      "payment requests require exact permanent invoice issuance evidence",
+      !unissuedReceivable.error && Boolean(unissuedPaymentLinkDraft.error),
+    );
+    const payableCollectionFixture = await owner.rpc(
+      "create_payment_obligation",
+      {
+        target_organization_id: organizationA.id,
+        target_direction: "payable",
+        target_title: "Supplier collection rejection fixture",
+        target_amount: 1500,
+        target_currency: "INR",
+        target_due_at: "2027-03-01",
+      },
+    );
+    const payablePaymentLinkDraft = await owner.rpc(
+      "prepare_payment_link_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id:
+          payableCollectionFixture.data?.[0]?.id ?? randomUUID(),
+      },
+    );
+    record(
+      "supplier payables cannot become customer payment requests",
+      !payableCollectionFixture.error && Boolean(payablePaymentLinkDraft.error),
+    );
+    const forgedPaymentLinkDraft = await owner
+      .from("payment_link_drafts")
+      .insert({
+        organization_id: organizationA.id,
+        payment_id: collectionReceivable.id,
+        invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        revision: 99,
+        currency: "INR",
+        payment_amount: collectionReceivable.amount,
+        paid_amount: 0,
+        requested_amount: collectionReceivable.amount,
+        payment_status: "pending",
+        payment_updated_at: new Date().toISOString(),
+        invoice_number: "INV/2027-00043",
+        source_issuance_sha256: "0".repeat(64),
+        evidence_sha256: "1".repeat(64),
+        prepared_by: ownerUser.id,
+      });
+    record(
+      "browser clients cannot forge payment-request evidence",
+      Boolean(forgedPaymentLinkDraft.error),
+    );
+
+    const preparedPaymentLink = await owner.rpc(
+      "prepare_payment_link_draft",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: collectionReceivable.id,
+      },
+    );
+    const preparedPaymentLinkRow = preparedPaymentLink.data?.[0];
+    if (preparedPaymentLink.error || !preparedPaymentLinkRow)
+      throw preparedPaymentLink.error ??
+        new Error("The exact payment request was not prepared.");
+    const [storedPaymentLinkDraft, hiddenForeignPaymentLinkDraft, paymentLinkAudit] =
+      await Promise.all([
+        owner
+          .from("payment_link_drafts")
+          .select(
+            "id, payment_id, invoice_issuance_id, revision, status, currency, payment_amount, paid_amount, requested_amount, due_at, payment_status, invoice_number, source_issuance_sha256, evidence_sha256, superseded_at",
+          )
+          .eq("id", preparedPaymentLinkRow.payment_link_draft_id)
+          .single(),
+        viewer
+          .from("payment_link_drafts")
+          .select("id")
+          .eq("organization_id", organizationA.id),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("entity_id", preparedPaymentLinkRow.payment_link_draft_id)
+          .eq("metadata->>event", "finance.payment_link_draft_prepared")
+          .single(),
+      ]);
+    record(
+      "issued receivable creates an exact full-balance payment request",
+      !storedPaymentLinkDraft.error &&
+        storedPaymentLinkDraft.data?.payment_id === collectionReceivable.id &&
+        storedPaymentLinkDraft.data?.invoice_issuance_id ===
+          issuedInvoiceRow.invoice_issuance_id &&
+        storedPaymentLinkDraft.data?.revision === 1 &&
+        storedPaymentLinkDraft.data?.status === "ready" &&
+        Number(storedPaymentLinkDraft.data?.payment_amount) ===
+          Number(collectionReceivable.amount) &&
+        Number(storedPaymentLinkDraft.data?.paid_amount) === 0 &&
+        Number(storedPaymentLinkDraft.data?.requested_amount) ===
+          Number(collectionReceivable.amount) &&
+        storedPaymentLinkDraft.data?.invoice_number === "INV/2027-00043" &&
+        storedPaymentLinkDraft.data?.source_issuance_sha256?.length === 64 &&
+        storedPaymentLinkDraft.data?.evidence_sha256?.length === 64,
+    );
+    record(
+      "payment-request evidence remains hidden from foreign tenants",
+      !hiddenForeignPaymentLinkDraft.error &&
+        hiddenForeignPaymentLinkDraft.data?.length === 0,
+    );
+    const paymentLinkAuditMetadata = paymentLinkAudit.data?.metadata;
+    record(
+      "payment-request preparation audit proves zero external effects",
+      !paymentLinkAudit.error &&
+        paymentLinkAuditMetadata?.evidence_sha256?.length === 64 &&
+        paymentLinkAuditMetadata?.provider_link_created === false &&
+        paymentLinkAuditMetadata?.message_sent === false &&
+        paymentLinkAuditMetadata?.payment_collected === false &&
+        paymentLinkAuditMetadata?.external_action_performed === false,
+    );
+    const retriedPaymentLink = await owner.rpc("prepare_payment_link_draft", {
+      target_organization_id: organizationA.id,
+      target_payment_id: collectionReceivable.id,
+    });
+    record(
+      "exact payment-request preparation is idempotent",
+      !retriedPaymentLink.error &&
+        retriedPaymentLink.data?.[0]?.already_prepared === true &&
+        retriedPaymentLink.data?.[0]?.payment_link_draft_id ===
+          preparedPaymentLinkRow.payment_link_draft_id,
+    );
+    const forgedPaymentLinkRewrite = await owner
+      .from("payment_link_drafts")
+      .update({ requested_amount: 1 })
+      .eq("id", preparedPaymentLinkRow.payment_link_draft_id);
+    const forgedPaymentLinkDelete = await owner
+      .from("payment_link_drafts")
+      .delete()
+      .eq("id", preparedPaymentLinkRow.payment_link_draft_id);
+    record(
+      "browser clients cannot rewrite or delete payment-request evidence",
+      Boolean(forgedPaymentLinkRewrite.error) &&
+        Boolean(forgedPaymentLinkDelete.error),
+    );
+
+    const requestedPaymentLinkApproval = await owner.rpc(
+      "request_payment_link_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_rationale:
+          "Finance verified the permanent invoice and exact outstanding balance.",
+      },
+    );
+    const paymentLinkApprovalId =
+      requestedPaymentLinkApproval.data?.[0]?.approval_request_id;
+    if (requestedPaymentLinkApproval.error || !paymentLinkApprovalId)
+      throw requestedPaymentLinkApproval.error ??
+        new Error("Payment-link approval was not created.");
+    const [storedPaymentLinkApproval, paymentLinkApprovalAudit] =
+      await Promise.all([
+        owner
+          .from("approval_requests")
+          .select("action, entity_type, entity_id, payload, status, expires_at")
+          .eq("id", paymentLinkApprovalId)
+          .single(),
+        owner
+          .from("audit_events")
+          .select("metadata")
+          .eq("entity_id", paymentLinkApprovalId)
+          .eq(
+            "metadata->>event",
+            "finance.payment_link_approval_requested",
+          )
+          .single(),
+      ]);
+    record(
+      "payment-link review is canonical and exact-balance bound",
+      !storedPaymentLinkApproval.error &&
+        storedPaymentLinkApproval.data?.action === "payment.link.create" &&
+        storedPaymentLinkApproval.data?.entity_type === "payment_link_draft" &&
+        storedPaymentLinkApproval.data?.entity_id ===
+          preparedPaymentLinkRow.payment_link_draft_id &&
+        storedPaymentLinkApproval.data?.status === "pending" &&
+        storedPaymentLinkApproval.data?.payload?.payment_id ===
+          collectionReceivable.id &&
+        Number(storedPaymentLinkApproval.data?.payload?.requested_amount) ===
+          Number(collectionReceivable.amount) &&
+        storedPaymentLinkApproval.data?.payload?.evidence_sha256 ===
+          preparedPaymentLinkRow.evidence_sha256 &&
+        storedPaymentLinkApproval.data?.payload?.provider_link_created ===
+          false &&
+        storedPaymentLinkApproval.data?.payload?.message_sent === false &&
+        storedPaymentLinkApproval.data?.payload?.payment_collected === false &&
+        storedPaymentLinkApproval.data?.payload?.external_action_performed ===
+          false,
+    );
+    const retriedPaymentLinkApproval = await owner.rpc(
+      "request_payment_link_approval",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_rationale:
+          "Finance verified the permanent invoice and exact outstanding balance.",
+      },
+    );
+    record(
+      "exact payment-link review retries are idempotent",
+      !retriedPaymentLinkApproval.error &&
+        retriedPaymentLinkApproval.data?.[0]?.already_requested === true &&
+        retriedPaymentLinkApproval.data?.[0]?.approval_request_id ===
+          paymentLinkApprovalId,
+    );
+
+    const operationsEmail = `aios-authz-operations-${suffix}@stateai.invalid`;
+    const { data: operationsIdentity, error: operationsIdentityError } =
+      await admin.auth.admin.createUser({
+        email: operationsEmail,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: "Authorization operations" },
+      });
+    if (operationsIdentityError || !operationsIdentity.user)
+      throw operationsIdentityError ??
+        new Error("Temporary operations identity was not created.");
+    userIds.push(operationsIdentity.user.id);
+    const { error: operationsMembershipError } = await admin
+      .from("memberships")
+      .insert({
+        organization_id: organizationA.id,
+        user_id: operationsIdentity.user.id,
+        role: "operations",
+        status: "active",
+      });
+    if (operationsMembershipError) throw operationsMembershipError;
+    const operations = client(url, publishableKey);
+    const { error: operationsSignInError } =
+      await operations.auth.signInWithPassword({
+        email: operationsEmail,
+        password,
+      });
+    if (operationsSignInError) throw operationsSignInError;
+    const operationsDraftRead = await operations
+      .from("payment_link_drafts")
+      .select("id")
+      .eq("organization_id", organizationA.id);
+    record(
+      "operations cannot read finance-only payment-request evidence",
+      !operationsDraftRead.error && operationsDraftRead.data?.length === 0,
+    );
+    const operationsResolution = await operations.rpc(
+      "resolve_approval_request",
+      {
+        target_organization_id: organizationA.id,
+        target_approval_id: paymentLinkApprovalId,
+        target_decision: "approved",
+      },
+    );
+    record(
+      "operations cannot resolve finance-sensitive approvals",
+      Boolean(operationsResolution.error),
+    );
+    await operations.auth.signOut();
+
+    const approvedPaymentLink = await owner.rpc("resolve_approval_request", {
+      target_organization_id: organizationA.id,
+      target_approval_id: paymentLinkApprovalId,
+      target_decision: "approved",
+    });
+    record(
+      "finance-authorized human approves one exact payment request",
+      !approvedPaymentLink.error &&
+        approvedPaymentLink.data?.[0]?.resolved_status === "approved",
+    );
+    const paymentLinkApprovalAuditMetadata =
+      paymentLinkApprovalAudit.data?.metadata;
+    record(
+      "payment-link approval evidence still proves no provider effect",
+      !paymentLinkApprovalAudit.error &&
+        paymentLinkApprovalAuditMetadata?.provider_link_created === false &&
+        paymentLinkApprovalAuditMetadata?.message_sent === false &&
+        paymentLinkApprovalAuditMetadata?.payment_collected === false &&
+        paymentLinkApprovalAuditMetadata?.external_action_performed === false,
+    );
+
+    const changedCollectionBalance = await owner.rpc(
+      "record_payment_allocation",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_id: collectionReceivable.id,
+        target_amount: 1000,
+        target_occurred_at: new Date().toISOString(),
+        target_reference: `COLLECTION-${suffix}`,
+      },
+    );
+    const [supersededPaymentLinkDraft, expiredPaymentLinkApproval] =
+      await Promise.all([
+        owner
+          .from("payment_link_drafts")
+          .select("status, superseded_at")
+          .eq("id", preparedPaymentLinkRow.payment_link_draft_id)
+          .single(),
+        owner
+          .from("approval_requests")
+          .select("status")
+          .eq("id", paymentLinkApprovalId)
+          .single(),
+      ]);
+    record(
+      "a changed receivable supersedes exact draft and approved gate",
+      !changedCollectionBalance.error &&
+        supersededPaymentLinkDraft.data?.status === "superseded" &&
+        Boolean(supersededPaymentLinkDraft.data?.superseded_at) &&
+        expiredPaymentLinkApproval.data?.status === "expired",
+    );
+    const revisedPaymentLink = await owner.rpc("prepare_payment_link_draft", {
+      target_organization_id: organizationA.id,
+      target_payment_id: collectionReceivable.id,
+    });
+    record(
+      "changed balance requires a new exact payment-request revision",
+      !revisedPaymentLink.error &&
+        revisedPaymentLink.data?.[0]?.revision === 2 &&
+        Number(revisedPaymentLink.data?.[0]?.requested_amount) ===
+          Number(collectionReceivable.amount) - 1000 &&
+        revisedPaymentLink.data?.[0]?.payment_link_draft_id !==
+          preparedPaymentLinkRow.payment_link_draft_id,
     );
     const reusedApproval = await owner.rpc("publish_quote_share", {
       target_organization_id: organizationA.id,

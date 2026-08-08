@@ -16,9 +16,11 @@ import {
   createSupplierProfile,
   issueApprovedInvoice,
   prepareAcceptedQuoteInvoiceDraft,
+  preparePaymentLinkDraft,
   recordPaymentAllocation,
   refreshPaymentStatuses,
   requestInvoiceIssuanceApproval,
+  requestPaymentLinkApproval,
   updateInvoiceIssuerProfile,
   updateInvoiceNumberPolicy,
   voidPaymentObligation,
@@ -164,6 +166,28 @@ type InvoiceIssuance = {
   issuance_sha256: string;
 };
 
+type PaymentLinkDraft = {
+  id: string;
+  payment_id: string;
+  invoice_issuance_id: string;
+  revision: number;
+  status: "ready" | "superseded";
+  currency: string;
+  requested_amount: number;
+  due_at: string | null;
+  invoice_number: string;
+  evidence_sha256: string;
+  created_at: string;
+};
+
+type PaymentLinkApproval = {
+  id: string;
+  entity_id: string | null;
+  status: "pending" | "approved";
+  expires_at: string | null;
+  resolved_at: string | null;
+};
+
 type TripOption = {
   id: string;
   name: string;
@@ -241,10 +265,17 @@ export default function FinancePage() {
   const [invoiceIssuances, setInvoiceIssuances] = useState<InvoiceIssuance[]>(
     [],
   );
+  const [paymentLinkDrafts, setPaymentLinkDrafts] = useState<
+    PaymentLinkDraft[]
+  >([]);
+  const [paymentLinkApprovals, setPaymentLinkApprovals] = useState<
+    PaymentLinkApproval[]
+  >([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [filter, setFilter] = useState<LedgerFilter>("open");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [financeLoadedAt, setFinanceLoadedAt] = useState(0);
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -266,6 +297,8 @@ export default function FinancePage() {
       invoiceIssuerResult,
       invoiceApprovalResult,
       invoiceIssuanceResult,
+      paymentLinkDraftResult,
+      paymentLinkApprovalResult,
     ] = await Promise.all([
       supabase
         .from("suppliers")
@@ -347,6 +380,20 @@ export default function FinancePage() {
         )
         .eq("organization_id", targetOrganizationId)
         .order("issued_at", { ascending: false }),
+      supabase
+        .from("payment_link_drafts")
+        .select(
+          "id, payment_id, invoice_issuance_id, revision, status, currency, requested_amount, due_at, invoice_number, evidence_sha256, created_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("approval_requests")
+        .select("id, entity_id, status, expires_at, resolved_at")
+        .eq("organization_id", targetOrganizationId)
+        .eq("action", "payment.link.create")
+        .in("status", ["pending", "approved"])
+        .order("created_at", { ascending: false }),
     ]);
 
     const error =
@@ -361,7 +408,9 @@ export default function FinancePage() {
       invoiceDraftResult.error ??
       invoiceIssuerResult.error ??
       invoiceApprovalResult.error ??
-      invoiceIssuanceResult.error;
+      invoiceIssuanceResult.error ??
+      paymentLinkDraftResult.error ??
+      paymentLinkApprovalResult.error;
     if (error) throw error;
 
     const nextSuppliers = (supplierResult.data ?? []) as Supplier[];
@@ -385,6 +434,13 @@ export default function FinancePage() {
     setInvoiceIssuances(
       (invoiceIssuanceResult.data ?? []) as InvoiceIssuance[],
     );
+    setPaymentLinkDrafts(
+      (paymentLinkDraftResult.data ?? []) as PaymentLinkDraft[],
+    );
+    setPaymentLinkApprovals(
+      (paymentLinkApprovalResult.data ?? []) as PaymentLinkApproval[],
+    );
+    setFinanceLoadedAt(Date.now());
     setSelectedSupplierId((current) =>
       nextSuppliers.some((supplier) => supplier.id === current)
         ? current
@@ -726,6 +782,62 @@ export default function FinancePage() {
           error instanceof Error
             ? error.message
             : "The approved invoice could not be issued.",
+        );
+      }
+    });
+  }
+
+  function prepareCollectionRequest(paymentId: string) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await preparePaymentLinkDraft({
+          organizationId,
+          paymentId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_prepared
+            ? "This exact receivable balance is already prepared. No provider link exists."
+            : `Payment-request revision ${result.revision} prepared for ${money(result.requested_amount, result.currency)}. Nothing was sent or collected.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The exact payment request could not be prepared.",
+        );
+      }
+    });
+  }
+
+  function submitPaymentLinkApproval(
+    event: FormEvent<HTMLFormElement>,
+    paymentLinkDraftId: string,
+  ) {
+    event.preventDefault();
+    if (!organizationId || pending) return;
+    const formData = new FormData(event.currentTarget);
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await requestPaymentLinkApproval({
+          organizationId,
+          paymentLinkDraftId,
+          rationale: String(formData.get("paymentLinkRationale") || ""),
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_requested
+            ? "This exact payment request is already waiting for a human decision."
+            : "Payment-link review requested. No provider link, message, charge, or settlement was created.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The payment-link review could not be requested.",
         );
       }
     });
@@ -1898,6 +2010,28 @@ export default function FinancePage() {
               const trip = trips.find(
                 (candidate) => candidate.id === payment.trip_id,
               );
+              const paymentLinkDraft = paymentLinkDrafts.find(
+                (candidate) =>
+                  candidate.payment_id === payment.id &&
+                  candidate.status === "ready",
+              );
+              const paymentLinkApproval = paymentLinkDraft
+                ? paymentLinkApprovals.find(
+                    (candidate) => candidate.entity_id === paymentLinkDraft.id,
+                  )
+                : null;
+              const paymentLinkApprovalIsCurrent = Boolean(
+                paymentLinkApproval &&
+                  (!paymentLinkApproval.expires_at ||
+                    new Date(paymentLinkApproval.expires_at).getTime() >
+                      financeLoadedAt),
+              );
+              const canPrepareCollection =
+                canManageFinance &&
+                payment.direction === "receivable" &&
+                openStatuses.has(payment.status) &&
+                Boolean(payment.invoice_issuance_id) &&
+                outstanding > 0;
               return (
                 <article
                   key={payment.id}
@@ -1957,6 +2091,98 @@ export default function FinancePage() {
                         issued or delivered.
                       </small>
                     </div>
+                  ) : null}
+                  {canPrepareCollection ? (
+                    <section
+                      className="payment-link-readiness"
+                      aria-label={`Payment-link readiness for ${payment.title}`}
+                    >
+                      <div className="payment-link-heading">
+                        <span>COLLECTION CONTROL</span>
+                        <strong>
+                          {paymentLinkDraft
+                            ? `Exact balance ${money(paymentLinkDraft.requested_amount, paymentLinkDraft.currency)}`
+                            : "Prepare an exact payment request"}
+                        </strong>
+                      </div>
+                      {!paymentLinkDraft ? (
+                        <>
+                          <p>
+                            Freeze this issued receivable&apos;s current full
+                            outstanding balance before asking a human to approve
+                            provider handoff.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => prepareCollectionRequest(payment.id)}
+                            disabled={pending}
+                          >
+                            Prepare exact payment request
+                          </button>
+                        </>
+                      ) : paymentLinkApproval?.status === "approved" &&
+                        paymentLinkApprovalIsCurrent ? (
+                        <div className="payment-link-approved">
+                          <span>Human approval recorded for this exact hash.</span>
+                          <strong>Provider handoff ready</strong>
+                          <p>
+                            Live payment-link creation remains disabled until a
+                            production provider and execution policy are
+                            configured.
+                          </p>
+                        </div>
+                      ) : paymentLinkApproval?.status === "pending" &&
+                        paymentLinkApprovalIsCurrent ? (
+                        <div className="payment-link-pending">
+                          <span>Waiting for a finance human decision.</span>
+                          <Link href="/aios#approval-queue">
+                            Open AIOS approval queue
+                          </Link>
+                          <small>
+                            Expires {paymentLinkApproval.expires_at
+                              ? new Date(
+                                  paymentLinkApproval.expires_at,
+                                ).toLocaleString()
+                              : "after review"}
+                          </small>
+                        </div>
+                      ) : (
+                        <form
+                          className="payment-link-approval-form"
+                          onSubmit={(event) =>
+                            submitPaymentLinkApproval(
+                              event,
+                              paymentLinkDraft.id,
+                            )
+                          }
+                        >
+                          <label>
+                            Collection review rationale
+                            <textarea
+                              name="paymentLinkRationale"
+                              defaultValue="Finance verified the issued invoice, currency, due date, and exact current outstanding balance."
+                              minLength={12}
+                              maxLength={1000}
+                              required
+                            />
+                          </label>
+                          <button type="submit" disabled={pending}>
+                            Request human payment-link approval
+                          </button>
+                        </form>
+                      )}
+                      {paymentLinkDraft ? (
+                        <small className="payment-link-evidence">
+                          Revision {paymentLinkDraft.revision} · invoice{" "}
+                          {paymentLinkDraft.invoice_number} · evidence{" "}
+                          {paymentLinkDraft.evidence_sha256.slice(0, 12)}…
+                        </small>
+                      ) : null}
+                      <small className="payment-link-zero-effect">
+                        No provider link · no customer message · no charge · no
+                        settlement
+                      </small>
+                    </section>
                   ) : null}
                   {paymentAllocations.length > 0 ? (
                     <div className="allocation-history">
