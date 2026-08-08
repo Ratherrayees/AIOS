@@ -40,6 +40,7 @@ import {
   paymentLinkApprovalInputSchema,
   paymentLinkDraftPreparationInputSchema,
   sandboxPaymentLinkExecutionInputSchema,
+  sandboxPaymentProviderEventInputSchema,
   paymentObligationInputSchema,
   paymentVoidInputSchema,
   supplierContactInputSchema,
@@ -1426,6 +1427,20 @@ test("payment-link readiness binds exact receivable evidence to human review", (
       organizationId,
       paymentLinkDraftId,
       approvalRequestId: "not-an-approval",
+    }).success,
+    false,
+  );
+  assert.equal(
+    sandboxPaymentProviderEventInputSchema.safeParse({
+      organizationId,
+      paymentLinkExecutionId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    sandboxPaymentProviderEventInputSchema.safeParse({
+      organizationId,
+      paymentLinkExecutionId: "not-an-execution",
     }).success,
     false,
   );

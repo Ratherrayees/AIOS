@@ -3749,6 +3749,101 @@ export type Database = {
           },
         ]
       }
+      payment_provider_events: {
+        Row: {
+          currency: string
+          id: string
+          occurred_at: string
+          organization_id: string
+          payload_sha256: string
+          payment_id: string
+          payment_link_execution_id: string
+          provider_environment: string
+          provider_event_id: string
+          provider_event_type: string
+          provider_key: string
+          provider_reference: string
+          received_at: string
+          reconciliation_reason: string
+          reconciliation_status: string
+          recorded_by: string | null
+          reported_amount: number
+          signature_verified: boolean
+          source_kind: string
+        }
+        Insert: {
+          currency: string
+          id?: string
+          occurred_at: string
+          organization_id: string
+          payload_sha256: string
+          payment_id: string
+          payment_link_execution_id: string
+          provider_environment: string
+          provider_event_id: string
+          provider_event_type: string
+          provider_key: string
+          provider_reference: string
+          received_at?: string
+          reconciliation_reason: string
+          reconciliation_status: string
+          recorded_by?: string | null
+          reported_amount: number
+          signature_verified: boolean
+          source_kind: string
+        }
+        Update: {
+          currency?: string
+          id?: string
+          occurred_at?: string
+          organization_id?: string
+          payload_sha256?: string
+          payment_id?: string
+          payment_link_execution_id?: string
+          provider_environment?: string
+          provider_event_id?: string
+          provider_event_type?: string
+          provider_key?: string
+          provider_reference?: string
+          received_at?: string
+          reconciliation_reason?: string
+          reconciliation_status?: string
+          recorded_by?: string | null
+          reported_amount?: number
+          signature_verified?: boolean
+          source_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_provider_events_execution_same_organization_fkey"
+            columns: ["organization_id", "payment_link_execution_id"]
+            isOneToOne: false
+            referencedRelation: "payment_link_executions"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_provider_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_provider_events_payment_same_organization_fkey"
+            columns: ["organization_id", "payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_provider_events_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -6553,6 +6648,30 @@ export type Database = {
           provider_environment: string
           provider_key: string
           provider_reference: string
+        }[]
+      }
+      record_sandbox_payment_provider_event: {
+        Args: {
+          target_currency: string
+          target_occurred_at_epoch_ms: number
+          target_organization_id: string
+          target_payload_sha256: string
+          target_payment_link_execution_id: string
+          target_provider_event_id: string
+          target_provider_event_type: string
+          target_provider_reference: string
+          target_recorded_by: string
+          target_reported_amount: number
+        }
+        Returns: {
+          already_recorded: boolean
+          occurred_at: string
+          payment_provider_event_id: string
+          provider_event_id: string
+          provider_event_type: string
+          received_at: string
+          reconciliation_reason: string
+          reconciliation_status: string
         }[]
       }
       record_travel_document: {

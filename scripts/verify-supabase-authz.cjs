@@ -3453,6 +3453,269 @@ async function verifyAuthorization() {
       Boolean(forgedSandboxExecutionRewrite.error) &&
         Boolean(forgedSandboxExecutionDelete.error),
     );
+
+    const sandboxProviderEventId = `sbxevt_${createHash("sha256")
+      .update(
+        [
+          "sandbox-payment-event-v1",
+          createdSandboxExecutionRow.payment_link_execution_id,
+          sandboxIdempotencyKey,
+          "payment.succeeded",
+        ].join("\n"),
+      )
+      .digest("hex")
+      .slice(0, 32)}`;
+    const sandboxProviderEventOccurredAtMs = new Date(
+      createdSandboxExecutionRow.created_at,
+    ).getTime();
+    const sandboxProviderEventAmount = Number(collectionReceivable.amount);
+    const sandboxProviderEventPayloadHash = createHash("sha256")
+      .update(
+        [
+          "payment-provider-event-v1",
+          organizationA.id,
+          createdSandboxExecutionRow.payment_link_execution_id,
+          sandboxProviderEventId,
+          "payment.succeeded",
+          "sandbox",
+          "sandbox",
+          sandboxProviderReference,
+          "INR",
+          sandboxProviderEventAmount.toFixed(2),
+          sandboxProviderEventOccurredAtMs,
+        ].join("\n"),
+      )
+      .digest("hex");
+    const sandboxProviderEventArgs = {
+      target_organization_id: organizationA.id,
+      target_payment_link_execution_id:
+        createdSandboxExecutionRow.payment_link_execution_id,
+      target_provider_event_id: sandboxProviderEventId,
+      target_provider_event_type: "payment.succeeded",
+      target_provider_reference: sandboxProviderReference,
+      target_currency: "INR",
+      target_reported_amount: sandboxProviderEventAmount,
+      target_occurred_at_epoch_ms: sandboxProviderEventOccurredAtMs,
+      target_payload_sha256: sandboxProviderEventPayloadHash,
+      target_recorded_by: ownerUser.id,
+    };
+    const mismatchProviderEventType = "checkout.completed";
+    const mismatchProviderEventId = `sbxevt_${createHash("sha256")
+      .update(
+        [
+          "sandbox-payment-event-v1",
+          createdSandboxExecutionRow.payment_link_execution_id,
+          sandboxIdempotencyKey,
+          mismatchProviderEventType,
+        ].join("\n"),
+      )
+      .digest("hex")
+      .slice(0, 32)}`;
+    const mismatchProviderEventAmount = sandboxProviderEventAmount - 1;
+    const mismatchProviderEventPayloadHash = createHash("sha256")
+      .update(
+        [
+          "payment-provider-event-v1",
+          organizationA.id,
+          createdSandboxExecutionRow.payment_link_execution_id,
+          mismatchProviderEventId,
+          mismatchProviderEventType,
+          "sandbox",
+          "sandbox",
+          sandboxProviderReference,
+          "INR",
+          mismatchProviderEventAmount.toFixed(2),
+          sandboxProviderEventOccurredAtMs,
+        ].join("\n"),
+      )
+      .digest("hex");
+    const mismatchedSandboxProviderEvent = await admin.rpc(
+      "record_sandbox_payment_provider_event",
+      {
+        ...sandboxProviderEventArgs,
+        target_provider_event_id: mismatchProviderEventId,
+        target_provider_event_type: mismatchProviderEventType,
+        target_reported_amount: mismatchProviderEventAmount,
+        target_payload_sha256: mismatchProviderEventPayloadHash,
+      },
+    );
+    const browserSandboxProviderEvent = await owner.rpc(
+      "record_sandbox_payment_provider_event",
+      sandboxProviderEventArgs,
+    );
+    record(
+      "browser clients cannot invoke the trusted provider-event recorder",
+      Boolean(browserSandboxProviderEvent.error),
+    );
+    const foreignActorSandboxProviderEvent = await admin.rpc(
+      "record_sandbox_payment_provider_event",
+      {
+        ...sandboxProviderEventArgs,
+        target_recorded_by: viewerUser.id,
+      },
+    );
+    record(
+      "trusted event recording rejects a foreign finance actor",
+      Boolean(foreignActorSandboxProviderEvent.error),
+    );
+    const forgedSandboxProviderEvent = await admin.rpc(
+      "record_sandbox_payment_provider_event",
+      {
+        ...sandboxProviderEventArgs,
+        target_payload_sha256: "0".repeat(64),
+      },
+    );
+    record(
+      "sandbox reconciliation escalates amount mismatch and rejects forged hashes",
+      !mismatchedSandboxProviderEvent.error &&
+        mismatchedSandboxProviderEvent.data?.[0]?.reconciliation_status ===
+          "review_required" &&
+        mismatchedSandboxProviderEvent.data?.[0]?.reconciliation_reason ===
+          "amount_mismatch" &&
+        Boolean(forgedSandboxProviderEvent.error),
+    );
+    const createdSandboxProviderEvent = await admin.rpc(
+      "record_sandbox_payment_provider_event",
+      sandboxProviderEventArgs,
+    );
+    const createdSandboxProviderEventRow =
+      createdSandboxProviderEvent.data?.[0];
+    if (createdSandboxProviderEvent.error || !createdSandboxProviderEventRow)
+      throw createdSandboxProviderEvent.error ??
+        new Error("The sandbox provider event was not recorded.");
+    const [
+      storedSandboxProviderEvent,
+      hiddenForeignProviderEvent,
+      hiddenOperationsProviderEvent,
+      sandboxProviderEventAudit,
+      unchangedProviderEventPayment,
+      providerEventAllocations,
+    ] = await Promise.all([
+      owner
+        .from("payment_provider_events")
+        .select(
+          "id, payment_link_execution_id, payment_id, provider_key, provider_environment, provider_event_id, provider_event_type, provider_reference, currency, reported_amount, payload_sha256, source_kind, signature_verified, reconciliation_status, reconciliation_reason, occurred_at, recorded_by",
+        )
+        .eq("id", createdSandboxProviderEventRow.payment_provider_event_id)
+        .single(),
+      viewer
+        .from("payment_provider_events")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      operations
+        .from("payment_provider_events")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", createdSandboxProviderEventRow.payment_provider_event_id)
+        .eq("metadata->>event", "finance.sandbox_provider_event_recorded")
+        .single(),
+      owner
+        .from("payments")
+        .select("status, paid_amount")
+        .eq("id", collectionReceivable.id)
+        .single(),
+      owner
+        .from("payment_allocations")
+        .select("id")
+        .eq("payment_id", collectionReceivable.id),
+    ]);
+    record(
+      "synthetic provider success freezes exact matched-unposted evidence",
+      !storedSandboxProviderEvent.error &&
+        storedSandboxProviderEvent.data?.payment_link_execution_id ===
+          createdSandboxExecutionRow.payment_link_execution_id &&
+        storedSandboxProviderEvent.data?.payment_id === collectionReceivable.id &&
+        storedSandboxProviderEvent.data?.provider_key === "sandbox" &&
+        storedSandboxProviderEvent.data?.provider_environment === "sandbox" &&
+        storedSandboxProviderEvent.data?.provider_event_id ===
+          sandboxProviderEventId &&
+        storedSandboxProviderEvent.data?.provider_event_type ===
+          "payment.succeeded" &&
+        storedSandboxProviderEvent.data?.provider_reference ===
+          sandboxProviderReference &&
+        storedSandboxProviderEvent.data?.currency === "INR" &&
+        Number(storedSandboxProviderEvent.data?.reported_amount) ===
+          sandboxProviderEventAmount &&
+        storedSandboxProviderEvent.data?.payload_sha256 ===
+          sandboxProviderEventPayloadHash &&
+        storedSandboxProviderEvent.data?.source_kind === "sandbox_simulator" &&
+        storedSandboxProviderEvent.data?.signature_verified === false &&
+        storedSandboxProviderEvent.data?.reconciliation_status ===
+          "matched_unposted" &&
+        storedSandboxProviderEvent.data?.reconciliation_reason ===
+          "exact_match" &&
+        storedSandboxProviderEvent.data?.recorded_by === ownerUser.id,
+    );
+    record(
+      "provider-event evidence stays finance-only across tenant and role",
+      !hiddenForeignProviderEvent.error &&
+        hiddenForeignProviderEvent.data?.length === 0 &&
+        !hiddenOperationsProviderEvent.error &&
+        hiddenOperationsProviderEvent.data?.length === 0,
+    );
+    const sandboxProviderEventAuditMetadata =
+      sandboxProviderEventAudit.data?.metadata;
+    record(
+      "synthetic event audit proves no webhook, money, or settlement effect",
+      !sandboxProviderEventAudit.error &&
+        sandboxProviderEventAuditMetadata?.source_kind ===
+          "sandbox_simulator" &&
+        sandboxProviderEventAuditMetadata?.signature_verified === false &&
+        sandboxProviderEventAuditMetadata?.reconciliation_status ===
+          "matched_unposted" &&
+        sandboxProviderEventAuditMetadata?.provider_webhook_received === false &&
+        sandboxProviderEventAuditMetadata?.external_network_call_performed ===
+          false &&
+        sandboxProviderEventAuditMetadata?.payment_collected === false &&
+        sandboxProviderEventAuditMetadata?.settlement_recorded === false &&
+        sandboxProviderEventAuditMetadata?.human_settlement_required === true &&
+        sandboxProviderEventAuditMetadata?.external_action_performed === false,
+    );
+    record(
+      "matched provider evidence cannot forge ledger settlement",
+      !unchangedProviderEventPayment.error &&
+        unchangedProviderEventPayment.data?.status === "pending" &&
+        Number(unchangedProviderEventPayment.data?.paid_amount) === 0 &&
+        !providerEventAllocations.error &&
+        providerEventAllocations.data?.length === 0,
+    );
+    const retriedSandboxProviderEvent = await admin.rpc(
+      "record_sandbox_payment_provider_event",
+      sandboxProviderEventArgs,
+    );
+    record(
+      "exact synthetic provider-event retries are idempotent",
+      !retriedSandboxProviderEvent.error &&
+        retriedSandboxProviderEvent.data?.[0]?.already_recorded === true &&
+        retriedSandboxProviderEvent.data?.[0]?.payment_provider_event_id ===
+          createdSandboxProviderEventRow.payment_provider_event_id,
+    );
+    const forgedProviderEventRewrite = await owner
+      .from("payment_provider_events")
+      .update({ reported_amount: 1 })
+      .eq("id", createdSandboxProviderEventRow.payment_provider_event_id);
+    const forgedProviderEventDelete = await owner
+      .from("payment_provider_events")
+      .delete()
+      .eq("id", createdSandboxProviderEventRow.payment_provider_event_id);
+    const serviceProviderEventDelete = await admin
+      .from("payment_provider_events")
+      .delete()
+      .eq("id", createdSandboxProviderEventRow.payment_provider_event_id);
+    const serviceExecutionDelete = await admin
+      .from("payment_link_executions")
+      .delete()
+      .eq("id", createdSandboxExecutionRow.payment_link_execution_id);
+    record(
+      "provider-event evidence rejects browser and service direct mutation",
+      Boolean(forgedProviderEventRewrite.error) &&
+        Boolean(forgedProviderEventDelete.error) &&
+        Boolean(serviceProviderEventDelete.error) &&
+        Boolean(serviceExecutionDelete.error),
+    );
     await operations.auth.signOut();
 
     const changedCollectionBalance = await owner.rpc(
@@ -3470,6 +3733,7 @@ async function verifyAuthorization() {
       expiredPaymentLinkApproval,
       invalidatedSandboxExecution,
       invalidatedSandboxSnapshot,
+      retainedSandboxProviderEvent,
     ] =
       await Promise.all([
         owner
@@ -3490,6 +3754,11 @@ async function verifyAuthorization() {
         admin.rpc("get_sandbox_payment_checkout", {
           target_checkout_token_sha256: sandboxCheckoutTokenHash,
         }),
+        owner
+          .from("payment_provider_events")
+          .select("reconciliation_status, reconciliation_reason")
+          .eq("id", createdSandboxProviderEventRow.payment_provider_event_id)
+          .single(),
       ]);
     record(
       "a changed receivable supersedes exact draft and approved gate",
@@ -3500,7 +3769,11 @@ async function verifyAuthorization() {
         invalidatedSandboxExecution.data?.status === "invalidated" &&
         Boolean(invalidatedSandboxExecution.data?.invalidated_at) &&
         !invalidatedSandboxSnapshot.error &&
-        invalidatedSandboxSnapshot.data?.length === 0,
+        invalidatedSandboxSnapshot.data?.length === 0 &&
+        retainedSandboxProviderEvent.data?.reconciliation_status ===
+          "matched_unposted" &&
+        retainedSandboxProviderEvent.data?.reconciliation_reason ===
+          "exact_match",
     );
     const revisedPaymentLink = await owner.rpc("prepare_payment_link_draft", {
       target_organization_id: organizationA.id,

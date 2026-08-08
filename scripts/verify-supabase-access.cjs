@@ -37,6 +37,7 @@ const protectedTables = [
   "invoice_documents",
   "payment_link_drafts",
   "payment_link_executions",
+  "payment_provider_events",
   "conversations",
   "messages",
   "approval_requests",
@@ -387,6 +388,22 @@ async function verify() {
   const { error: anonymousSandboxCheckoutError } = await anonymous.rpc(
     "get_sandbox_payment_checkout",
     { target_checkout_token_sha256: "0".repeat(64) },
+  );
+  const { error: anonymousPaymentProviderEventError } = await anonymous.rpc(
+    "record_sandbox_payment_provider_event",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_link_execution_id:
+        "22222222-2222-4222-8222-222222222222",
+      target_provider_event_id: `sbxevt_${"0".repeat(32)}`,
+      target_provider_event_type: "payment.succeeded",
+      target_provider_reference: `sbx_${"1".repeat(32)}`,
+      target_currency: "INR",
+      target_reported_amount: 100,
+      target_occurred_at_epoch_ms: Date.now(),
+      target_payload_sha256: "2".repeat(64),
+      target_recorded_by: "33333333-3333-4333-8333-333333333333",
+    },
   );
   const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
     "classify_trip_document",
@@ -980,6 +997,11 @@ async function verify() {
       function: "get_sandbox_payment_checkout",
       anonymousExecutionBlocked: Boolean(anonymousSandboxCheckoutError),
       anonymousErrorCode: anonymousSandboxCheckoutError?.code ?? null,
+    },
+    {
+      function: "record_sandbox_payment_provider_event",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentProviderEventError),
+      anonymousErrorCode: anonymousPaymentProviderEventError?.code ?? null,
     },
     {
       function: "classify_trip_document",

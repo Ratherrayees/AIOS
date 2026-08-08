@@ -15,6 +15,13 @@ import {
   sandboxPaymentCheckoutTokenHash,
   sandboxPaymentCheckoutTokenSchema,
 } from "../lib/payments/sandbox-token";
+import {
+  PAYMENT_PROVIDER_EVENT_CONTRACT_VERSION,
+  paymentProviderEventPayloadSha256,
+  paymentProviderEventSimulationRequestSchema,
+  sandboxPaymentProviderEventId,
+} from "../lib/payments/events";
+import { SandboxPaymentEventAdapter } from "../lib/payments/sandbox-event-adapter";
 
 const evidence = {
   organizationId: "11111111-1111-4111-8111-111111111111",
@@ -112,5 +119,76 @@ test("sandbox checkout tokens are full base64url bearer values", () => {
   assert.equal(
     sandboxPaymentCheckoutTokenHash(token),
     createHash("sha256").update(token, "utf8").digest("hex"),
+  );
+});
+
+const eventRequest = {
+  organizationId: evidence.organizationId,
+  paymentLinkExecutionId: "77777777-7777-4777-8777-777777777777",
+  paymentId: evidence.paymentId,
+  providerKey: "sandbox" as const,
+  providerEnvironment: "sandbox" as const,
+  idempotencyKey: "b".repeat(64),
+  providerReference: `sbx_${"c".repeat(32)}`,
+  currency: "INR",
+  requestedAmount: 151_200,
+  executionCreatedAtEpochMs: 1_802_768_400_000,
+};
+
+test("sandbox provider event ids and payload hashes are deterministic", () => {
+  const providerEventId = sandboxPaymentProviderEventId(eventRequest);
+  const input = {
+    ...eventRequest,
+    providerEventId,
+    providerEventType: "payment.succeeded",
+    reportedAmount: eventRequest.requestedAmount,
+    occurredAtEpochMs: 1_802_768_400_000,
+  };
+  const first = paymentProviderEventPayloadSha256(input);
+  const retry = paymentProviderEventPayloadSha256(input);
+  const changedAmount = paymentProviderEventPayloadSha256({
+    ...input,
+    reportedAmount: input.reportedAmount - 1,
+  });
+
+  assert.equal(
+    PAYMENT_PROVIDER_EVENT_CONTRACT_VERSION,
+    "payment-provider-event-v1",
+  );
+  assert.match(providerEventId, /^sbxevt_[0-9a-f]{32}$/);
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.equal(first, retry);
+  assert.notEqual(first, changedAmount);
+});
+
+test("sandbox event adapter produces reconciliation-only evidence", async () => {
+  const adapter = new SandboxPaymentEventAdapter();
+  const result = await adapter.simulateSucceeded(eventRequest);
+
+  assert.equal(result.providerEventId, sandboxPaymentProviderEventId(eventRequest));
+  assert.equal(result.providerEventType, "payment.succeeded");
+  assert.equal(result.reportedAmount, 151_200);
+  assert.equal(result.occurredAtEpochMs, 1_802_768_400_000);
+  assert.equal(result.sourceKind, "sandbox_simulator");
+  assert.equal(result.signatureVerified, false);
+  assert.equal(result.externalNetworkCallPerformed, false);
+  assert.equal(result.paymentCollected, false);
+  assert.equal(result.settlementRecorded, false);
+});
+
+test("sandbox event contract rejects forged provider and money evidence", () => {
+  assert.equal(
+    paymentProviderEventSimulationRequestSchema.safeParse({
+      ...eventRequest,
+      providerKey: "live-provider",
+    }).success,
+    false,
+  );
+  assert.equal(
+    paymentProviderEventSimulationRequestSchema.safeParse({
+      ...eventRequest,
+      requestedAmount: 0,
+    }).success,
+    false,
   );
 });

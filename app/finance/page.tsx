@@ -23,6 +23,7 @@ import {
   refreshPaymentStatuses,
   requestInvoiceIssuanceApproval,
   requestPaymentLinkApproval,
+  simulateSandboxPaymentProviderEvent,
   renderPrivateInvoiceDocument,
   updateInvoiceIssuerProfile,
   updateInvoiceNumberPolicy,
@@ -218,6 +219,19 @@ type PaymentLinkExecution = {
   created_at: string;
 };
 
+type PaymentProviderEvent = {
+  id: string;
+  payment_link_execution_id: string;
+  provider_event_id: string;
+  provider_event_type: string;
+  source_kind: "sandbox_simulator" | "signed_webhook";
+  signature_verified: boolean;
+  reconciliation_status: "matched_unposted" | "review_required" | "ignored";
+  reconciliation_reason: string;
+  occurred_at: string;
+  received_at: string;
+};
+
 type TripOption = {
   id: string;
   name: string;
@@ -307,6 +321,9 @@ export default function FinancePage() {
   const [paymentLinkExecutions, setPaymentLinkExecutions] = useState<
     PaymentLinkExecution[]
   >([]);
+  const [paymentProviderEvents, setPaymentProviderEvents] = useState<
+    PaymentProviderEvent[]
+  >([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [filter, setFilter] = useState<LedgerFilter>("open");
   const [query, setQuery] = useState("");
@@ -337,6 +354,7 @@ export default function FinancePage() {
       paymentLinkDraftResult,
       paymentLinkApprovalResult,
       paymentLinkExecutionResult,
+      paymentProviderEventResult,
     ] = await Promise.all([
       supabase
         .from("suppliers")
@@ -446,6 +464,13 @@ export default function FinancePage() {
         )
         .eq("organization_id", targetOrganizationId)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("payment_provider_events")
+        .select(
+          "id, payment_link_execution_id, provider_event_id, provider_event_type, source_kind, signature_verified, reconciliation_status, reconciliation_reason, occurred_at, received_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("received_at", { ascending: false }),
     ]);
 
     const error =
@@ -464,7 +489,8 @@ export default function FinancePage() {
       invoiceDocumentResult.error ??
       paymentLinkDraftResult.error ??
       paymentLinkApprovalResult.error ??
-      paymentLinkExecutionResult.error;
+      paymentLinkExecutionResult.error ??
+      paymentProviderEventResult.error;
     if (error) throw error;
 
     const nextSuppliers = (supplierResult.data ?? []) as Supplier[];
@@ -499,6 +525,9 @@ export default function FinancePage() {
     );
     setPaymentLinkExecutions(
       (paymentLinkExecutionResult.data ?? []) as PaymentLinkExecution[],
+    );
+    setPaymentProviderEvents(
+      (paymentProviderEventResult.data ?? []) as PaymentProviderEvent[],
     );
     setFinanceLoadedAt(Date.now());
     setSelectedSupplierId((current) =>
@@ -981,6 +1010,31 @@ export default function FinancePage() {
           error instanceof Error
             ? error.message
             : "The approved sandbox checkout could not be created.",
+        );
+      }
+    });
+  }
+
+  function simulateSandboxProviderEvent(paymentLinkExecutionId: string) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await simulateSandboxPaymentProviderEvent({
+          organizationId,
+          paymentLinkExecutionId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_recorded
+            ? "The same synthetic provider event was already reconciled; no duplicate evidence was created."
+            : "Synthetic provider success matched the exact request. No money moved; a human settlement record is still required.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The synthetic provider event could not be reconciled.",
         );
       }
     });
@@ -2240,6 +2294,13 @@ export default function FinancePage() {
                   new Date(paymentLinkExecution.checkout_expires_at).getTime() >
                     financeLoadedAt,
               );
+              const paymentProviderEvent = paymentLinkExecution
+                ? paymentProviderEvents.find(
+                    (candidate) =>
+                      candidate.payment_link_execution_id ===
+                      paymentLinkExecution.id,
+                  )
+                : null;
               const canPrepareCollection =
                 canManageFinance &&
                 payment.direction === "receivable" &&
@@ -2356,6 +2417,41 @@ export default function FinancePage() {
                               paymentLinkExecution.checkout_expires_at,
                             ).toLocaleString()}
                           </small>
+                          {paymentProviderEvent ? (
+                            <div
+                              className={`provider-reconciliation ${paymentProviderEvent.reconciliation_status}`}
+                            >
+                              <span>
+                                {paymentProviderEvent.reconciliation_status ===
+                                "review_required"
+                                  ? "SYNTHETIC EVENT NEEDS REVIEW"
+                                  : "SYNTHETIC EVENT MATCHED"}
+                              </span>
+                              <strong>
+                                {paymentProviderEvent.reconciliation_status ===
+                                "review_required"
+                                  ? "Provider evidence does not match the approved request."
+                                  : "Human settlement evidence is still required."}
+                              </strong>
+                              <small>
+                                {paymentProviderEvent.provider_event_type} ·{" "}
+                                {paymentProviderEvent.reconciliation_reason} ·
+                                no signed webhook · no money moved
+                              </small>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                simulateSandboxProviderEvent(
+                                  paymentLinkExecution.id,
+                                )
+                              }
+                              disabled={pending}
+                            >
+                              Simulate provider success event
+                            </button>
+                          )}
                         </div>
                       ) : paymentLinkApproval?.status === "approved" &&
                         paymentLinkApprovalIsCurrent ? (

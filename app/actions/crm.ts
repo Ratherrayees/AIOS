@@ -85,6 +85,7 @@ import {
   paymentLinkApprovalInputSchema,
   paymentLinkDraftPreparationInputSchema,
   sandboxPaymentLinkExecutionInputSchema,
+  sandboxPaymentProviderEventInputSchema,
   paymentObligationInputSchema,
   paymentStatusRefreshSchema,
   paymentVoidInputSchema,
@@ -168,6 +169,7 @@ import {
   type PaymentLinkApprovalInput,
   type PaymentLinkDraftPreparationInput,
   type SandboxPaymentLinkExecutionInput,
+  type SandboxPaymentProviderEventInput,
   type PaymentObligationInput,
   type PaymentStatusRefreshInput,
   type PaymentVoidInput,
@@ -201,6 +203,7 @@ import {
 } from "../../lib/finance/invoice-pdf";
 import { paymentLinkExecutionIdempotencyKey } from "../../lib/payments/contracts";
 import { SandboxPaymentLinkAdapter } from "../../lib/payments/sandbox-adapter";
+import { SandboxPaymentEventAdapter } from "../../lib/payments/sandbox-event-adapter";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import type { Json } from "../../types/database";
@@ -3581,6 +3584,89 @@ export async function executeApprovedSandboxPaymentLink(
       error?.message || "The sandbox payment link could not be created.",
     );
   return execution;
+}
+
+/**
+ * Generates one synthetic sandbox provider event and records reconciliation
+ * evidence. It does not receive a webhook, collect money, or post a settlement.
+ */
+export async function simulateSandboxPaymentProviderEvent(
+  input: SandboxPaymentProviderEventInput,
+) {
+  const data = sandboxPaymentProviderEventInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.PAYMENT_SANDBOX_ENABLED !== "true"
+  )
+    throw new Error(
+      "Sandbox payment simulation is disabled in this environment.",
+    );
+
+  const supabase = await createSupabaseServerClient();
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const actorId = claims?.claims.sub;
+  if (claimsError || !actorId) throw new Error("Sign in is required.");
+
+  const { data: execution, error: executionError } = await supabase
+    .from("payment_link_executions")
+    .select(
+      "id, payment_id, provider_key, provider_environment, idempotency_key, provider_reference, currency, requested_amount, status, checkout_expires_at, created_at",
+    )
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.paymentLinkExecutionId)
+    .maybeSingle();
+  if (
+    executionError ||
+    !execution ||
+    execution.provider_key !== "sandbox" ||
+    execution.provider_environment !== "sandbox" ||
+    execution.status !== "active" ||
+    new Date(execution.checkout_expires_at).getTime() <= Date.now()
+  )
+    throw new Error("A current sandbox payment execution is required.");
+
+  const adapter = new SandboxPaymentEventAdapter();
+  const providerEvent = await adapter.simulateSucceeded({
+    organizationId: data.organizationId,
+    paymentLinkExecutionId: execution.id,
+    paymentId: execution.payment_id,
+    providerKey: "sandbox",
+    providerEnvironment: "sandbox",
+    idempotencyKey: execution.idempotency_key,
+    providerReference: execution.provider_reference,
+    currency: execution.currency,
+    requestedAmount: Number(execution.requested_amount),
+    executionCreatedAtEpochMs: new Date(execution.created_at).getTime(),
+  });
+  if (
+    providerEvent.externalNetworkCallPerformed ||
+    providerEvent.paymentCollected ||
+    providerEvent.settlementRecorded ||
+    providerEvent.signatureVerified
+  )
+    throw new Error("The sandbox event adapter exceeded its authority.");
+
+  const admin = createSupabaseAdminClient();
+  const { data: recordedEvent, error } = await admin
+    .rpc("record_sandbox_payment_provider_event", {
+      target_organization_id: data.organizationId,
+      target_payment_link_execution_id: execution.id,
+      target_provider_event_id: providerEvent.providerEventId,
+      target_provider_event_type: providerEvent.providerEventType,
+      target_provider_reference: providerEvent.providerReference,
+      target_currency: providerEvent.currency,
+      target_reported_amount: providerEvent.reportedAmount,
+      target_occurred_at_epoch_ms: providerEvent.occurredAtEpochMs,
+      target_payload_sha256: providerEvent.payloadSha256,
+      target_recorded_by: actorId,
+    })
+    .single();
+  if (error || !recordedEvent)
+    throw new Error(
+      error?.message || "The sandbox provider event could not be reconciled.",
+    );
+  return recordedEvent;
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

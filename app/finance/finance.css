@@ -994,6 +994,46 @@
   overflow-wrap: anywhere;
 }
 
+.payment-link-sandbox-active > button {
+  width: fit-content;
+  border: 1px solid rgb(34 211 238 / 32%);
+  border-radius: 8px;
+  background: rgb(34 211 238 / 10%);
+  padding: 9px 12px;
+  color: #b9f5ff;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.provider-reconciliation {
+  display: grid;
+  gap: 5px;
+  margin-top: 3px;
+  padding: 10px 11px;
+  border: 1px solid rgb(52 211 153 / 25%);
+  border-radius: 9px;
+  background: rgb(16 185 129 / 8%);
+}
+
+.provider-reconciliation > span {
+  color: #73e8d0;
+  font-size: 0.61rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.provider-reconciliation > strong {
+  color: #d5fff6;
+  font-size: 0.7rem;
+}
+
+.provider-reconciliation.review_required {
+  border-color: rgb(239 181 73 / 30%);
+  background: rgb(239 181 73 / 8%);
+}
+
 .payment-link-expired {
   border-color: rgb(239 181 73 / 26%);
 }

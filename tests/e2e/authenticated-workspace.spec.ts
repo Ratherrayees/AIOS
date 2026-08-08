@@ -2753,6 +2753,90 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("button", { name: "Real payment disabled" }),
     ).toBeDisabled();
+    await page.goto("/finance");
+    const sandboxReconciliationControl = page
+      .locator(".payment-card")
+      .filter({ hasText: "Booking deposit" })
+      .locator(".payment-link-readiness");
+    await sandboxReconciliationControl
+      .getByRole("button", { name: "Simulate provider success event" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Synthetic provider success matched the exact request",
+    );
+    await expect(sandboxReconciliationControl).toContainText(
+      "SYNTHETIC EVENT MATCHED",
+    );
+    await expect(sandboxReconciliationControl).toContainText(
+      "Human settlement evidence is still required",
+    );
+    await expect(sandboxReconciliationControl).toContainText(
+      "no signed webhook · no money moved",
+    );
+    const { data: sandboxProviderEvent, error: sandboxProviderEventError } =
+      await admin!
+        .from("payment_provider_events")
+        .select(
+          "id, payment_link_execution_id, payment_id, provider_key, provider_environment, provider_event_id, provider_event_type, provider_reference, currency, reported_amount, payload_sha256, source_kind, signature_verified, reconciliation_status, reconciliation_reason",
+        )
+        .eq("payment_link_execution_id", sandboxExecution!.id)
+        .single();
+    expect(sandboxProviderEventError).toBeNull();
+    expect(sandboxProviderEvent).toMatchObject({
+      payment_link_execution_id: sandboxExecution!.id,
+      payment_id: paymentLinkDraft!.payment_id,
+      provider_key: "sandbox",
+      provider_environment: "sandbox",
+      provider_event_type: "payment.succeeded",
+      provider_reference: sandboxExecution!.provider_reference,
+      currency: "INR",
+      reported_amount: 151200,
+      source_kind: "sandbox_simulator",
+      signature_verified: false,
+      reconciliation_status: "matched_unposted",
+      reconciliation_reason: "exact_match",
+    });
+    expect(sandboxProviderEvent?.provider_event_id).toMatch(
+      /^sbxevt_[0-9a-f]{32}$/,
+    );
+    expect(sandboxProviderEvent?.payload_sha256).toHaveLength(64);
+    const [
+      { data: sandboxEventAudit, error: sandboxEventAuditError },
+      { data: unchangedPayment, error: unchangedPaymentError },
+      { data: syntheticAllocations, error: syntheticAllocationsError },
+    ] = await Promise.all([
+      admin!
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", sandboxProviderEvent!.id)
+        .eq("metadata->>event", "finance.sandbox_provider_event_recorded")
+        .single(),
+      admin!
+        .from("payments")
+        .select("status, paid_amount")
+        .eq("id", paymentLinkDraft!.payment_id)
+        .single(),
+      admin!
+        .from("payment_allocations")
+        .select("id")
+        .eq("payment_id", paymentLinkDraft!.payment_id),
+    ]);
+    expect(sandboxEventAuditError).toBeNull();
+    expect(sandboxEventAudit?.metadata).toMatchObject({
+      source_kind: "sandbox_simulator",
+      signature_verified: false,
+      reconciliation_status: "matched_unposted",
+      provider_webhook_received: false,
+      external_network_call_performed: false,
+      payment_collected: false,
+      settlement_recorded: false,
+      human_settlement_required: true,
+      external_action_performed: false,
+    });
+    expect(unchangedPaymentError).toBeNull();
+    expect(unchangedPayment).toMatchObject({ status: "pending", paid_amount: 0 });
+    expect(syntheticAllocationsError).toBeNull();
+    expect(syntheticAllocations).toHaveLength(0);
     await page.goto(`/leads/${dealId}`);
     const commercialTruth = page.locator("#commercial-truth");
     await expect(
