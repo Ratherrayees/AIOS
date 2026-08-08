@@ -2653,10 +2653,10 @@ test.describe("authenticated owner workspace", () => {
       "Human approval recorded for this exact hash",
     );
     await expect(approvedCollectionControl).toContainText(
-      "Provider handoff ready",
+      "Sandbox provider handoff ready",
     );
     await expect(approvedCollectionControl).toContainText(
-      "Live payment-link creation remains disabled",
+      "cannot contact a payment provider or collect money",
     );
     await expect(approvedCollectionControl).toContainText(
       "No provider link · no customer message · no charge · no settlement",
@@ -2675,7 +2675,84 @@ test.describe("authenticated owner workspace", () => {
         external_action_performed: false,
       },
     });
-
+    await approvedCollectionControl
+      .getByRole("button", { name: "Create sandbox payment link" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "Sandbox checkout created from the exact approval",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "SANDBOX LINK ACTIVE",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "zero real-money authority",
+    );
+    await expect(approvedCollectionControl).toContainText(
+      "zero provider network calls · no customer message · no real charge · no settlement",
+    );
+    const sandboxCheckoutLink = approvedCollectionControl.getByRole("link", {
+      name: "Open sandbox checkout",
+    });
+    const sandboxCheckoutPath = await sandboxCheckoutLink.getAttribute("href");
+    expect(sandboxCheckoutPath).toMatch(
+      /^\/sandbox\/pay\/[A-Za-z0-9_-]{43}$/,
+    );
+    const { data: sandboxExecution, error: sandboxExecutionError } =
+      await admin!
+        .from("payment_link_executions")
+        .select(
+          "id, payment_link_draft_id, approval_request_id, payment_id, invoice_issuance_id, provider_key, provider_environment, adapter_version, status, currency, requested_amount, source_evidence_sha256, idempotency_key, provider_reference, checkout_target, checkout_token_sha256",
+        )
+        .eq("approval_request_id", paymentLinkApproval!.id)
+        .single();
+    expect(sandboxExecutionError).toBeNull();
+    expect(sandboxExecution).toMatchObject({
+      payment_link_draft_id: paymentLinkDraft!.id,
+      approval_request_id: paymentLinkApproval!.id,
+      payment_id: paymentLinkDraft!.payment_id,
+      invoice_issuance_id: issuedInvoice!.id,
+      provider_key: "sandbox",
+      provider_environment: "sandbox",
+      adapter_version: "sandbox-v1",
+      status: "active",
+      currency: "INR",
+      requested_amount: 151200,
+      source_evidence_sha256: paymentLinkDraft!.evidence_sha256,
+      checkout_target: sandboxCheckoutPath,
+    });
+    expect(sandboxExecution?.idempotency_key).toHaveLength(64);
+    expect(sandboxExecution?.checkout_token_sha256).toHaveLength(64);
+    expect(sandboxExecution?.provider_reference).toMatch(/^sbx_[0-9a-f]{32}$/);
+    const { data: sandboxExecutionAudit, error: sandboxExecutionAuditError } =
+      await admin!
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", sandboxExecution!.id)
+        .eq("metadata->>event", "finance.sandbox_payment_link_created")
+        .single();
+    expect(sandboxExecutionAuditError).toBeNull();
+    expect(sandboxExecutionAudit?.metadata).toMatchObject({
+      provider_link_created: true,
+      provider_environment: "sandbox",
+      real_money_capable: false,
+      external_network_call_performed: false,
+      message_sent: false,
+      payment_collected: false,
+      settlement_recorded: false,
+      external_action_performed: false,
+    });
+    await page.goto(sandboxCheckoutPath!);
+    await expect(
+      page.getByRole("heading", {
+        name: "Payment flow is wired—real money is not.",
+      }),
+    ).toBeVisible();
+    await expect(page.locator("main")).toContainText("INV/2027-00043");
+    await expect(page.locator("main")).toContainText("₹1,51,200");
+    await expect(page.locator("main")).toContainText("Zero provider calls");
+    await expect(
+      page.getByRole("button", { name: "Real payment disabled" }),
+    ).toBeDisabled();
     await page.goto(`/leads/${dealId}`);
     const commercialTruth = page.locator("#commercial-truth");
     await expect(

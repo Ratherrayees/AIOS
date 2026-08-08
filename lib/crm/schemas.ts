@@ -1129,6 +1129,12 @@ export const paymentLinkApprovalInputSchema = z.object({
   rationale: z.string().trim().min(12).max(1_000),
 });
 
+export const sandboxPaymentLinkExecutionInputSchema = z.object({
+  organizationId: z.uuid(),
+  paymentLinkDraftId: z.uuid(),
+  approvalRequestId: z.uuid(),
+});
+
 export const paymentAllocationInputSchema = z
   .object({
     organizationId: z.uuid(),
@@ -1365,6 +1371,9 @@ export type PaymentLinkDraftPreparationInput = z.infer<
 >;
 export type PaymentLinkApprovalInput = z.infer<
   typeof paymentLinkApprovalInputSchema
+>;
+export type SandboxPaymentLinkExecutionInput = z.infer<
+  typeof sandboxPaymentLinkExecutionInputSchema
 >;
 export type PaymentAllocationInput = z.infer<
   typeof paymentAllocationInputSchema

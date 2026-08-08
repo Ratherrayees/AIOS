@@ -15,6 +15,7 @@ import {
   createSupplierContact,
   createSupplierContract,
   createSupplierProfile,
+  executeApprovedSandboxPaymentLink,
   issueApprovedInvoice,
   prepareAcceptedQuoteInvoiceDraft,
   preparePaymentLinkDraft,
@@ -201,6 +202,22 @@ type PaymentLinkApproval = {
   resolved_at: string | null;
 };
 
+type PaymentLinkExecution = {
+  id: string;
+  payment_link_draft_id: string;
+  approval_request_id: string;
+  provider_key: string;
+  provider_environment: "sandbox" | "production";
+  adapter_version: string;
+  status: "active" | "completed" | "expired" | "invalidated" | "failed";
+  currency: string;
+  requested_amount: number;
+  provider_reference: string;
+  checkout_target: string;
+  checkout_expires_at: string;
+  created_at: string;
+};
+
 type TripOption = {
   id: string;
   name: string;
@@ -287,6 +304,9 @@ export default function FinancePage() {
   const [paymentLinkApprovals, setPaymentLinkApprovals] = useState<
     PaymentLinkApproval[]
   >([]);
+  const [paymentLinkExecutions, setPaymentLinkExecutions] = useState<
+    PaymentLinkExecution[]
+  >([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [filter, setFilter] = useState<LedgerFilter>("open");
   const [query, setQuery] = useState("");
@@ -316,6 +336,7 @@ export default function FinancePage() {
       invoiceDocumentResult,
       paymentLinkDraftResult,
       paymentLinkApprovalResult,
+      paymentLinkExecutionResult,
     ] = await Promise.all([
       supabase
         .from("suppliers")
@@ -418,6 +439,13 @@ export default function FinancePage() {
         .eq("action", "payment.link.create")
         .in("status", ["pending", "approved"])
         .order("created_at", { ascending: false }),
+      supabase
+        .from("payment_link_executions")
+        .select(
+          "id, payment_link_draft_id, approval_request_id, provider_key, provider_environment, adapter_version, status, currency, requested_amount, provider_reference, checkout_target, checkout_expires_at, created_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("created_at", { ascending: false }),
     ]);
 
     const error =
@@ -435,7 +463,8 @@ export default function FinancePage() {
       invoiceIssuanceResult.error ??
       invoiceDocumentResult.error ??
       paymentLinkDraftResult.error ??
-      paymentLinkApprovalResult.error;
+      paymentLinkApprovalResult.error ??
+      paymentLinkExecutionResult.error;
     if (error) throw error;
 
     const nextSuppliers = (supplierResult.data ?? []) as Supplier[];
@@ -467,6 +496,9 @@ export default function FinancePage() {
     );
     setPaymentLinkApprovals(
       (paymentLinkApprovalResult.data ?? []) as PaymentLinkApproval[],
+    );
+    setPaymentLinkExecutions(
+      (paymentLinkExecutionResult.data ?? []) as PaymentLinkExecution[],
     );
     setFinanceLoadedAt(Date.now());
     setSelectedSupplierId((current) =>
@@ -920,6 +952,35 @@ export default function FinancePage() {
           error instanceof Error
             ? error.message
             : "The payment-link review could not be requested.",
+        );
+      }
+    });
+  }
+
+  function createSandboxPaymentLink(
+    paymentLinkDraftId: string,
+    approvalRequestId: string,
+  ) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await executeApprovedSandboxPaymentLink({
+          organizationId,
+          paymentLinkDraftId,
+          approvalRequestId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_executed
+            ? "The same sandbox checkout already exists; no duplicate provider execution was created."
+            : "Sandbox checkout created from the exact approval. It cannot charge, message, or settle anything.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The approved sandbox checkout could not be created.",
         );
       }
     });
@@ -2162,11 +2223,22 @@ export default function FinancePage() {
                     (candidate) => candidate.entity_id === paymentLinkDraft.id,
                   )
                 : null;
+              const paymentLinkExecution = paymentLinkApproval
+                ? paymentLinkExecutions.find(
+                    (candidate) =>
+                      candidate.approval_request_id === paymentLinkApproval.id,
+                  )
+                : null;
               const paymentLinkApprovalIsCurrent = Boolean(
                 paymentLinkApproval &&
                   (!paymentLinkApproval.expires_at ||
                     new Date(paymentLinkApproval.expires_at).getTime() >
                       financeLoadedAt),
+              );
+              const paymentLinkExecutionIsCurrent = Boolean(
+                paymentLinkExecution?.status === "active" &&
+                  new Date(paymentLinkExecution.checkout_expires_at).getTime() >
+                    financeLoadedAt,
               );
               const canPrepareCollection =
                 canManageFinance &&
@@ -2262,16 +2334,83 @@ export default function FinancePage() {
                             Prepare exact payment request
                           </button>
                         </>
+                      ) : paymentLinkExecution &&
+                        paymentLinkExecutionIsCurrent ? (
+                        <div className="payment-link-sandbox-active">
+                          <span>SANDBOX LINK ACTIVE</span>
+                          <strong>
+                            Provider contract executed with zero real-money
+                            authority.
+                          </strong>
+                          <Link
+                            href={paymentLinkExecution.checkout_target}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open sandbox checkout
+                          </Link>
+                          <small>
+                            {paymentLinkExecution.adapter_version} · reference{" "}
+                            {paymentLinkExecution.provider_reference} · expires{" "}
+                            {new Date(
+                              paymentLinkExecution.checkout_expires_at,
+                            ).toLocaleString()}
+                          </small>
+                        </div>
                       ) : paymentLinkApproval?.status === "approved" &&
                         paymentLinkApprovalIsCurrent ? (
                         <div className="payment-link-approved">
                           <span>Human approval recorded for this exact hash.</span>
-                          <strong>Provider handoff ready</strong>
+                          <strong>Sandbox provider handoff ready</strong>
                           <p>
-                            Live payment-link creation remains disabled until a
-                            production provider and execution policy are
-                            configured.
+                            Execute the local adapter to test idempotency and the
+                            checkout contract. It cannot contact a payment
+                            provider or collect money.
                           </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              createSandboxPaymentLink(
+                                paymentLinkDraft.id,
+                                paymentLinkApproval.id,
+                              )
+                            }
+                            disabled={pending}
+                          >
+                            Create sandbox payment link
+                          </button>
+                        </div>
+                      ) : paymentLinkExecution ? (
+                        <div className="payment-link-expired">
+                          <span>SANDBOX LINK NO LONGER ACTIVE</span>
+                          <strong>A new human review is required.</strong>
+                          <p>
+                            The previous simulation expired or its receivable
+                            evidence changed. Re-route the current exact draft.
+                          </p>
+                          <form
+                            className="payment-link-approval-form"
+                            onSubmit={(event) =>
+                              submitPaymentLinkApproval(
+                                event,
+                                paymentLinkDraft.id,
+                              )
+                            }
+                          >
+                            <label>
+                              Replacement review rationale
+                              <textarea
+                                name="paymentLinkRationale"
+                                defaultValue="Finance re-verified the issued invoice, currency, due date, and exact current outstanding balance for a replacement sandbox link."
+                                minLength={12}
+                                maxLength={1000}
+                                required
+                              />
+                            </label>
+                            <button type="submit" disabled={pending}>
+                              Request replacement approval
+                            </button>
+                          </form>
                         </div>
                       ) : paymentLinkApproval?.status === "pending" &&
                         paymentLinkApprovalIsCurrent ? (
@@ -2321,8 +2460,9 @@ export default function FinancePage() {
                         </small>
                       ) : null}
                       <small className="payment-link-zero-effect">
-                        No provider link · no customer message · no charge · no
-                        settlement
+                        {paymentLinkExecutionIsCurrent
+                          ? "Sandbox URL only · zero provider network calls · no customer message · no real charge · no settlement"
+                          : "No provider link · no customer message · no charge · no settlement"}
                       </small>
                     </section>
                   ) : null}

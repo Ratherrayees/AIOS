@@ -3634,6 +3634,121 @@ export type Database = {
           },
         ]
       }
+      payment_link_executions: {
+        Row: {
+          adapter_version: string
+          approval_request_id: string
+          checkout_expires_at: string
+          checkout_target: string
+          checkout_token_sha256: string
+          created_at: string
+          currency: string
+          executed_by: string
+          id: string
+          idempotency_key: string
+          invalidated_at: string | null
+          invoice_issuance_id: string
+          organization_id: string
+          payment_id: string
+          payment_link_draft_id: string
+          provider_environment: string
+          provider_key: string
+          provider_reference: string
+          requested_amount: number
+          source_evidence_sha256: string
+          status: string
+        }
+        Insert: {
+          adapter_version: string
+          approval_request_id: string
+          checkout_expires_at: string
+          checkout_target: string
+          checkout_token_sha256: string
+          created_at?: string
+          currency: string
+          executed_by: string
+          id?: string
+          idempotency_key: string
+          invalidated_at?: string | null
+          invoice_issuance_id: string
+          organization_id: string
+          payment_id: string
+          payment_link_draft_id: string
+          provider_environment: string
+          provider_key: string
+          provider_reference: string
+          requested_amount: number
+          source_evidence_sha256: string
+          status?: string
+        }
+        Update: {
+          adapter_version?: string
+          approval_request_id?: string
+          checkout_expires_at?: string
+          checkout_target?: string
+          checkout_token_sha256?: string
+          created_at?: string
+          currency?: string
+          executed_by?: string
+          id?: string
+          idempotency_key?: string
+          invalidated_at?: string | null
+          invoice_issuance_id?: string
+          organization_id?: string
+          payment_id?: string
+          payment_link_draft_id?: string
+          provider_environment?: string
+          provider_key?: string
+          provider_reference?: string
+          requested_amount?: number
+          source_evidence_sha256?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_link_executions_approval_same_organization_fkey"
+            columns: ["organization_id", "approval_request_id"]
+            isOneToOne: false
+            referencedRelation: "approval_requests"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_link_executions_draft_same_organization_fkey"
+            columns: ["organization_id", "payment_link_draft_id"]
+            isOneToOne: false
+            referencedRelation: "payment_link_drafts"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_link_executions_executed_by_fkey"
+            columns: ["executed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_link_executions_issuance_same_organization_fkey"
+            columns: ["organization_id", "invoice_issuance_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuances"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "payment_link_executions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_link_executions_payment_same_organization_fkey"
+            columns: ["organization_id", "payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -6129,6 +6244,17 @@ export type Database = {
           total_ai_drafts: number
         }[]
       }
+      get_sandbox_payment_checkout: {
+        Args: { target_checkout_token_sha256: string }
+        Returns: {
+          checkout_expires_at: string
+          currency: string
+          invoice_number: string
+          provider_reference: string
+          requested_amount: number
+          sandbox_status: string
+        }[]
+      }
       get_traveler_portal_document: {
         Args: { target_document_id: string; target_token_hash: string }
         Returns: {
@@ -6399,6 +6525,35 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      record_payment_link_execution: {
+        Args: {
+          target_adapter_version: string
+          target_approval_request_id: string
+          target_checkout_expires_at: string
+          target_checkout_target: string
+          target_checkout_token_sha256: string
+          target_executed_by: string
+          target_idempotency_key: string
+          target_organization_id: string
+          target_payment_link_draft_id: string
+          target_provider_environment: string
+          target_provider_key: string
+          target_provider_reference: string
+        }
+        Returns: {
+          adapter_version: string
+          already_executed: boolean
+          checkout_expires_at: string
+          checkout_target: string
+          created_at: string
+          execution_status: string
+          idempotency_key: string
+          payment_link_execution_id: string
+          provider_environment: string
+          provider_key: string
+          provider_reference: string
+        }[]
       }
       record_travel_document: {
         Args: {

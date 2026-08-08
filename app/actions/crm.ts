@@ -84,6 +84,7 @@ import {
   paymentAllocationInputSchema,
   paymentLinkApprovalInputSchema,
   paymentLinkDraftPreparationInputSchema,
+  sandboxPaymentLinkExecutionInputSchema,
   paymentObligationInputSchema,
   paymentStatusRefreshSchema,
   paymentVoidInputSchema,
@@ -166,6 +167,7 @@ import {
   type PaymentAllocationInput,
   type PaymentLinkApprovalInput,
   type PaymentLinkDraftPreparationInput,
+  type SandboxPaymentLinkExecutionInput,
   type PaymentObligationInput,
   type PaymentStatusRefreshInput,
   type PaymentVoidInput,
@@ -197,6 +199,8 @@ import {
   invoiceDocumentFilename,
   renderInvoicePdf,
 } from "../../lib/finance/invoice-pdf";
+import { paymentLinkExecutionIdempotencyKey } from "../../lib/payments/contracts";
+import { SandboxPaymentLinkAdapter } from "../../lib/payments/sandbox-adapter";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import type { Json } from "../../types/database";
@@ -3470,6 +3474,113 @@ export async function requestPaymentLinkApproval(
       error?.message || "The payment-link review could not be requested.",
     );
   return approval;
+}
+
+/**
+ * Consumes one exact, approved payment request through the local sandbox
+ * adapter. This creates a simulation URL only: no provider network call,
+ * customer message, real charge, or settlement can occur.
+ */
+export async function executeApprovedSandboxPaymentLink(
+  input: SandboxPaymentLinkExecutionInput,
+) {
+  const data = sandboxPaymentLinkExecutionInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.PAYMENT_SANDBOX_ENABLED !== "true"
+  )
+    throw new Error(
+      "Sandbox payment execution is disabled in this environment.",
+    );
+
+  const supabase = await createSupabaseServerClient();
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const actorId = claims?.claims.sub;
+  if (claimsError || !actorId) throw new Error("Sign in is required.");
+
+  const [{ data: draft, error: draftError }, { data: approval, error: approvalError }] =
+    await Promise.all([
+      supabase
+        .from("payment_link_drafts")
+        .select(
+          "id, payment_id, invoice_issuance_id, invoice_number, currency, requested_amount, evidence_sha256, status",
+        )
+        .eq("organization_id", data.organizationId)
+        .eq("id", data.paymentLinkDraftId)
+        .maybeSingle(),
+      supabase
+        .from("approval_requests")
+        .select("id, action, entity_type, entity_id, status, expires_at")
+        .eq("organization_id", data.organizationId)
+        .eq("id", data.approvalRequestId)
+        .maybeSingle(),
+    ]);
+  if (draftError || !draft || draft.status !== "ready")
+    throw new Error("A current payment request is required.");
+  if (
+    approvalError ||
+    !approval ||
+    approval.action !== "payment.link.create" ||
+    approval.entity_type !== "payment_link_draft" ||
+    approval.entity_id !== draft.id ||
+    approval.status !== "approved" ||
+    !approval.expires_at ||
+    new Date(approval.expires_at).getTime() <= Date.now()
+  )
+    throw new Error(
+      "Approve this exact payment request before sandbox execution.",
+    );
+
+  const evidence = {
+    organizationId: data.organizationId,
+    paymentLinkDraftId: draft.id,
+    approvalRequestId: approval.id,
+    paymentId: draft.payment_id,
+    invoiceIssuanceId: draft.invoice_issuance_id,
+    invoiceNumber: draft.invoice_number,
+    currency: draft.currency,
+    requestedAmount: Number(draft.requested_amount),
+    sourceEvidenceSha256: draft.evidence_sha256,
+  };
+  const idempotencyKey = paymentLinkExecutionIdempotencyKey({
+    ...evidence,
+    providerKey: "sandbox",
+    providerEnvironment: "sandbox",
+  });
+  const adapter = new SandboxPaymentLinkAdapter();
+  const providerResult = await adapter.createPaymentLink({
+    ...evidence,
+    idempotencyKey,
+  });
+  if (
+    providerResult.realMoneyCapable ||
+    providerResult.externalNetworkCallPerformed
+  )
+    throw new Error("The local sandbox adapter exceeded its authority.");
+
+  const admin = createSupabaseAdminClient();
+  const { data: execution, error } = await admin
+    .rpc("record_payment_link_execution", {
+      target_organization_id: data.organizationId,
+      target_payment_link_draft_id: draft.id,
+      target_approval_request_id: approval.id,
+      target_provider_key: providerResult.providerKey,
+      target_provider_environment: providerResult.providerEnvironment,
+      target_adapter_version: providerResult.adapterVersion,
+      target_idempotency_key: idempotencyKey,
+      target_provider_reference: providerResult.providerReference,
+      target_checkout_target: providerResult.checkoutTarget,
+      target_checkout_token_sha256: providerResult.checkoutTokenSha256,
+      target_checkout_expires_at: providerResult.checkoutExpiresAt,
+      target_executed_by: actorId,
+    })
+    .single();
+  if (error || !execution)
+    throw new Error(
+      error?.message || "The sandbox payment link could not be created.",
+    );
+  return execution;
 }
 
 /** Records evidence of a settlement that already happened; it cannot charge. */

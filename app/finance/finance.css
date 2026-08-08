@@ -930,6 +930,8 @@
 
 .payment-link-approved,
 .payment-link-pending,
+.payment-link-sandbox-active,
+.payment-link-expired,
 .payment-link-approval-form {
   display: grid;
   gap: 7px;
@@ -944,14 +946,61 @@
 }
 
 .payment-link-approved > span,
-.payment-link-pending > span {
+.payment-link-pending > span,
+.payment-link-sandbox-active > span,
+.payment-link-expired > span {
   color: #acd8d0;
   font-size: 0.68rem;
 }
 
-.payment-link-approved > strong {
+.payment-link-approved > strong,
+.payment-link-sandbox-active > strong {
   color: #73e8d0;
   font-size: 0.81rem;
+}
+
+.payment-link-sandbox-active {
+  border-color: rgb(139 92 246 / 36%);
+  background:
+    linear-gradient(135deg, rgb(139 92 246 / 12%), rgb(34 211 238 / 7%)),
+    rgb(255 255 255 / 2%);
+}
+
+.payment-link-sandbox-active > span {
+  color: #bca7ff;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.payment-link-sandbox-active > strong {
+  color: #dcd4ff;
+}
+
+.payment-link-sandbox-active a {
+  width: fit-content;
+  border: 1px solid rgb(139 92 246 / 40%);
+  border-radius: 8px;
+  background: rgb(139 92 246 / 16%);
+  padding: 9px 12px;
+  color: #e8e2ff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.payment-link-sandbox-active small {
+  color: #8f91af;
+  font-size: 0.62rem;
+  overflow-wrap: anywhere;
+}
+
+.payment-link-expired {
+  border-color: rgb(239 181 73 / 26%);
+}
+
+.payment-link-expired > span,
+.payment-link-expired > strong {
+  color: #efc777;
 }
 
 .payment-link-pending {

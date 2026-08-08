@@ -3107,6 +3107,51 @@ async function verifyAuthorization() {
           paymentLinkApprovalId,
     );
 
+    const sandboxCheckoutToken = randomBytes(32).toString("base64url");
+    const sandboxCheckoutTokenHash = createHash("sha256")
+      .update(sandboxCheckoutToken)
+      .digest("hex");
+    const sandboxIdempotencyKey = createHash("sha256")
+      .update(
+        [
+          "payment-link-execution-v1",
+          organizationA.id,
+          preparedPaymentLinkRow.payment_link_draft_id,
+          paymentLinkApprovalId,
+          "sandbox",
+          "sandbox",
+          preparedPaymentLinkRow.evidence_sha256,
+        ].join("\n"),
+      )
+      .digest("hex");
+    const sandboxProviderReference = `sbx_${sandboxIdempotencyKey.slice(0, 32)}`;
+    const sandboxCheckoutPath = `/sandbox/pay/${sandboxCheckoutToken}`;
+    const sandboxCheckoutExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const unapprovedSandboxExecution = await admin.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: sandboxIdempotencyKey,
+        target_provider_reference: sandboxProviderReference,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: ownerUser.id,
+      },
+    );
+    record(
+      "sandbox execution cannot bypass the unresolved human gate",
+      Boolean(unapprovedSandboxExecution.error),
+    );
+
     const operationsEmail = `aios-authz-operations-${suffix}@stateai.invalid`;
     const { data: operationsIdentity, error: operationsIdentityError } =
       await admin.auth.admin.createUser({
@@ -3155,7 +3200,6 @@ async function verifyAuthorization() {
       "operations cannot resolve finance-sensitive approvals",
       Boolean(operationsResolution.error),
     );
-    await operations.auth.signOut();
 
     const approvedPaymentLink = await owner.rpc("resolve_approval_request", {
       target_organization_id: organizationA.id,
@@ -3178,6 +3222,239 @@ async function verifyAuthorization() {
         paymentLinkApprovalAuditMetadata?.external_action_performed === false,
     );
 
+    const browserSandboxExecution = await owner.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: sandboxIdempotencyKey,
+        target_provider_reference: sandboxProviderReference,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: ownerUser.id,
+      },
+    );
+    record(
+      "browser clients cannot invoke the trusted payment adapter recorder",
+      Boolean(browserSandboxExecution.error),
+    );
+    const foreignActorSandboxExecution = await admin.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: sandboxIdempotencyKey,
+        target_provider_reference: sandboxProviderReference,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: viewerUser.id,
+      },
+    );
+    record(
+      "trusted payment recording rejects a foreign execution actor",
+      Boolean(foreignActorSandboxExecution.error),
+    );
+    const forgedSandboxIdempotency = await admin.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: "0".repeat(64),
+        target_provider_reference: `sbx_${"0".repeat(32)}`,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: ownerUser.id,
+      },
+    );
+    record(
+      "sandbox execution rejects forged idempotency evidence",
+      Boolean(forgedSandboxIdempotency.error),
+    );
+    const createdSandboxExecution = await admin.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: sandboxIdempotencyKey,
+        target_provider_reference: sandboxProviderReference,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: ownerUser.id,
+      },
+    );
+    const createdSandboxExecutionRow = createdSandboxExecution.data?.[0];
+    if (createdSandboxExecution.error || !createdSandboxExecutionRow)
+      throw createdSandboxExecution.error ??
+        new Error("The sandbox payment execution was not recorded.");
+    const [
+      storedSandboxExecution,
+      hiddenForeignSandboxExecution,
+      hiddenOperationsSandboxExecution,
+      sandboxExecutionAudit,
+      sandboxCheckoutSnapshot,
+    ] = await Promise.all([
+      owner
+        .from("payment_link_executions")
+        .select(
+          "id, payment_link_draft_id, approval_request_id, payment_id, invoice_issuance_id, provider_key, provider_environment, adapter_version, status, currency, requested_amount, source_evidence_sha256, idempotency_key, provider_reference, checkout_target, checkout_expires_at, executed_by",
+        )
+        .eq("id", createdSandboxExecutionRow.payment_link_execution_id)
+        .single(),
+      viewer
+        .from("payment_link_executions")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      operations
+        .from("payment_link_executions")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", createdSandboxExecutionRow.payment_link_execution_id)
+        .eq("metadata->>event", "finance.sandbox_payment_link_created")
+        .single(),
+      admin.rpc("get_sandbox_payment_checkout", {
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+      }),
+    ]);
+    record(
+      "approved sandbox execution freezes the exact provider-neutral contract",
+      !storedSandboxExecution.error &&
+        storedSandboxExecution.data?.payment_link_draft_id ===
+          preparedPaymentLinkRow.payment_link_draft_id &&
+        storedSandboxExecution.data?.approval_request_id ===
+          paymentLinkApprovalId &&
+        storedSandboxExecution.data?.payment_id === collectionReceivable.id &&
+        storedSandboxExecution.data?.invoice_issuance_id ===
+          issuedInvoiceRow.invoice_issuance_id &&
+        storedSandboxExecution.data?.provider_key === "sandbox" &&
+        storedSandboxExecution.data?.provider_environment === "sandbox" &&
+        storedSandboxExecution.data?.adapter_version === "sandbox-v1" &&
+        storedSandboxExecution.data?.status === "active" &&
+        Number(storedSandboxExecution.data?.requested_amount) ===
+          Number(collectionReceivable.amount) &&
+        storedSandboxExecution.data?.source_evidence_sha256 ===
+          preparedPaymentLinkRow.evidence_sha256 &&
+        storedSandboxExecution.data?.idempotency_key ===
+          sandboxIdempotencyKey &&
+        storedSandboxExecution.data?.provider_reference ===
+          sandboxProviderReference &&
+        storedSandboxExecution.data?.checkout_target === sandboxCheckoutPath &&
+        storedSandboxExecution.data?.executed_by === ownerUser.id,
+    );
+    record(
+      "sandbox execution evidence stays finance-only across tenant and role",
+      !hiddenForeignSandboxExecution.error &&
+        hiddenForeignSandboxExecution.data?.length === 0 &&
+        !hiddenOperationsSandboxExecution.error &&
+        hiddenOperationsSandboxExecution.data?.length === 0,
+    );
+    const sandboxExecutionAuditMetadata = sandboxExecutionAudit.data?.metadata;
+    record(
+      "sandbox execution audit proves zero real-world effects",
+      !sandboxExecutionAudit.error &&
+        sandboxExecutionAuditMetadata?.provider_link_created === true &&
+        sandboxExecutionAuditMetadata?.provider_environment === "sandbox" &&
+        sandboxExecutionAuditMetadata?.real_money_capable === false &&
+        sandboxExecutionAuditMetadata?.external_network_call_performed ===
+          false &&
+        sandboxExecutionAuditMetadata?.message_sent === false &&
+        sandboxExecutionAuditMetadata?.payment_collected === false &&
+        sandboxExecutionAuditMetadata?.settlement_recorded === false &&
+        sandboxExecutionAuditMetadata?.external_action_performed === false,
+    );
+    record(
+      "unguessable sandbox token returns only a customer-safe simulation snapshot",
+      !sandboxCheckoutSnapshot.error &&
+        sandboxCheckoutSnapshot.data?.length === 1 &&
+        sandboxCheckoutSnapshot.data?.[0]?.provider_reference ===
+          sandboxProviderReference &&
+        sandboxCheckoutSnapshot.data?.[0]?.invoice_number ===
+          "INV/2027-00043" &&
+        Number(sandboxCheckoutSnapshot.data?.[0]?.requested_amount) ===
+          Number(collectionReceivable.amount) &&
+        sandboxCheckoutSnapshot.data?.[0]?.sandbox_status ===
+          "simulation_only" &&
+        !Object.hasOwn(
+          sandboxCheckoutSnapshot.data?.[0] ?? {},
+          "organization_id",
+        ),
+    );
+    const browserSandboxSnapshot = await owner.rpc(
+      "get_sandbox_payment_checkout",
+      { target_checkout_token_sha256: sandboxCheckoutTokenHash },
+    );
+    record(
+      "browser clients cannot bypass the sandbox checkout snapshot boundary",
+      Boolean(browserSandboxSnapshot.error),
+    );
+    const retriedSandboxExecution = await admin.rpc(
+      "record_payment_link_execution",
+      {
+        target_organization_id: organizationA.id,
+        target_payment_link_draft_id:
+          preparedPaymentLinkRow.payment_link_draft_id,
+        target_approval_request_id: paymentLinkApprovalId,
+        target_provider_key: "sandbox",
+        target_provider_environment: "sandbox",
+        target_adapter_version: "sandbox-v1",
+        target_idempotency_key: sandboxIdempotencyKey,
+        target_provider_reference: sandboxProviderReference,
+        target_checkout_target: sandboxCheckoutPath,
+        target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        target_checkout_expires_at: sandboxCheckoutExpiresAt,
+        target_executed_by: ownerUser.id,
+      },
+    );
+    record(
+      "exact sandbox provider execution retries are idempotent",
+      !retriedSandboxExecution.error &&
+        retriedSandboxExecution.data?.[0]?.already_executed === true &&
+        retriedSandboxExecution.data?.[0]?.payment_link_execution_id ===
+          createdSandboxExecutionRow.payment_link_execution_id &&
+        retriedSandboxExecution.data?.[0]?.checkout_target ===
+          sandboxCheckoutPath,
+    );
+    const forgedSandboxExecutionRewrite = await owner
+      .from("payment_link_executions")
+      .update({ requested_amount: 1 })
+      .eq("id", createdSandboxExecutionRow.payment_link_execution_id);
+    const forgedSandboxExecutionDelete = await owner
+      .from("payment_link_executions")
+      .delete()
+      .eq("id", createdSandboxExecutionRow.payment_link_execution_id);
+    record(
+      "browser clients cannot rewrite or delete provider execution evidence",
+      Boolean(forgedSandboxExecutionRewrite.error) &&
+        Boolean(forgedSandboxExecutionDelete.error),
+    );
+    await operations.auth.signOut();
+
     const changedCollectionBalance = await owner.rpc(
       "record_payment_allocation",
       {
@@ -3188,7 +3465,12 @@ async function verifyAuthorization() {
         target_reference: `COLLECTION-${suffix}`,
       },
     );
-    const [supersededPaymentLinkDraft, expiredPaymentLinkApproval] =
+    const [
+      supersededPaymentLinkDraft,
+      expiredPaymentLinkApproval,
+      invalidatedSandboxExecution,
+      invalidatedSandboxSnapshot,
+    ] =
       await Promise.all([
         owner
           .from("payment_link_drafts")
@@ -3200,13 +3482,25 @@ async function verifyAuthorization() {
           .select("status")
           .eq("id", paymentLinkApprovalId)
           .single(),
+        owner
+          .from("payment_link_executions")
+          .select("status, invalidated_at")
+          .eq("id", createdSandboxExecutionRow.payment_link_execution_id)
+          .single(),
+        admin.rpc("get_sandbox_payment_checkout", {
+          target_checkout_token_sha256: sandboxCheckoutTokenHash,
+        }),
       ]);
     record(
       "a changed receivable supersedes exact draft and approved gate",
       !changedCollectionBalance.error &&
         supersededPaymentLinkDraft.data?.status === "superseded" &&
         Boolean(supersededPaymentLinkDraft.data?.superseded_at) &&
-        expiredPaymentLinkApproval.data?.status === "expired",
+        expiredPaymentLinkApproval.data?.status === "expired" &&
+        invalidatedSandboxExecution.data?.status === "invalidated" &&
+        Boolean(invalidatedSandboxExecution.data?.invalidated_at) &&
+        !invalidatedSandboxSnapshot.error &&
+        invalidatedSandboxSnapshot.data?.length === 0,
     );
     const revisedPaymentLink = await owner.rpc("prepare_payment_link_draft", {
       target_organization_id: organizationA.id,

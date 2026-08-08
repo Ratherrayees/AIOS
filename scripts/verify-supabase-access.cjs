@@ -36,6 +36,7 @@ const protectedTables = [
   "invoice_issuances",
   "invoice_documents",
   "payment_link_drafts",
+  "payment_link_executions",
   "conversations",
   "messages",
   "approval_requests",
@@ -365,6 +366,27 @@ async function verify() {
         "22222222-2222-4222-8222-222222222222",
       target_rationale: "Blocked anonymous payment-link approval request.",
     },
+  );
+  const { error: anonymousPaymentLinkExecutionError } = await anonymous.rpc(
+    "record_payment_link_execution",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_payment_link_draft_id: "22222222-2222-4222-8222-222222222222",
+      target_approval_request_id: "33333333-3333-4333-8333-333333333333",
+      target_provider_key: "sandbox",
+      target_provider_environment: "sandbox",
+      target_adapter_version: "sandbox-v1",
+      target_idempotency_key: "0".repeat(64),
+      target_provider_reference: `sbx_${"0".repeat(32)}`,
+      target_checkout_target: `/sandbox/pay/${"A".repeat(43)}`,
+      target_checkout_token_sha256: "1".repeat(64),
+      target_checkout_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      target_executed_by: "44444444-4444-4444-8444-444444444444",
+    },
+  );
+  const { error: anonymousSandboxCheckoutError } = await anonymous.rpc(
+    "get_sandbox_payment_checkout",
+    { target_checkout_token_sha256: "0".repeat(64) },
   );
   const { error: anonymousDocumentClassificationError } = await anonymous.rpc(
     "classify_trip_document",
@@ -948,6 +970,16 @@ async function verify() {
       function: "request_payment_link_approval",
       anonymousExecutionBlocked: Boolean(anonymousPaymentLinkApprovalError),
       anonymousErrorCode: anonymousPaymentLinkApprovalError?.code ?? null,
+    },
+    {
+      function: "record_payment_link_execution",
+      anonymousExecutionBlocked: Boolean(anonymousPaymentLinkExecutionError),
+      anonymousErrorCode: anonymousPaymentLinkExecutionError?.code ?? null,
+    },
+    {
+      function: "get_sandbox_payment_checkout",
+      anonymousExecutionBlocked: Boolean(anonymousSandboxCheckoutError),
+      anonymousErrorCode: anonymousSandboxCheckoutError?.code ?? null,
     },
     {
       function: "classify_trip_document",
