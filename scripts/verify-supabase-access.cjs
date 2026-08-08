@@ -34,6 +34,7 @@ const protectedTables = [
   "invoice_drafts",
   "invoice_issuer_profiles",
   "invoice_issuances",
+  "invoice_documents",
   "payment_link_drafts",
   "conversations",
   "messages",
@@ -330,6 +331,23 @@ async function verify() {
       target_organization_id: "11111111-1111-4111-8111-111111111111",
       target_invoice_draft_id: "22222222-2222-4222-8222-222222222222",
       target_approval_request_id: "33333333-3333-4333-8333-333333333333",
+    },
+  );
+  const { error: anonymousInvoiceDocumentError } = await anonymous.rpc(
+    "record_invoice_document_render",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_invoice_issuance_id: "22222222-2222-4222-8222-222222222222",
+      target_renderer_version: "invoice-record-v1",
+      target_storage_path:
+        "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/invoice-record-v1/" +
+        "0".repeat(64) +
+        ".pdf",
+      target_file_name: "blocked.pdf",
+      target_byte_size: 1024,
+      target_source_issuance_sha256: "0".repeat(64),
+      target_content_sha256: "0".repeat(64),
+      target_generated_by: "33333333-3333-4333-8333-333333333333",
     },
   );
   const { error: anonymousPaymentLinkDraftError } = await anonymous.rpc(
@@ -915,6 +933,11 @@ async function verify() {
       function: "issue_approved_invoice",
       anonymousExecutionBlocked: Boolean(anonymousInvoiceIssuanceError),
       anonymousErrorCode: anonymousInvoiceIssuanceError?.code ?? null,
+    },
+    {
+      function: "record_invoice_document_render",
+      anonymousExecutionBlocked: Boolean(anonymousInvoiceDocumentError),
+      anonymousErrorCode: anonymousInvoiceDocumentError?.code ?? null,
     },
     {
       function: "prepare_payment_link_draft",

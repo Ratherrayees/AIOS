@@ -30,6 +30,8 @@ import {
   operationalExceptionStatusSchema,
   operationsRadarRefreshSchema,
   approvedInvoiceIssuanceInputSchema,
+  invoiceDocumentDownloadInputSchema,
+  invoiceDocumentRenderInputSchema,
   invoiceDraftPreparationInputSchema,
   invoiceIssuanceApprovalInputSchema,
   invoiceIssuerProfileInputSchema,
@@ -1355,6 +1357,31 @@ test("invoice issuance requires bounded issuer identity and exact human evidence
       approvalRequestId: crypto.randomUUID(),
     }).success,
     true,
+  );
+});
+
+test("private invoice rendering accepts only exact document identifiers", () => {
+  const invoiceIssuanceId = crypto.randomUUID();
+  assert.equal(
+    invoiceDocumentRenderInputSchema.safeParse({
+      organizationId,
+      invoiceIssuanceId,
+    }).success,
+    true,
+  );
+  assert.equal(
+    invoiceDocumentDownloadInputSchema.safeParse({
+      organizationId,
+      invoiceDocumentId: crypto.randomUUID(),
+    }).success,
+    true,
+  );
+  assert.equal(
+    invoiceDocumentRenderInputSchema.safeParse({
+      organizationId,
+      invoiceIssuanceId: "foreign-invoice",
+    }).success,
+    false,
   );
 });
 

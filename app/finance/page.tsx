@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import {
+  createInvoiceDocumentDownload,
   createPaymentObligation,
   createSupplierContact,
   createSupplierContract,
@@ -21,6 +22,7 @@ import {
   refreshPaymentStatuses,
   requestInvoiceIssuanceApproval,
   requestPaymentLinkApproval,
+  renderPrivateInvoiceDocument,
   updateInvoiceIssuerProfile,
   updateInvoiceNumberPolicy,
   voidPaymentObligation,
@@ -166,6 +168,17 @@ type InvoiceIssuance = {
   issuance_sha256: string;
 };
 
+type InvoiceDocument = {
+  id: string;
+  invoice_issuance_id: string;
+  renderer_version: string;
+  compliance_status: "jurisdiction_review_required";
+  file_name: string;
+  byte_size: number;
+  content_sha256: string;
+  generated_at: string;
+};
+
 type PaymentLinkDraft = {
   id: string;
   payment_id: string;
@@ -265,6 +278,9 @@ export default function FinancePage() {
   const [invoiceIssuances, setInvoiceIssuances] = useState<InvoiceIssuance[]>(
     [],
   );
+  const [invoiceDocuments, setInvoiceDocuments] = useState<InvoiceDocument[]>(
+    [],
+  );
   const [paymentLinkDrafts, setPaymentLinkDrafts] = useState<
     PaymentLinkDraft[]
   >([]);
@@ -297,6 +313,7 @@ export default function FinancePage() {
       invoiceIssuerResult,
       invoiceApprovalResult,
       invoiceIssuanceResult,
+      invoiceDocumentResult,
       paymentLinkDraftResult,
       paymentLinkApprovalResult,
     ] = await Promise.all([
@@ -381,6 +398,13 @@ export default function FinancePage() {
         .eq("organization_id", targetOrganizationId)
         .order("issued_at", { ascending: false }),
       supabase
+        .from("invoice_documents")
+        .select(
+          "id, invoice_issuance_id, renderer_version, compliance_status, file_name, byte_size, content_sha256, generated_at",
+        )
+        .eq("organization_id", targetOrganizationId)
+        .order("generated_at", { ascending: false }),
+      supabase
         .from("payment_link_drafts")
         .select(
           "id, payment_id, invoice_issuance_id, revision, status, currency, requested_amount, due_at, invoice_number, evidence_sha256, created_at",
@@ -409,6 +433,7 @@ export default function FinancePage() {
       invoiceIssuerResult.error ??
       invoiceApprovalResult.error ??
       invoiceIssuanceResult.error ??
+      invoiceDocumentResult.error ??
       paymentLinkDraftResult.error ??
       paymentLinkApprovalResult.error;
     if (error) throw error;
@@ -433,6 +458,9 @@ export default function FinancePage() {
     );
     setInvoiceIssuances(
       (invoiceIssuanceResult.data ?? []) as InvoiceIssuance[],
+    );
+    setInvoiceDocuments(
+      (invoiceDocumentResult.data ?? []) as InvoiceDocument[],
     );
     setPaymentLinkDrafts(
       (paymentLinkDraftResult.data ?? []) as PaymentLinkDraft[],
@@ -782,6 +810,60 @@ export default function FinancePage() {
           error instanceof Error
             ? error.message
             : "The approved invoice could not be issued.",
+        );
+      }
+    });
+  }
+
+  function renderInvoiceDocument(invoiceIssuanceId: string) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await renderPrivateInvoiceDocument({
+          organizationId,
+          invoiceIssuanceId,
+        });
+        await loadFinance(organizationId);
+        setNotice(
+          result.already_rendered
+            ? `Private invoice ${result.file_name} was already rendered from this exact issuance.`
+            : `Private invoice ${result.file_name} rendered with immutable checksum evidence. Nothing was delivered.`,
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The private invoice document could not be rendered.",
+        );
+      }
+    });
+  }
+
+  function downloadInvoiceDocument(invoiceDocument: InvoiceDocument) {
+    if (!organizationId || pending) return;
+    setNotice("");
+    startTransition(async () => {
+      try {
+        const result = await createInvoiceDocumentDownload({
+          organizationId,
+          invoiceDocumentId: invoiceDocument.id,
+        });
+        const anchor = window.document.createElement("a");
+        anchor.href = result.url;
+        anchor.download = result.fileName;
+        anchor.hidden = true;
+        window.document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        setNotice(
+          "Secure invoice download issued for 60 seconds. No customer delivery occurred.",
+        );
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The private invoice document could not be downloaded.",
         );
       }
     });
@@ -1743,6 +1825,12 @@ export default function FinancePage() {
                           candidate.invoice_draft_id === draft.id,
                       )
                     : null;
+                  const invoiceDocument = issuance
+                    ? invoiceDocuments.find(
+                        (candidate) =>
+                          candidate.invoice_issuance_id === issuance.id,
+                      )
+                    : null;
                   const approval = draft
                     ? invoiceApprovals.find(
                         (candidate) => candidate.entity_id === draft.id,
@@ -1814,10 +1902,62 @@ export default function FinancePage() {
                                 evidence {issuance.issuance_sha256.slice(0, 12)}…
                               </span>
                               <small>
-                                Permanent number allocated. Rendering, delivery,
+                                Permanent number allocated. Customer delivery,
                                 messaging, payment links and collection remain
-                                incomplete.
+                                separate controlled workflows.
                               </small>
+                              {invoiceDocument ? (
+                                <div className="invoice-document-evidence">
+                                  <div>
+                                    <span>PRIVATE PDF READY</span>
+                                    <strong>{invoiceDocument.file_name}</strong>
+                                    <small>
+                                      {invoiceDocument.renderer_version} ·{" "}
+                                      {Math.ceil(invoiceDocument.byte_size / 1024)} KB ·
+                                      checksum {invoiceDocument.content_sha256.slice(0, 12)}…
+                                    </small>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      downloadInvoiceDocument(invoiceDocument)
+                                    }
+                                    disabled={pending}
+                                  >
+                                    Secure PDF download
+                                  </button>
+                                  <p>
+                                    Jurisdiction review required before external
+                                    delivery.
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="invoice-document-readiness">
+                                  <div>
+                                    <span>DOCUMENT NOT RENDERED</span>
+                                    <strong>
+                                      Create a private operational invoice record
+                                    </strong>
+                                    <small>
+                                      The PDF will be checksum-bound to this exact
+                                      issuance and stored privately.
+                                    </small>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      renderInvoiceDocument(issuance.id)
+                                    }
+                                    disabled={pending}
+                                  >
+                                    Render private invoice PDF
+                                  </button>
+                                  <p>
+                                    Internal artifact only · jurisdiction review
+                                    required · no customer delivery.
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           ) : !policyCurrent ? (
                             <button
@@ -1892,7 +2032,9 @@ export default function FinancePage() {
                         </button>
                       )}
                       <small className="invoice-zero-effect">
-                        {issuance
+                        {invoiceDocument
+                          ? "Private rendering only · no delivery, customer message, payment link, charge, or settlement."
+                          : issuance
                           ? "Issuance evidence only · no rendered document, delivery, message, payment link, charge, or settlement."
                           : "Internal evidence only · no legal number, document, delivery, message, charge, or settlement."}
                       </small>

@@ -13,6 +13,7 @@ The Supabase CLI management identity available on this machine does not list the
 - Remote `public` schema lint returned zero errors or warnings.
 - Local migration history now contains 80 migrations; the hosted database had applied 57 at the read-only checkpoint.
 - Twenty-three migrations are pending remotely, from `20260728082547` through `20260801180000`.
+- The repository has since advanced to 88 local migrations through `20260801260000`. If the hosted project is still at the 57-migration checkpoint, the inferred staging delta is now 31 migrations; re-read the hosted history before deploying rather than treating that inference as current remote evidence.
 - The pending set contains the newer operations, traveler-entry, supplier/finance, portal, knowledge, analytics-target, management-report, provider-fallback, Sales Copilot provenance/review/calibration, quote commercial guardrails, structured sell/tax/cost lines, reusable rate catalog, immutable proposal content, approval-gated public proposal links, granular discount/non-standard-term policy, and related hardening work already verified locally.
 - Hosted table statistics are fixture-scale: the largest estimated application-table row count observed was only 12, and most tables held zero or one row.
 - Many indexes therefore report zero scans. This is expected at the current scale and is not evidence that those indexes are safe to remove.
@@ -25,7 +26,7 @@ Before wider testing:
 
 1. rotate the credentials previously exposed during setup;
 2. take and verify a recoverable backup;
-3. deploy the 23 pending migrations to a dedicated staging project, not directly to production;
+3. re-read hosted migration history, then deploy the confirmed pending set to a dedicated staging project, not directly to production;
 4. regenerate and compare types, rerun schema lint, anonymous access probes, authenticated authorization tests, webhook checks, and browser journeys against staging;
 5. connect the correct Supabase management identity or export the dashboard Security and Performance Advisor results;
 6. review any advisor finding against the staged schema and representative query workload before changing indexes or policies.

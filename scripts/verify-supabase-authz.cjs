@@ -40,6 +40,7 @@ async function verifyAuthorization() {
   const userIds = [];
   const organizationIds = [];
   const storageObjectPaths = [];
+  const invoiceStorageObjectPaths = [];
   const checks = [];
   let cleanupSucceeded = true;
 
@@ -2602,6 +2603,265 @@ async function verifyAuthorization() {
           JSON.stringify(issuanceAuditMetadata),
         ),
     );
+
+    const fakeInvoiceBytes = Buffer.concat([
+      Buffer.from("%PDF-1.7\n% AIOS private invoice authorization fixture\n"),
+      Buffer.alloc(1024, 32),
+    ]);
+    const fakeInvoiceHash = createHash("sha256")
+      .update(fakeInvoiceBytes)
+      .digest("hex");
+    const invoiceRendererVersion = "invoice-record-v1";
+    const invoiceDocumentPath =
+      `${organizationA.id}/${issuedInvoiceRow.invoice_issuance_id}/` +
+      `${invoiceRendererVersion}/${fakeInvoiceHash}.pdf`;
+    const browserInvoiceUpload = await owner.storage
+      .from("invoice-documents")
+      .upload(invoiceDocumentPath, fakeInvoiceBytes, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+    record(
+      "browser clients cannot upload forged invoice PDFs",
+      Boolean(browserInvoiceUpload.error),
+    );
+    const forgedInvoiceDocument = await owner.from("invoice_documents").insert({
+      organization_id: organizationA.id,
+      invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+      invoice_number: "INV/2027-00043",
+      renderer_version: invoiceRendererVersion,
+      storage_path: invoiceDocumentPath,
+      file_name: "inv-2027-00043.pdf",
+      byte_size: fakeInvoiceBytes.byteLength,
+      source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+      content_sha256: fakeInvoiceHash,
+      generated_by: ownerUser.id,
+    });
+    record(
+      "browser clients cannot forge invoice document evidence",
+      Boolean(forgedInvoiceDocument.error),
+    );
+    const browserInvoiceRecord = await owner.rpc(
+      "record_invoice_document_render",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path: invoiceDocumentPath,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+        target_content_sha256: fakeInvoiceHash,
+        target_generated_by: ownerUser.id,
+      },
+    );
+    record(
+      "only the trusted renderer may record invoice document evidence",
+      Boolean(browserInvoiceRecord.error),
+    );
+    const foreignActorInvoiceRecord = await admin.rpc(
+      "record_invoice_document_render",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path: invoiceDocumentPath,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+        target_content_sha256: fakeInvoiceHash,
+        target_generated_by: viewerUser.id,
+      },
+    );
+    record(
+      "trusted rendering cannot attribute evidence to a foreign actor",
+      Boolean(foreignActorInvoiceRecord.error),
+    );
+    const wrongIssuanceInvoiceRecord = await admin.rpc(
+      "record_invoice_document_render",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path: invoiceDocumentPath,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: "0".repeat(64),
+        target_content_sha256: fakeInvoiceHash,
+        target_generated_by: ownerUser.id,
+      },
+    );
+    record(
+      "invoice rendering requires the exact issuance hash",
+      Boolean(wrongIssuanceInvoiceRecord.error),
+    );
+    const adminInvoiceUpload = await admin.storage
+      .from("invoice-documents")
+      .upload(invoiceDocumentPath, fakeInvoiceBytes, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+    if (!adminInvoiceUpload.error)
+      invoiceStorageObjectPaths.push(invoiceDocumentPath);
+    record(
+      "trusted renderer can store one private checksum-addressed PDF",
+      !adminInvoiceUpload.error,
+      adminInvoiceUpload.error?.message ?? null,
+    );
+    const recordedInvoiceDocument = await admin
+      .rpc("record_invoice_document_render", {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path: invoiceDocumentPath,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+        target_content_sha256: fakeInvoiceHash,
+        target_generated_by: ownerUser.id,
+      })
+      .single();
+    if (recordedInvoiceDocument.error || !recordedInvoiceDocument.data)
+      throw (
+        recordedInvoiceDocument.error ??
+        new Error("Invoice document evidence was not recorded.")
+      );
+    const invoiceDocumentId =
+      recordedInvoiceDocument.data.invoice_document_id;
+    const [
+      storedInvoiceDocument,
+      hiddenForeignInvoiceDocument,
+      invoiceDocumentAudit,
+      ownerInvoiceDownload,
+      foreignInvoiceDownload,
+    ] = await Promise.all([
+      owner
+        .from("invoice_documents")
+        .select(
+          "id, invoice_issuance_id, invoice_number, renderer_version, compliance_status, storage_bucket, storage_path, file_name, mime_type, byte_size, source_issuance_sha256, content_sha256, generated_by, generated_at",
+        )
+        .eq("id", invoiceDocumentId)
+        .single(),
+      viewer
+        .from("invoice_documents")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      owner
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", invoiceDocumentId)
+        .eq("metadata->>event", "finance.invoice_document_rendered")
+        .single(),
+      owner.storage
+        .from("invoice-documents")
+        .createSignedUrl(invoiceDocumentPath, 60),
+      viewer.storage
+        .from("invoice-documents")
+        .createSignedUrl(invoiceDocumentPath, 60),
+    ]);
+    record(
+      "private invoice render is exact, immutable, and jurisdiction-labelled",
+      !storedInvoiceDocument.error &&
+        storedInvoiceDocument.data?.invoice_issuance_id ===
+          issuedInvoiceRow.invoice_issuance_id &&
+        storedInvoiceDocument.data?.invoice_number === "INV/2027-00043" &&
+        storedInvoiceDocument.data?.renderer_version ===
+          invoiceRendererVersion &&
+        storedInvoiceDocument.data?.compliance_status ===
+          "jurisdiction_review_required" &&
+        storedInvoiceDocument.data?.storage_bucket === "invoice-documents" &&
+        storedInvoiceDocument.data?.storage_path === invoiceDocumentPath &&
+        storedInvoiceDocument.data?.file_name === "inv-2027-00043.pdf" &&
+        storedInvoiceDocument.data?.mime_type === "application/pdf" &&
+        storedInvoiceDocument.data?.byte_size === fakeInvoiceBytes.byteLength &&
+        storedInvoiceDocument.data?.source_issuance_sha256 ===
+          issuedInvoiceRow.issuance_sha256 &&
+        storedInvoiceDocument.data?.content_sha256 === fakeInvoiceHash &&
+        storedInvoiceDocument.data?.generated_by === ownerUser.id,
+    );
+    record(
+      "private invoice records and objects remain tenant isolated",
+      !hiddenForeignInvoiceDocument.error &&
+        hiddenForeignInvoiceDocument.data?.length === 0 &&
+        !ownerInvoiceDownload.error &&
+        Boolean(ownerInvoiceDownload.data?.signedUrl) &&
+        Boolean(foreignInvoiceDownload.error),
+    );
+    const invoiceDocumentAuditMetadata = invoiceDocumentAudit.data?.metadata;
+    record(
+      "invoice rendering audit proves zero external effects",
+      !invoiceDocumentAudit.error &&
+        invoiceDocumentAuditMetadata?.renderer_version ===
+          invoiceRendererVersion &&
+        invoiceDocumentAuditMetadata?.source_issuance_sha256 ===
+          issuedInvoiceRow.issuance_sha256 &&
+        invoiceDocumentAuditMetadata?.content_sha256 === fakeInvoiceHash &&
+        invoiceDocumentAuditMetadata?.invoice_rendered === true &&
+        invoiceDocumentAuditMetadata?.invoice_delivered === false &&
+        invoiceDocumentAuditMetadata?.message_sent === false &&
+        invoiceDocumentAuditMetadata?.payment_link_created === false &&
+        invoiceDocumentAuditMetadata?.payment_collected === false &&
+        invoiceDocumentAuditMetadata?.external_action_performed === false &&
+        !/Alpha Travel|Alpha traveller|Two rooms|Final balance|29ABCDE/.test(
+          JSON.stringify(invoiceDocumentAuditMetadata),
+        ),
+    );
+    const retriedInvoiceDocument = await admin.rpc(
+      "record_invoice_document_render",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path: invoiceDocumentPath,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+        target_content_sha256: fakeInvoiceHash,
+        target_generated_by: ownerUser.id,
+      },
+    );
+    record(
+      "exact invoice render retries are idempotent",
+      !retriedInvoiceDocument.error &&
+        retriedInvoiceDocument.data?.[0]?.already_rendered === true &&
+        retriedInvoiceDocument.data?.[0]?.invoice_document_id ===
+          invoiceDocumentId,
+    );
+    const conflictingHash = "f".repeat(64);
+    const conflictingInvoiceDocument = await admin.rpc(
+      "record_invoice_document_render",
+      {
+        target_organization_id: organizationA.id,
+        target_invoice_issuance_id: issuedInvoiceRow.invoice_issuance_id,
+        target_renderer_version: invoiceRendererVersion,
+        target_storage_path:
+          `${organizationA.id}/${issuedInvoiceRow.invoice_issuance_id}/` +
+          `${invoiceRendererVersion}/${conflictingHash}.pdf`,
+        target_file_name: "inv-2027-00043.pdf",
+        target_byte_size: fakeInvoiceBytes.byteLength,
+        target_source_issuance_sha256: issuedInvoiceRow.issuance_sha256,
+        target_content_sha256: conflictingHash,
+        target_generated_by: ownerUser.id,
+      },
+    );
+    record(
+      "one renderer version cannot be rebound to different bytes",
+      Boolean(conflictingInvoiceDocument.error),
+    );
+    const forgedInvoiceDocumentRewrite = await owner
+      .from("invoice_documents")
+      .update({ content_sha256: "1".repeat(64) })
+      .eq("id", invoiceDocumentId);
+    const forgedInvoiceDocumentDelete = await owner
+      .from("invoice_documents")
+      .delete()
+      .eq("id", invoiceDocumentId);
+    record(
+      "browser clients cannot rewrite or delete invoice render evidence",
+      Boolean(forgedInvoiceDocumentRewrite.error) &&
+        Boolean(forgedInvoiceDocumentDelete.error),
+    );
+
     const collectionReceivable = linkedReceivables.data
       ?.slice()
       .sort(
@@ -7782,6 +8042,12 @@ async function verifyAuthorization() {
       const { error } = await admin.storage
         .from("travel-documents")
         .remove(storageObjectPaths);
+      if (error) cleanupSucceeded = false;
+    }
+    if (invoiceStorageObjectPaths.length) {
+      const { error } = await admin.storage
+        .from("invoice-documents")
+        .remove(invoiceStorageObjectPaths);
       if (error) cleanupSucceeded = false;
     }
     if (organizationIds.length) {

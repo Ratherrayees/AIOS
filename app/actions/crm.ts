@@ -11,6 +11,8 @@ import {
   activityNoteInputSchema,
   acceptedQuoteReceivablesInputSchema,
   approvedInvoiceIssuanceInputSchema,
+  invoiceDocumentDownloadInputSchema,
+  invoiceDocumentRenderInputSchema,
   invoiceDraftPreparationInputSchema,
   invoiceIssuanceApprovalInputSchema,
   invoiceIssuerProfileInputSchema,
@@ -91,6 +93,8 @@ import {
   type ActivityNoteInput,
   type AcceptedQuoteReceivablesInput,
   type ApprovedInvoiceIssuanceInput,
+  type InvoiceDocumentDownloadInput,
+  type InvoiceDocumentRenderInput,
   type InvoiceDraftPreparationInput,
   type InvoiceIssuanceApprovalInput,
   type InvoiceIssuerProfileInput,
@@ -188,6 +192,11 @@ import {
   isQuoteProposalContentReady,
   QUOTE_PROPOSAL_SCHEMA_VERSION,
 } from "../../lib/crm/quote-proposal";
+import {
+  INVOICE_PDF_RENDERER_VERSION,
+  invoiceDocumentFilename,
+  renderInvoicePdf,
+} from "../../lib/finance/invoice-pdf";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import type { Json } from "../../types/database";
@@ -3270,6 +3279,150 @@ export async function issueApprovedInvoice(
       error?.message || "The approved invoice could not be issued.",
     );
   return issuance;
+}
+
+/**
+ * Renders one exact immutable issuance into private object storage. The
+ * resulting PDF is an internal record with a jurisdiction-review notice; no
+ * delivery, message, payment link, charge, or settlement is performed.
+ */
+export async function renderPrivateInvoiceDocument(
+  input: InvoiceDocumentRenderInput,
+) {
+  const data = invoiceDocumentRenderInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const actorId = claims?.claims.sub;
+  if (claimsError || !actorId) throw new Error("Sign in is required.");
+
+  const { data: issuance, error: issuanceError } = await supabase
+    .from("invoice_issuances")
+    .select(
+      "id, invoice_number, issued_at, issuance_sha256, issuer_legal_name, issuer_registered_address, issuer_jurisdiction_country_code, issuer_tax_registration_id, bill_to_name, currency, net_amount, tax_amount, total_amount, line_items, payment_terms",
+    )
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.invoiceIssuanceId)
+    .maybeSingle();
+  if (issuanceError || !issuance)
+    throw new Error("This issued invoice is not available in the workspace.");
+
+  const { data: existingDocument, error: existingError } = await supabase
+    .from("invoice_documents")
+    .select(
+      "id, invoice_number, renderer_version, compliance_status, file_name, byte_size, content_sha256, generated_at",
+    )
+    .eq("organization_id", data.organizationId)
+    .eq("invoice_issuance_id", issuance.id)
+    .eq("renderer_version", INVOICE_PDF_RENDERER_VERSION)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existingDocument)
+    return { ...existingDocument, already_rendered: true };
+
+  const pdfBytes = await renderInvoicePdf({
+    invoiceNumber: issuance.invoice_number,
+    issuedAt: issuance.issued_at,
+    issuanceSha256: issuance.issuance_sha256,
+    issuerLegalName: issuance.issuer_legal_name,
+    issuerRegisteredAddress: issuance.issuer_registered_address,
+    issuerJurisdictionCountryCode:
+      issuance.issuer_jurisdiction_country_code,
+    issuerTaxRegistrationId: issuance.issuer_tax_registration_id,
+    billToName: issuance.bill_to_name,
+    currency: issuance.currency,
+    netAmount: Number(issuance.net_amount),
+    taxAmount: Number(issuance.tax_amount),
+    totalAmount: Number(issuance.total_amount),
+    lineItems: issuance.line_items,
+    paymentTerms: issuance.payment_terms,
+  });
+  if (pdfBytes.byteLength < 512 || pdfBytes.byteLength > 2_097_152)
+    throw new Error("The rendered invoice document exceeded safe size limits.");
+
+  const contentSha256 = createHash("sha256").update(pdfBytes).digest("hex");
+  const fileName = invoiceDocumentFilename(issuance.invoice_number);
+  const storagePath = `${data.organizationId}/${issuance.id}/${INVOICE_PDF_RENDERER_VERSION}/${contentSha256}.pdf`;
+  const admin = createSupabaseAdminClient();
+  const { error: uploadError } = await admin.storage
+    .from("invoice-documents")
+    .upload(storagePath, pdfBytes, {
+      cacheControl: "31536000",
+      contentType: "application/pdf",
+      upsert: false,
+    });
+  const objectAlreadyExists = Boolean(
+    uploadError && /duplicate|already exists/i.test(uploadError.message),
+  );
+  if (uploadError && !objectAlreadyExists)
+    throw new Error(
+      `The private invoice document could not be stored: ${uploadError.message}`,
+    );
+
+  const { data: document, error: documentError } = await admin
+    .rpc("record_invoice_document_render", {
+      target_organization_id: data.organizationId,
+      target_invoice_issuance_id: issuance.id,
+      target_renderer_version: INVOICE_PDF_RENDERER_VERSION,
+      target_storage_path: storagePath,
+      target_file_name: fileName,
+      target_byte_size: pdfBytes.byteLength,
+      target_source_issuance_sha256: issuance.issuance_sha256,
+      target_content_sha256: contentSha256,
+      target_generated_by: actorId,
+    })
+    .single();
+  if (documentError || !document) {
+    if (!objectAlreadyExists)
+      await admin.storage.from("invoice-documents").remove([storagePath]);
+    throw new Error(
+      documentError?.message ||
+        "The immutable invoice document evidence could not be recorded.",
+    );
+  }
+  return document;
+}
+
+/** Issues a 60-second, RLS-authorized URL for one private invoice PDF. */
+export async function createInvoiceDocumentDownload(
+  input: InvoiceDocumentDownloadInput,
+) {
+  const data = invoiceDocumentDownloadInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, FINANCE_WRITE_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: document, error } = await supabase
+    .from("invoice_documents")
+    .select("id, storage_bucket, storage_path, file_name, content_sha256")
+    .eq("organization_id", data.organizationId)
+    .eq("id", data.invoiceDocumentId)
+    .maybeSingle();
+  if (error || !document)
+    throw new Error("This private invoice document is not available.");
+  const { data: signed, error: signedError } = await supabase.storage
+    .from(document.storage_bucket)
+    .createSignedUrl(document.storage_path, 60, {
+      download: document.file_name,
+    });
+  if (signedError || !signed?.signedUrl)
+    throw new Error("The secure invoice download link could not be created.");
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "document.accessed",
+    entityType: "invoice_document",
+    entityId: document.id,
+    metadata: {
+      event: "finance.invoice_document_accessed",
+      content_sha256: document.content_sha256,
+      signed_url_ttl_seconds: 60,
+      invoice_delivered: false,
+      external_action_performed: false,
+    },
+  });
+  return {
+    url: signed.signedUrl,
+    fileName: document.file_name,
+    expiresInSeconds: 60,
+  };
 }
 
 /**

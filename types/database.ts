@@ -1690,6 +1690,82 @@ export type Database = {
           },
         ]
       }
+      invoice_documents: {
+        Row: {
+          byte_size: number
+          compliance_status: string
+          content_sha256: string
+          file_name: string
+          generated_at: string
+          generated_by: string
+          id: string
+          invoice_issuance_id: string
+          invoice_number: string
+          mime_type: string
+          organization_id: string
+          renderer_version: string
+          source_issuance_sha256: string
+          storage_bucket: string
+          storage_path: string
+        }
+        Insert: {
+          byte_size: number
+          compliance_status?: string
+          content_sha256: string
+          file_name: string
+          generated_at?: string
+          generated_by: string
+          id?: string
+          invoice_issuance_id: string
+          invoice_number: string
+          mime_type?: string
+          organization_id: string
+          renderer_version: string
+          source_issuance_sha256: string
+          storage_bucket?: string
+          storage_path: string
+        }
+        Update: {
+          byte_size?: number
+          compliance_status?: string
+          content_sha256?: string
+          file_name?: string
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          invoice_issuance_id?: string
+          invoice_number?: string
+          mime_type?: string
+          organization_id?: string
+          renderer_version?: string
+          source_issuance_sha256?: string
+          storage_bucket?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_documents_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_documents_issuance_same_organization_fkey"
+            columns: ["organization_id", "invoice_issuance_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuances"
+            referencedColumns: ["organization_id", "id"]
+          },
+          {
+            foreignKeyName: "invoice_documents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_drafts: {
         Row: {
           bill_to_name: string
@@ -6253,6 +6329,30 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      record_invoice_document_render: {
+        Args: {
+          target_byte_size: number
+          target_content_sha256: string
+          target_file_name: string
+          target_generated_by: string
+          target_invoice_issuance_id: string
+          target_organization_id: string
+          target_renderer_version: string
+          target_source_issuance_sha256: string
+          target_storage_path: string
+        }
+        Returns: {
+          already_rendered: boolean
+          byte_size: number
+          compliance_status: string
+          content_sha256: string
+          file_name: string
+          generated_at: string
+          invoice_document_id: string
+          invoice_number: string
+          renderer_version: string
+        }[]
       }
       record_payment_allocation: {
         Args: {

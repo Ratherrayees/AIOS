@@ -12,7 +12,7 @@ npm run test:restore
 
 The verifier creates a PostgreSQL custom-format backup inside the local database container, calculates its SHA-256 digest, restores it into a randomly named disposable database, and compares source and restored structural evidence. It then force-drops only the validated `aios_restore_drill_<random>` database and removes only its matching temporary dump, including on failure.
 
-The latest 8 August checkpoint restored 77 application tables with RLS, 185 policies, 412 indexes, 83 public functions, all 87 migrations through `20260801250000`, and representative organization, membership, and audit row counts. Source and restored evidence matched exactly. Backup plus restore completed in 6.9 seconds on the local workstation, and post-run inspection found no temporary database or dump. The verified dump SHA-256 was `39422fb1bd54f55fb03e18ed562c4570838fa8002803bb646b8b3b3911aba55d`.
+The latest 8 August checkpoint restored 78 application tables with RLS, 186 policies, 418 indexes, 84 public functions, all 88 migrations through `20260801260000`, and representative organization, membership, and audit row counts. Source and restored evidence matched exactly. Backup plus restore completed in 5.4 seconds on the local workstation, and post-run inspection found no temporary database or dump. The verified dump SHA-256 was `1ee036493390caa381ec9d974b661f6a32780338a5c6d6004800e06e1d2104e3`.
 
 This proves the logical PostgreSQL backup is restorable in the matching Supabase PostgreSQL image. It does not prove hosted recovery time, managed point-in-time recovery, Auth/provider configuration, secrets, or Storage object bytes.
 

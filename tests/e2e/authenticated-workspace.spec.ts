@@ -249,6 +249,17 @@ test.describe("authenticated owner workspace", () => {
           .from("travel-documents")
           .remove(documents.map((document) => document.storage_path));
       }
+      const { data: invoiceDocuments } = await admin
+        .from("invoice_documents")
+        .select("storage_path")
+        .in("organization_id", organizationIds);
+      if (invoiceDocuments?.length) {
+        await admin.storage
+          .from("invoice-documents")
+          .remove(
+            invoiceDocuments.map((document) => document.storage_path),
+          );
+      }
       await admin.from("organizations").delete().in("id", organizationIds);
     }
     if (userId) await admin.auth.admin.deleteUser(userId);
@@ -2436,6 +2447,105 @@ test.describe("authenticated owner workspace", () => {
           receivable.invoice_number === null,
       ),
     ).toBe(true);
+
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "DOCUMENT NOT RENDERED",
+    );
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "jurisdiction review required",
+    );
+    await approvedInvoiceDraftCard
+      .getByRole("button", { name: "Render private invoice PDF" })
+      .click();
+    await expect(page.getByRole("status")).toContainText(
+      "rendered with immutable checksum evidence",
+    );
+    await expect(approvedInvoiceDraftCard).toContainText("PRIVATE PDF READY");
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "inv-2027-00043.pdf",
+    );
+    await expect(approvedInvoiceDraftCard).toContainText(
+      "Private rendering only · no delivery, customer message, payment link, charge, or settlement",
+    );
+    const { data: invoiceDocument, error: invoiceDocumentError } = await admin!
+      .from("invoice_documents")
+      .select(
+        "id, invoice_issuance_id, invoice_number, renderer_version, compliance_status, storage_bucket, storage_path, file_name, mime_type, byte_size, source_issuance_sha256, content_sha256, generated_by, generated_at",
+      )
+      .eq("invoice_issuance_id", issuedInvoice!.id)
+      .single();
+    expect(invoiceDocumentError).toBeNull();
+    expect(invoiceDocument).toMatchObject({
+      invoice_issuance_id: issuedInvoice!.id,
+      invoice_number: "INV/2027-00043",
+      renderer_version: "invoice-record-v1",
+      compliance_status: "jurisdiction_review_required",
+      storage_bucket: "invoice-documents",
+      file_name: "inv-2027-00043.pdf",
+      mime_type: "application/pdf",
+      source_issuance_sha256: issuedInvoice!.issuance_sha256,
+      generated_by: userId,
+    });
+    expect(invoiceDocument?.storage_path).toBe(
+      `${organizationIds[0]}/${issuedInvoice!.id}/invoice-record-v1/${invoiceDocument!.content_sha256}.pdf`,
+    );
+    expect(invoiceDocument?.content_sha256).toHaveLength(64);
+    expect(Number(invoiceDocument?.byte_size)).toBeGreaterThan(512);
+    const { data: invoiceRenderAudit, error: invoiceRenderAuditError } =
+      await admin!
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", invoiceDocument!.id)
+        .eq("metadata->>event", "finance.invoice_document_rendered")
+        .single();
+    expect(invoiceRenderAuditError).toBeNull();
+    expect(invoiceRenderAudit?.metadata).toMatchObject({
+      invoice_issuance_id: issuedInvoice!.id,
+      renderer_version: "invoice-record-v1",
+      source_issuance_sha256: issuedInvoice!.issuance_sha256,
+      content_sha256: invoiceDocument!.content_sha256,
+      invoice_rendered: true,
+      invoice_delivered: false,
+      message_sent: false,
+      payment_link_created: false,
+      payment_collected: false,
+      external_action_performed: false,
+    });
+
+    const invoiceDownloadEvent = page.waitForEvent("download");
+    await approvedInvoiceDraftCard
+      .getByRole("button", { name: "Secure PDF download" })
+      .click();
+    const invoiceDownload = await invoiceDownloadEvent;
+    expect(invoiceDownload.suggestedFilename()).toBe("inv-2027-00043.pdf");
+    const invoiceDownloadStream = await invoiceDownload.createReadStream();
+    const invoiceDownloadChunks: Buffer[] = [];
+    for await (const chunk of invoiceDownloadStream)
+      invoiceDownloadChunks.push(Buffer.from(chunk));
+    const downloadedInvoiceBytes = Buffer.concat(invoiceDownloadChunks);
+    expect(downloadedInvoiceBytes.subarray(0, 5).toString("ascii")).toBe(
+      "%PDF-",
+    );
+    expect(
+      createHash("sha256").update(downloadedInvoiceBytes).digest("hex"),
+    ).toBe(invoiceDocument!.content_sha256);
+    await expect(page.getByRole("status")).toContainText(
+      "Secure invoice download issued for 60 seconds",
+    );
+    const { data: invoiceAccessAudit, error: invoiceAccessAuditError } =
+      await admin!
+        .from("audit_events")
+        .select("metadata")
+        .eq("entity_id", invoiceDocument!.id)
+        .eq("metadata->>event", "finance.invoice_document_accessed")
+        .single();
+    expect(invoiceAccessAuditError).toBeNull();
+    expect(invoiceAccessAudit?.metadata).toMatchObject({
+      content_sha256: invoiceDocument!.content_sha256,
+      signed_url_ttl_seconds: 60,
+      invoice_delivered: false,
+      external_action_performed: false,
+    });
 
     const collectionControl = page
       .locator(".payment-card")
