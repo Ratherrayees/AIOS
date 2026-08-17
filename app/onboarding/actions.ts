@@ -45,6 +45,7 @@ export async function createWorkspace(formData: FormData) {
           to: user.user.email,
           firstName: String(user.user.user_metadata.full_name || "there"),
           organizationName: parsed.data.name,
+          organizationId: organization.id,
         });
         await recordAuditEvent({ organizationId: organization.id, eventType: "email.delivered", entityType: "organization", entityId: organization.id, metadata: { category: "workspace-welcome", delivery_id: delivery.id } });
       } catch {

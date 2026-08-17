@@ -100,6 +100,42 @@ test("one transient primary failure invokes one configured fallback", async () =
   assert.equal(routed.value, "recovered");
 });
 
+test("the governed priority chain advances across transient provider failures", async () => {
+  const calls: string[] = [];
+  const routed = await executeProviderRoute({
+    primary: "groq",
+    fallbacks: ["glm", "nvidia", "openrouter"],
+    execute: async (provider) => {
+      calls.push(provider);
+      if (provider === "groq") throw { status: 429 };
+      if (provider === "glm") throw { status: 503 };
+      return `${provider}-recovered`;
+    },
+    isTransientFailure: isTransientProviderFailure,
+  });
+  assert.deepEqual(calls, ["groq", "glm", "nvidia"]);
+  assert.deepEqual(routed.attemptedProviders, ["groq", "glm", "nvidia"]);
+  assert.equal(routed.fallbackUsed, true);
+  assert.equal(routed.value, "nvidia-recovered");
+});
+
+test("the priority chain stops immediately on a non-transient failure", async () => {
+  const calls: string[] = [];
+  await assert.rejects(
+    executeProviderRoute({
+      primary: "groq",
+      fallbacks: ["glm", "nvidia"],
+      execute: async (provider) => {
+        calls.push(provider);
+        if (provider === "groq") throw { status: 429 };
+        throw { status: 401 };
+      },
+      isTransientFailure: isTransientProviderFailure,
+    }),
+  );
+  assert.deepEqual(calls, ["groq", "glm"]);
+});
+
 test("non-transient primary failures never invoke fallback", async () => {
   const calls: string[] = [];
   await assert.rejects(

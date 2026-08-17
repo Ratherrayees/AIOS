@@ -314,19 +314,17 @@
 .team-policy-card {
   position: relative;
   overflow: hidden;
-  border-color: #30294b;
-  background:
-    radial-gradient(circle at 100% 0, rgba(97, 221, 208, 0.17), transparent 16rem),
-    #28233f;
-  color: white;
+  border-color: #e3deed;
+  background: #faf9fd;
+  color: #302c3b;
 }
 
 .team-policy-card > p {
-  color: #8fe2d7;
+  color: #6c55c5;
 }
 
 .team-policy-card h2 {
-  color: white;
+  color: #302c3b;
 }
 
 .team-policy-card ul {
@@ -340,7 +338,7 @@
 .team-policy-card li {
   position: relative;
   padding-left: 21px;
-  color: #d0cbdf;
+  color: #625d6d;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -348,7 +346,7 @@
 .team-policy-card li::before {
   position: absolute;
   left: 0;
-  color: #79dfc6;
+  color: #6c55c5;
   content: "✓";
 }
 

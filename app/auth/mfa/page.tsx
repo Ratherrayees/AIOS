@@ -18,11 +18,25 @@ export default async function MfaPage({
   const nextPath = requestedPath.startsWith("/auth/mfa")
     ? "/"
     : requestedPath;
+  const platformIntent =
+    nextPath.startsWith("/platform") || nextPath === "/auth/platform-invite";
+  const accountSecurityPath = platformIntent
+    ? `/account/security?reason=platform-mfa&next=${encodeURIComponent(nextPath)}`
+    : `/account/security?next=${encodeURIComponent(nextPath)}`;
 
   const supabase = await createSupabaseServerClient();
   const { data: claims } = await supabase.auth.getClaims();
   if (!claims?.claims.sub) {
     redirect(`/sign-in?next=${encodeURIComponent(nextPath)}`);
+  }
+
+  if (platformIntent) {
+    const { data: factors, error: factorError } =
+      await supabase.auth.mfa.listFactors();
+    const hasVerifiedTotp = factors?.totp.some(
+      (factor) => factor.status === "verified",
+    );
+    if (factorError || !hasVerifiedTotp) redirect(accountSecurityPath);
   }
 
   const { data: meetsMfaRequirement } = await supabase.rpc(
@@ -43,10 +57,14 @@ export default async function MfaPage({
         <p className="eyebrow">SECOND FACTOR</p>
         <h1>Verify it&apos;s really you.</h1>
         <p>
-          This account opted into multi-factor protection. Enter the current
-          code from its authenticator app to unlock tenant data.
+          {platformIntent
+            ? "Enter the current code from your authenticator app to continue to protected platform administration."
+            : "Enter the current code from your authenticator app to continue to your protected AIOS workspace."}
         </p>
-        <MfaChallenge nextPath={nextPath} />
+        <MfaChallenge
+          accountSecurityPath={accountSecurityPath}
+          nextPath={nextPath}
+        />
         <form className="mfa-signout" action={signOut}>
           <Button type="submit" variant="ghost" fullWidth>
             Sign out instead

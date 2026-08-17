@@ -31,6 +31,7 @@ import {
 import { TravelerEntryReadiness } from "../../../components/ui/traveler-entry-readiness";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
+import { COMMON_TRAVEL_TIME_ZONES } from "../../../lib/crm/time-zones";
 import type { Database } from "../../../types/database";
 import "../trips.css";
 import "./workspace.css";
@@ -50,6 +51,7 @@ type Trip = {
   destination: string | null;
   start_date: string | null;
   end_date: string | null;
+  time_zone: string | null;
   currency: string;
   owner_id: string | null;
   operations_notes: string | null;
@@ -276,7 +278,7 @@ export default function TripWorkspacePage() {
         supabase
           .from("trips")
           .select(
-            "id, deal_id, name, status, destination, start_date, end_date, currency, owner_id, operations_notes, converted_at",
+            "id, deal_id, name, status, destination, start_date, end_date, time_zone, currency, owner_id, operations_notes, converted_at",
           )
           .eq("organization_id", membership.organization_id)
           .eq("id", tripId)
@@ -397,6 +399,67 @@ export default function TripWorkspacePage() {
     travelers,
     trip,
   ]);
+  const openTasks = tasks.filter((task) =>
+    ["open", "in_progress"].includes(task.status),
+  );
+  const servicesNeedingConfirmation = bookings.filter((booking) =>
+    ["draft", "requested"].includes(booking.status),
+  );
+  const travelersMissingEntryReview = travelers.filter(
+    (traveler) =>
+      !entryChecks.some(
+        (check) => check.traveler_id === traveler.id,
+      ),
+  );
+  const nextOperation = !trip
+    ? null
+    : exceptions.length > 0
+      ? {
+          label: "Review active trip exceptions",
+          detail: `${exceptions.length} Operations Radar ${exceptions.length === 1 ? "exception needs" : "exceptions need"} an owner or resolution.`,
+          href: "#operations-radar",
+        }
+      : travelers.length === 0
+        ? {
+            label: "Add the traveller manifest",
+            detail: "Operations cannot verify entry readiness or document coverage without travellers.",
+            href: "#traveller-manifest",
+          }
+        : travelersMissingEntryReview.length > 0
+          ? {
+              label: "Complete traveller entry review",
+              detail: `${travelersMissingEntryReview.length} ${travelersMissingEntryReview.length === 1 ? "traveller is" : "travellers are"} missing reviewed entry evidence.`,
+              href: "#traveller-entry-readiness",
+            }
+          : bookings.length === 0
+            ? {
+                label: "Build the service ledger",
+                detail: "No internal flight, stay, transfer, activity, or insurance record is linked yet.",
+                href: "#booking-ledger",
+              }
+            : servicesNeedingConfirmation.length > 0
+              ? {
+                  label: "Confirm supplier services",
+                  detail: `${servicesNeedingConfirmation.length} ${servicesNeedingConfirmation.length === 1 ? "service still needs" : "services still need"} confirmation evidence.`,
+                  href: "#booking-ledger",
+                }
+              : openTasks.length > 0
+                ? {
+                    label: "Clear the operational task queue",
+                    detail: `${openTasks.length} ${openTasks.length === 1 ? "follow-up remains" : "follow-ups remain"} open.`,
+                    href: "#operational-tasks",
+                  }
+                : documents.length === 0
+                  ? {
+                      label: "Secure traveller documents",
+                      detail: "No voucher, ticket, insurance, visa, or other traveller file is stored yet.",
+                      href: "#trip-documents",
+                    }
+                  : {
+                      label: "Review readiness before the next lifecycle move",
+                      detail: "Core operating evidence is present. A human operator still controls the trip status.",
+                      href: "#trip-lifecycle",
+                    };
 
   function updateOperations(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -410,6 +473,7 @@ export default function TripWorkspacePage() {
           tripId: trip.id,
           name: String(form.get("name")),
           destination: String(form.get("destination") || "") || null,
+          timeZone: String(form.get("timeZone") || ""),
           startDate: String(form.get("startDate") || "") || null,
           endDate: String(form.get("endDate") || "") || null,
           currency: String(form.get("currency")),
@@ -719,11 +783,19 @@ export default function TripWorkspacePage() {
       <FeatureHeader
         links={[
           { href: "/trips", label: "Trip Operations" },
+          ...(trip.deal_id
+            ? [{ href: `/leads/${trip.deal_id}`, label: "Sales opportunity" }]
+            : []),
           { href: `/trips/${trip.id}/portal`, label: "Traveler sharing" },
           { href: "/finance", label: "Suppliers & Finance" },
-          { href: "/itineraries", label: "Itinerary Studio" },
+          {
+            href: trip.deal_id
+              ? `/itineraries?deal=${trip.deal_id}&name=${encodeURIComponent(trip.name)}`
+              : "/itineraries",
+            label: "Itinerary Studio",
+          },
           { href: "/tasks", label: "Tasks" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
         ]}
       />
 
@@ -744,11 +816,59 @@ export default function TripWorkspacePage() {
         </aside>
       </section>
 
+      <nav className="crm-record-tabs trip-record-tabs" aria-label="Trip workspace sections">
+        <a href="#trip-priority">Overview</a>
+        <a
+          href={
+            trip.deal_id
+              ? `/itineraries?deal=${trip.deal_id}&name=${encodeURIComponent(trip.name)}`
+              : "/itineraries"
+          }
+        >
+          Itinerary
+        </a>
+        <a href="#operations-radar">Exceptions</a>
+        <a href="#traveller-manifest">Travellers</a>
+        <a href="#booking-ledger">Services</a>
+        <a href="#operational-tasks">Tasks</a>
+        <a href="#trip-documents">Documents</a>
+        <a href="#operations-timeline">Activity</a>
+      </nav>
+
       {notice && (
         <p className="trip-workspace-notice" role="status">
           {notice}
         </p>
       )}
+
+      {nextOperation ? (
+        <section className="trip-priority" id="trip-priority" aria-label="Trip priority">
+          <div>
+            <p>AIOS OPERATIONS NEXT</p>
+            <h2>{nextOperation.label}</h2>
+            <span>{nextOperation.detail}</span>
+            <a href={nextOperation.href}>Review operating evidence →</a>
+          </div>
+          <dl>
+            <div>
+              <dt>Exceptions</dt>
+              <dd>{exceptions.length}</dd>
+            </div>
+            <div>
+              <dt>Entry reviews open</dt>
+              <dd>{travelersMissingEntryReview.length}</dd>
+            </div>
+            <div>
+              <dt>Services to confirm</dt>
+              <dd>{servicesNeedingConfirmation.length}</dd>
+            </div>
+            <div>
+              <dt>Open tasks</dt>
+              <dd>{openTasks.length}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
 
       <section className="trip-command-strip">
         <div>
@@ -778,14 +898,16 @@ export default function TripWorkspacePage() {
 
       <div className="trip-ops-layout">
         <div className="trip-ops-main">
-          <OperationsRadar
-            organizationId={organizationId!}
-            initialExceptions={exceptions}
-            canManage={canOperate}
-            tripId={trip.id}
-          />
+          <div id="operations-radar" className="trip-radar-anchor">
+            <OperationsRadar
+              organizationId={organizationId!}
+              initialExceptions={exceptions}
+              canManage={canOperate}
+              tripId={trip.id}
+            />
+          </div>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="trip-operating-details">
             <div className="ops-panel-heading">
               <div>
                 <p>MISSION PROFILE</p>
@@ -793,8 +915,22 @@ export default function TripWorkspacePage() {
               </div>
               <span>{trip.converted_at ? "Sales handoff" : "Internal draft"}</span>
             </div>
+            <dl className="read-only-facts">
+              <div><dt>Destination</dt><dd>{trip.destination || "Open"}</dd></div>
+              <div><dt>Dates</dt><dd>{trip.start_date || "Open"} – {trip.end_date || "Open"}</dd></div>
+              <div><dt>Time zone</dt><dd>{trip.time_zone || "Not set"}</dd></div>
+              <div><dt>Currency</dt><dd>{trip.currency}</dd></div>
+              <div><dt>Notes</dt><dd>{trip.operations_notes || "No internal notes"}</dd></div>
+            </dl>
             {canPlan ? (
-              <form className="ops-form details-form" onSubmit={updateOperations}>
+              <details className="ops-action-drawer">
+                <summary>Edit operating details</summary>
+                <form className="ops-form details-form" onSubmit={updateOperations}>
+                <datalist id="trip-time-zones">
+                  {COMMON_TRAVEL_TIME_ZONES.map((timeZone) => (
+                    <option key={timeZone} value={timeZone} />
+                  ))}
+                </datalist>
                 <label>
                   Trip name
                   <input name="name" defaultValue={trip.name} required maxLength={180} />
@@ -817,6 +953,17 @@ export default function TripWorkspacePage() {
                   <input name="endDate" type="date" defaultValue={trip.end_date ?? ""} />
                 </label>
                 <label>
+                  Trip time zone
+                  <input
+                    name="timeZone"
+                    required
+                    maxLength={80}
+                    list="trip-time-zones"
+                    defaultValue={trip.time_zone ?? ""}
+                    placeholder="Asia/Tokyo"
+                  />
+                </label>
+                <label>
                   Currency
                   <input name="currency" defaultValue={trip.currency} pattern="[A-Z]{3}" maxLength={3} />
                 </label>
@@ -830,18 +977,12 @@ export default function TripWorkspacePage() {
                   />
                 </label>
                 <button disabled={pending}>Save operating details</button>
-              </form>
-            ) : (
-              <dl className="read-only-facts">
-                <div><dt>Destination</dt><dd>{trip.destination || "Open"}</dd></div>
-                <div><dt>Dates</dt><dd>{trip.start_date || "Open"} – {trip.end_date || "Open"}</dd></div>
-                <div><dt>Currency</dt><dd>{trip.currency}</dd></div>
-                <div><dt>Notes</dt><dd>{trip.operations_notes || "No internal notes"}</dd></div>
-              </dl>
-            )}
+                </form>
+              </details>
+            ) : null}
           </section>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="traveller-manifest">
             <div className="ops-panel-heading">
               <div>
                 <p>PEOPLE MANIFEST</p>
@@ -871,7 +1012,9 @@ export default function TripWorkspacePage() {
               )}
             </div>
             {canManageTravelers && (
-              <form className="ops-form compact-form" onSubmit={addTraveler}>
+              <details className="ops-action-drawer">
+                <summary>Add traveller record</summary>
+                <form className="ops-form compact-form" onSubmit={addTraveler}>
                 <input name="firstName" required maxLength={100} placeholder="First name" aria-label="Traveller first name" />
                 <input name="lastName" maxLength={100} placeholder="Last name" aria-label="Traveller last name" />
                 <input name="email" type="email" placeholder="Email" aria-label="Traveller email" />
@@ -884,10 +1027,12 @@ export default function TripWorkspacePage() {
                 </select>
                 <input name="preferences" maxLength={2000} placeholder="Internal preferences or constraints" aria-label="Traveller preferences" />
                 <button disabled={pending}>Add traveller</button>
-              </form>
+                </form>
+              </details>
             )}
           </section>
 
+          <div id="traveller-entry-readiness" className="trip-section-anchor">
           <TravelerEntryReadiness
             organizationId={organizationId!}
             tripId={trip.id}
@@ -897,8 +1042,9 @@ export default function TripWorkspacePage() {
             canManage={canManageEntryReadiness}
             onChecksChange={setEntryChecks}
           />
+          </div>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="booking-ledger">
             <div className="ops-panel-heading">
               <div>
                 <p>SERVICE CONTROL</p>
@@ -911,7 +1057,9 @@ export default function TripWorkspacePage() {
               charges a card, or confirms inventory.
             </p>
             {canBook && (
-              <form className="ops-form booking-form" onSubmit={addBooking}>
+              <details className="ops-action-drawer">
+                <summary>Add service record</summary>
+                <form className="ops-form booking-form" onSubmit={addBooking}>
                 <input name="title" required maxLength={180} placeholder="Service title" aria-label="Booking title" />
                 <select name="bookingType" defaultValue="hotel" aria-label="Booking type">
                   <option value="flight">Flight</option>
@@ -935,7 +1083,8 @@ export default function TripWorkspacePage() {
                 <input name="confirmationReference" maxLength={180} placeholder="Supplier reference (if received)" aria-label="Confirmation reference" />
                 <input name="notes" maxLength={4000} placeholder="Internal booking notes" aria-label="Booking notes" />
                 <button disabled={pending}>Create internal record</button>
-              </form>
+                </form>
+              </details>
             )}
             <div className="booking-ledger">
               {bookings.map((booking) => (
@@ -995,7 +1144,7 @@ export default function TripWorkspacePage() {
         </div>
 
         <aside className="trip-ops-side">
-          <section className="ops-panel status-panel">
+          <section className="ops-panel status-panel" id="trip-lifecycle">
             <div className="ops-panel-heading">
               <div>
                 <p>GOVERNED LIFECYCLE</p>
@@ -1048,7 +1197,7 @@ export default function TripWorkspacePage() {
             )}
           </section>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="operational-tasks">
             <div className="ops-panel-heading">
               <div>
                 <p>EXECUTION QUEUE</p>
@@ -1057,11 +1206,14 @@ export default function TripWorkspacePage() {
               <span>{tasks.length}</span>
             </div>
             {canManageTasks && (
-              <form className="ops-form task-form" onSubmit={addTask}>
+              <details className="ops-action-drawer">
+                <summary>Add operational task</summary>
+                <form className="ops-form task-form" onSubmit={addTask}>
                 <input name="title" required maxLength={500} placeholder="Operational follow-up" aria-label="Operational task title" />
                 <input name="dueAt" type="datetime-local" aria-label="Operational task due date" />
                 <button disabled={pending}>Add task</button>
-              </form>
+                </form>
+              </details>
             )}
             <div className="task-stack">
               {tasks.map((task) => (
@@ -1093,7 +1245,7 @@ export default function TripWorkspacePage() {
             </div>
           </section>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="trip-documents">
             <div className="ops-panel-heading">
               <div>
                 <p>PRIVATE VAULT</p>
@@ -1102,7 +1254,9 @@ export default function TripWorkspacePage() {
               <span>{documents.length}</span>
             </div>
             {canManageDocuments && (
-              <form className="ops-form document-form" onSubmit={uploadDocument}>
+              <details className="ops-action-drawer">
+                <summary>Upload private document</summary>
+                <form className="ops-form document-form" onSubmit={uploadDocument}>
                 <input
                   name="file"
                   type="file"
@@ -1126,7 +1280,8 @@ export default function TripWorkspacePage() {
                   <input name="expiresAt" type="date" />
                 </label>
                 <button disabled={pending}>Store privately</button>
-              </form>
+                </form>
+              </details>
             )}
             <div className="document-list">
               {documents.map((document) => {
@@ -1164,7 +1319,7 @@ export default function TripWorkspacePage() {
             </div>
           </section>
 
-          <section className="ops-panel">
+          <section className="ops-panel" id="operations-timeline">
             <div className="ops-panel-heading">
               <div>
                 <p>TRACE LEDGER</p>

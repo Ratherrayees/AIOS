@@ -10,6 +10,14 @@ export type AutonomyMode = z.infer<typeof autonomyModeSchema>;
 
 export const AIOS_ACTION_CATALOG = [
   {
+    action: "workspace.daily.coordinate",
+    title: "Coordinate today's internal work",
+    description:
+      "Run a bounded internal sweep across opportunity routing, lead risk, Inbox SLAs, and trip operations while preserving every child workflow policy.",
+    defaultMode: "auto",
+    hardApproval: false,
+  },
+  {
     action: "internal.task.create",
     title: "Create internal follow-up tasks",
     description: "Create and assign internal tasks from approved CRM context.",
@@ -188,4 +196,15 @@ export function evaluateAutonomy(action: string, mode: AutonomyMode) {
     decision: "execute" as const,
     reason: "AIOS is authorized to execute this bounded action.",
   };
+}
+
+export type AutonomyDecision = ReturnType<typeof evaluateAutonomy>["decision"];
+
+/**
+ * Manual mode still allows a person to explicitly ask AIOS for a reversible,
+ * internal recommendation or draft. It never turns that request into a
+ * scheduled run, a CRM mutation, or an external effect.
+ */
+export function canRunOperatorRequestedDraft(decision: AutonomyDecision) {
+  return decision === "execute" || decision === "draft" || decision === "observe";
 }

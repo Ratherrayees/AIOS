@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   type FormEvent,
   useEffect,
@@ -15,11 +16,18 @@ import {
   updateTaskAssignee,
   updateTaskStatus,
 } from "../actions/crm";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import type { WorkspaceRole } from "../../lib/workspace/active-workspace";
 import type { Json } from "../../types/database";
 import "./tasks.css";
 
@@ -32,6 +40,7 @@ type Task = {
   created_at: string;
   completed_at: string | null;
   assignee_id: string | null;
+  approval_request_id: string | null;
 };
 type Member = { id: string; name: string; role: string };
 type SavedView = {
@@ -100,28 +109,43 @@ function isOverdue(task: Task, comparisonTime = Date.now()) {
 
 export default function TasksPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [role, setRole] = useState<WorkspaceRole | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [selectedSavedViewId, setSelectedSavedViewId] = useState("");
   const [query, setQuery] = useState("");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("mine");
   const [timingFilter, setTimingFilter] = useState<TaskTiming>("all");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [filterTimestamp, setFilterTimestamp] = useState(0);
   const [pending, startTransition] = useTransition();
+  const canWrite = role !== null && role !== "viewer";
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user)
+        throw userError ?? new Error("The signed-in profile is unavailable.");
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
       setOrganizationId(membership.organization_id);
+      setRole(membership.role);
+      setCurrentUserId(user.id);
       const [
         { data, error },
         { data: memberRows },
@@ -130,7 +154,7 @@ export default function TasksPage() {
         supabase
           .from("tasks")
           .select(
-            "id, title, status, due_at, created_at, completed_at, assignee_id",
+            "id, title, status, due_at, created_at, completed_at, assignee_id, approval_request_id",
           )
           .eq("organization_id", membership.organization_id)
           .order("due_at", { ascending: true, nullsFirst: false })
@@ -166,16 +190,16 @@ export default function TasksPage() {
         })),
       );
       setSavedViews(savedViewRows || []);
-      if (error) setNotice("AIOS could not load the task queue.");
+      if (error) throw error;
       setTasks((data || []) as Task[]);
       setFilterTimestamp(Date.now());
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load the task queue.");
+      setLoadError("The task queue could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   const activeCount = useMemo(
     () =>
@@ -185,6 +209,22 @@ export default function TasksPage() {
     [tasks],
   );
   const overdueCount = useMemo(() => tasks.filter(isOverdue).length, [tasks]);
+  const myActiveCount = useMemo(
+    () =>
+      tasks.filter(
+        (task) =>
+          task.assignee_id === currentUserId &&
+          (task.status === "open" || task.status === "in_progress"),
+      ).length,
+    [currentUserId, tasks],
+  );
+  const myOverdueCount = useMemo(
+    () =>
+      tasks.filter(
+        (task) => task.assignee_id === currentUserId && isOverdue(task),
+      ).length,
+    [currentUserId, tasks],
+  );
   const visibleTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const dueSoonBoundary = filterTimestamp + 7 * 24 * 60 * 60 * 1000;
@@ -195,10 +235,12 @@ export default function TasksPage() {
       )
         return false;
       if (
-        assigneeFilter === "unassigned"
-          ? task.assignee_id !== null
-          : assigneeFilter !== "all" &&
-            task.assignee_id !== assigneeFilter
+        assigneeFilter === "mine"
+          ? task.assignee_id !== currentUserId
+          : assigneeFilter === "unassigned"
+            ? task.assignee_id !== null
+            : assigneeFilter !== "all" &&
+              task.assignee_id !== assigneeFilter
       )
         return false;
       if (
@@ -219,7 +261,7 @@ export default function TasksPage() {
       }
       return true;
     });
-  }, [assigneeFilter, filterTimestamp, query, tasks, timingFilter]);
+  }, [assigneeFilter, currentUserId, filterTimestamp, query, tasks, timingFilter]);
 
   function selectSavedView(savedViewId: string) {
     setSelectedSavedViewId(savedViewId);
@@ -315,9 +357,12 @@ export default function TasksPage() {
             created_at: task.created_at,
             completed_at: task.completed_at,
             assignee_id: task.assignee_id,
+            approval_request_id: null,
           },
           ...current,
         ]);
+        setAssigneeFilter(assigneeId || "unassigned");
+        setSelectedSavedViewId("");
         formElement.reset();
         setNotice("Follow-up added to the shared task queue.");
       } catch (error) {
@@ -401,33 +446,30 @@ export default function TasksPage() {
       <FeatureHeader
         links={[
           { href: "/", label: "Command center" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/automations", label: "Automations" },
         ]}
       />
-      <section className="tasks-hero">
-        <div>
-          <p>OPERATIONS QUEUE</p>
-          <h1>Every follow-up has an owner: AIOS or your team.</h1>
-          <span>
-            Low-risk internal follow-ups may arrive here from approved AIOS
-            workflows. Completing or progressing work remains visible and
-            auditable.
-          </span>
-        </div>
-        <aside>
-          <b>{activeCount}</b>
-          <small>active tasks</small>
-          <b>{tasks.filter((task) => task.status === "completed").length}</b>
-          <small>completed</small>
-          <b>{overdueCount}</b>
-          <small>overdue</small>
-        </aside>
-      </section>
+      <OperationalPageHeader
+        section="Today"
+        title="Tasks"
+        meta={`${myActiveCount} my active · ${myOverdueCount} my overdue · ${activeCount} workspace active · ${overdueCount} workspace overdue`}
+      />
       {notice && (
         <p className="tasks-notice" role="status">
           {notice}
         </p>
       )}
+      {loadError ? (
+        <ErrorState
+          title="Tasks are unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : null}
+      {!loadError && canWrite ? (
+        <details className="crm-action-drawer">
+          <summary>New task</summary>
+          <div className="crm-action-drawer-body">
       <section className="tasks-create">
         <form onSubmit={createNewTask}>
           <label>
@@ -462,6 +504,13 @@ export default function TasksPage() {
           perform external actions here.
         </p>
       </section>
+          </div>
+        </details>
+      ) : !loadError && role ? (
+        <PermissionNotice description="You can review task ownership, deadlines, and progress. Creating, assigning, and completing tasks requires an operating role." />
+      ) : null}
+      {!loadError ? (
+      <>
       <section className="tasks-filter-workspace" aria-label="Task filters">
         <div className="tasks-filters">
           <label>
@@ -484,6 +533,7 @@ export default function TasksPage() {
                 setSelectedSavedViewId("");
               }}
             >
+              <option value="mine">My tasks</option>
               <option value="all">Every owner</option>
               <option value="unassigned">Unassigned</option>
               {members.map((member) => (
@@ -566,11 +616,17 @@ export default function TasksPage() {
                       </small>
                     </div>
                     <h3>{task.title}</h3>
+                    {task.approval_request_id ? (
+                      <div className="task-approval-link">
+                        <span>Human approval</span>
+                        <Link href="/aios/approvals">Open approval queue</Link>
+                      </div>
+                    ) : null}
                     <label className="task-assignee">
                       Owner
                       <select
                         value={task.assignee_id || ""}
-                        disabled={pending}
+                        disabled={pending || !canWrite}
                         onChange={(event) =>
                           changeAssignee(task, event.target.value || null)
                         }
@@ -588,7 +644,7 @@ export default function TasksPage() {
                         <button
                           type="button"
                           onClick={() => changeStatus(task, "in_progress")}
-                          disabled={pending}
+                          disabled={pending || !canWrite}
                         >
                           Start work
                         </button>
@@ -599,14 +655,14 @@ export default function TasksPage() {
                             type="button"
                             className="quiet"
                             onClick={() => changeStatus(task, "open")}
-                            disabled={pending}
+                            disabled={pending || !canWrite}
                           >
                             Pause
                           </button>
                           <button
                             type="button"
                             onClick={() => changeStatus(task, "completed")}
-                            disabled={pending}
+                            disabled={pending || !canWrite}
                           >
                             Complete
                           </button>
@@ -617,7 +673,7 @@ export default function TasksPage() {
                           type="button"
                           className="quiet"
                           onClick={() => changeStatus(task, "open")}
-                          disabled={pending}
+                          disabled={pending || !canWrite}
                         >
                           Reopen
                         </button>
@@ -630,6 +686,8 @@ export default function TasksPage() {
           );
         })}
       </section>
+      </>
+      ) : null}
     </main>
   );
 }

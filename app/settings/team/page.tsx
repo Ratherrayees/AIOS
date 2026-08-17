@@ -21,7 +21,8 @@ import {
   LoadingState,
   StatusNotice,
 } from "../../../components/ui/empty-state";
-import { FeatureHeader } from "../../../components/ui/feature-header";
+import { SettingsNavigation } from "../../../components/ui/settings-navigation";
+import { OperationalPageHeader } from "../../../components/ui/operational-page-header";
 import {
   FormFeedback,
   FormField,
@@ -58,7 +59,7 @@ const roleOptions: { value: WorkspaceRole; label: string }[] = [
   { value: "trip_designer", label: "Trip designer" },
   { value: "operations", label: "Operations" },
   { value: "finance", label: "Finance" },
-  { value: "agent", label: "Agent" },
+  { value: "agent", label: "Travel coordinator" },
   { value: "viewer", label: "Viewer" },
 ];
 
@@ -339,40 +340,13 @@ export default function TeamAccessPage() {
 
   return (
     <main className="team-page" id="main-content" tabIndex={-1}>
-      <FeatureHeader
-        ariaLabel="Team access navigation"
-        links={[
-          { href: "/", label: "Command center" },
-          { href: "/contacts", label: "Contacts" },
-          { href: "/aios", label: "AIOS Control" },
-          { href: "/settings/security", label: "Account Security" },
-        ]}
-      />
+      <SettingsNavigation />
 
-      <section className="team-hero">
-        <div>
-          <p>IDENTITY AND ACCESS</p>
-          <h1>Humans stay accountable, even when AIOS is on auto.</h1>
-          <span>
-            Workspace membership, invitations, and authority boundaries are
-            tenant-scoped and audit-ready.
-          </span>
-        </div>
-        <div className="team-hero-stats" aria-label="Workspace access summary">
-          <span>
-            <b>{activeMembers}</b>
-            active members
-          </span>
-          <span>
-            <b>{pendingInvitations}</b>
-            pending invites
-          </span>
-          <span>
-            <b>{workspaceRole ? roleLabel(workspaceRole) : "—"}</b>
-            your role
-          </span>
-        </div>
-      </section>
+      <OperationalPageHeader
+        section="Administration"
+        title="Team"
+        meta={`${activeMembers} active · ${pendingInvitations} invited · ${workspaceRole ? roleLabel(workspaceRole) : "loading"}`}
+      />
 
       {feedback && (
         <div className="team-feedback">
@@ -395,9 +369,7 @@ export default function TeamAccessPage() {
                 <p>ACTIVE TENANT</p>
                 <h2>{workspaceName}</h2>
               </div>
-              <StatusNotice tone="info">
-                Access is enforced by Supabase Row Level Security.
-              </StatusNotice>
+              <StatusNotice tone="info">Access is enforced per agency workspace.</StatusNotice>
             </header>
             <DataTable<MemberRow>
               caption={`Members of ${workspaceName}`}

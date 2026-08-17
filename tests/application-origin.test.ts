@@ -34,6 +34,17 @@ test("configured callback origins reject insecure non-loopback URLs", () => {
   );
 });
 
+test("an optimized local preview may use an explicitly configured loopback origin", () => {
+  assert.equal(
+    resolveApplicationOrigin({
+      configuredOrigin: "http://localhost:3000",
+      requestOrigin: "https://malicious.example",
+      production: true,
+    }),
+    "http://localhost:3000",
+  );
+});
+
 test("configured callback origins reject paths, credentials, and fragments", () => {
   assert.equal(
     resolveApplicationOrigin({

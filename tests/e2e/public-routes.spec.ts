@@ -97,6 +97,46 @@ test("sign-up requires name, email, and a twelve-character password", async ({
   await expect(page.getByLabel("Your name")).toBeVisible();
   await expect(page.getByLabel("Work email")).toHaveAttribute("type", "email");
   await expect(page.getByLabel("Password")).toHaveAttribute("minlength", "12");
+  await expect(
+    page.getByRole("button", { name: /continue to email verification/i }),
+  ).toBeVisible();
+});
+
+test("signup OTP preserves a validated invitation return path", async ({
+  page,
+}) => {
+  const nextPath = `/auth/invite?token=${"a".repeat(43)}`;
+  await page.goto(`/sign-up?next=${encodeURIComponent(nextPath)}`);
+  await expect(page.getByText(/return you to the invitation/i)).toBeVisible();
+  await expect(page.locator('input[name="next"]')).toHaveValue(nextPath);
+});
+
+test("platform invitation signup promises identity verification without tenant creation", async ({
+  page,
+}) => {
+  const nextPath = "/auth/platform-invite";
+  await page.goto(`/sign-up?next=${encodeURIComponent(nextPath)}`);
+  await expect(page.getByText("CREATE PLATFORM IDENTITY", { exact: true })).toBeVisible();
+  await expect(page.getByText(/does not create an agency/i)).toBeVisible();
+  await expect(page.locator('input[name="next"]')).toHaveValue(nextPath);
+});
+
+test("email verification is a private code-entry flow without a confirmation link", async ({
+  page,
+  request,
+}) => {
+  const response = await request.get("/auth/verify-email");
+  expect(response.headers()["cache-control"]).toBe(
+    "private, no-store, max-age=0",
+  );
+  await page.goto("/auth/verify-email");
+  await expect(
+    page.getByRole("heading", { name: "Verification session expired." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Start account creation again" }),
+  ).toHaveAttribute("href", "/sign-up");
+  await expect(page.getByRole("link", { name: /confirm|verify email address/i })).toHaveCount(0);
 });
 
 test("anonymous missing routes remain protected", async ({ page }) => {
@@ -187,6 +227,33 @@ test("invitation links are private and non-cacheable", async ({ request }) => {
   );
 });
 
+test("platform invitation pages are private and suppress token referrers", async ({
+  request,
+}) => {
+  const response = await request.get("/auth/platform-invite");
+  expect(response.headers()["cache-control"]).toBe(
+    "private, no-store, max-age=0",
+  );
+  expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+});
+
+test("platform invitation capture rejects unknown bearers without forwarding them", async ({
+  request,
+}) => {
+  const token = "a".repeat(43);
+  const response = await request.get(
+    `/auth/platform-invite/redeem?token=${token}`,
+    { maxRedirects: 0 },
+  );
+  expect(response.status()).toBe(303);
+  expect(response.headers().location).toMatch(/\/auth\/platform-invite\?error=invalid$/);
+  expect(response.headers().location).not.toContain(token);
+  expect(response.headers()["cache-control"]).toBe("private, no-store, max-age=0");
+  expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+  expect(response.headers()["set-cookie"]).toContain("HttpOnly");
+  expect(response.headers()["set-cookie"]).toContain("SameSite=Lax");
+});
+
 test("anonymous account security remains protected", async ({ page }) => {
   await page.goto("/settings/security");
   await expect(page).toHaveURL(/\/sign-in$/);
@@ -206,6 +273,14 @@ test("AIOS job worker is unavailable without its server credential", async ({
   request,
 }) => {
   const response = await request.post("/api/internal/aios/jobs");
+  expect([401, 503]).toContain(response.status());
+  expect(response.headers()["cache-control"]).toContain("no-store");
+});
+
+test("approval escalation worker is unavailable without its server credential", async ({
+  request,
+}) => {
+  const response = await request.post("/api/internal/aios/approvals");
   expect([401, 503]).toContain(response.status());
   expect(response.headers()["cache-control"]).toContain("no-store");
 });

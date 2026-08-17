@@ -1,6 +1,7 @@
 "use server";
 
 import { gateAiosAction } from "./aios";
+import { canRunOperatorRequestedDraft } from "../../lib/ai/autonomy";
 import { requireActiveMembership } from "../../lib/authorization";
 import {
   inspectKnowledgeAnswerInput,
@@ -13,7 +14,7 @@ import {
 } from "../../lib/ai/knowledge-answer";
 import {
   AiosProviderNotConfiguredError,
-  getAiosProviderStatus,
+  getAiosProviderStatusForOrganization,
   runKnowledgeAnswer,
 } from "../../lib/ai/openai-provider";
 import {
@@ -275,8 +276,9 @@ export async function composeKnowledgeAnswer(input: {
     rationale:
       "AIOS will compose an internal answer only from permission-visible approved passages. It cannot mutate records or act externally.",
   });
-  const gateAllowed =
-    gate.decision === "execute" || gate.decision === "draft";
+  // This Server Action is an explicit operator request. Observe mode may
+  // answer on demand, but it never schedules the agent or changes CRM data.
+  const gateAllowed = canRunOperatorRequestedDraft(gate.decision);
   await recordAgentToolCall({
     organizationId: data.organizationId,
     runId: run.id,
@@ -294,9 +296,7 @@ export async function composeKnowledgeAnswer(input: {
     const message =
       gate.decision === "approval_required"
         ? "This Answer Desk run is waiting for the configured human approval."
-        : gate.decision === "observe"
-          ? "The Answer Desk is in Observe mode. AIOS retrieved evidence but did not compose an answer."
-          : gate.reason;
+        : gate.reason;
     await completeAgentRun({
       organizationId: data.organizationId,
       runId: run.id,
@@ -304,9 +304,7 @@ export async function composeKnowledgeAnswer(input: {
       errorCode:
         gate.decision === "approval_required"
           ? "HUMAN_APPROVAL_REQUIRED"
-          : gate.decision === "observe"
-            ? "AUTONOMY_OBSERVE_ONLY"
-            : "AUTONOMY_POLICY_BLOCKED",
+          : "AUTONOMY_POLICY_BLOCKED",
       approvalRequestId:
         gate.decision === "approval_required" ? gate.approvalId : null,
       citations: runCitations(safeEvidence) as Json,
@@ -340,6 +338,8 @@ export async function composeKnowledgeAnswer(input: {
       },
       modelBudget.selectedModelProvider,
       modelBudget.fallbackModelProvider,
+      data.organizationId,
+      modelBudget.allowedModelProviders,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -375,7 +375,10 @@ export async function composeKnowledgeAnswer(input: {
       toolName: "model.structured_output",
       requestedAction: "knowledge.answer.compose",
       decision: "allowed",
-      arguments: getAiosProviderStatus(modelBudget.selectedModelProvider),
+      arguments: await getAiosProviderStatusForOrganization(
+        data.organizationId,
+        modelBudget.selectedModelProvider,
+      ),
       result: {
         claims: answer.claims.length,
         human_review_required: humanReviewRequired,
@@ -436,7 +439,10 @@ export async function composeKnowledgeAnswer(input: {
       toolName: "model.structured_output",
       requestedAction: "knowledge.answer.compose",
       decision: "failed",
-      arguments: getAiosProviderStatus(modelBudget.selectedModelProvider),
+      arguments: await getAiosProviderStatusForOrganization(
+        data.organizationId,
+        modelBudget.selectedModelProvider,
+      ),
       result: { error_code: errorCode },
     });
     await completeAgentRun({

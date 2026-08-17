@@ -13,31 +13,44 @@ import {
   applyItineraryTemplate,
   createItineraryTemplateFromTrip,
   createTripDraft,
+  reorderItineraryItem,
 } from "../actions/crm";
 import type { ItineraryDraft } from "../../lib/ai/contracts";
 import { assessItineraryConflicts } from "../../lib/crm/itinerary-conflicts";
 import { assessItineraryReadiness } from "../../lib/crm/itinerary-readiness";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import { COMMON_TRAVEL_TIME_ZONES } from "../../lib/crm/time-zones";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import "./itineraries.css";
 
 type Trip = {
   id: string;
+  deal_id: string | null;
   name: string;
   status: string;
   start_date: string | null;
   end_date: string | null;
+  time_zone: string | null;
 };
 type Item = {
   id: string;
   trip_id: string;
   day_number: number;
+  position: number;
   item_type: string;
   title: string;
   starts_at: string | null;
   ends_at: string | null;
+  time_zone: string | null;
+  location: unknown;
 };
 type ItineraryTemplate = {
   id: string;
@@ -66,9 +79,52 @@ const planningRoles = new Set([
   "operations",
 ]);
 
+function itineraryDayLabel(startDate: string | null, dayNumber: number) {
+  if (!startDate) return "Date not set";
+  const date = new Date(`${startDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "Date not set";
+  date.setUTCDate(date.getUTCDate() + dayNumber - 1);
+  return new Intl.DateTimeFormat("en-IN", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function itineraryItemTime(value: string | null, timeZone: string | null) {
+  if (!value) return "Time open";
+  if (!timeZone) return "Zone needed";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time open";
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone,
+    }).format(date);
+  } catch {
+    return "Zone needed";
+  }
+}
+
+function itineraryItemLocation(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" ? name.trim() : "";
+}
+
+function formLocalDateTime(form: FormData, name: string) {
+  const rawValue = String(form.get(name) || "").trim();
+  return rawValue || null;
+}
+
 export default function ItinerariesPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [focusedDealId, setFocusedDealId] = useState("");
+  const [focusedDealName, setFocusedDealName] = useState("");
+  const [selectedTripId, setSelectedTripId] = useState("");
   const [trips, setTrips] = useState<Trip[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [templates, setTemplates] = useState<ItineraryTemplate[]>([]);
@@ -77,8 +133,18 @@ export default function ItinerariesPage() {
   const [drafts, setDrafts] = useState<Record<string, ItineraryDraft>>({});
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, startTransition] = useTransition();
   const canPlan = role ? planningRoles.has(role) : false;
+  const focusedTrip = focusedDealId
+    ? trips.find((trip) => trip.deal_id === focusedDealId) ?? null
+    : null;
+  const activeTrip =
+    trips.find((trip) => trip.id === selectedTripId) ??
+    focusedTrip ??
+    trips[0] ??
+    null;
 
   const readinessByTrip = useMemo(
     () =>
@@ -125,33 +191,46 @@ export default function ItinerariesPage() {
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
 
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
+      const requestedDealId = new URLSearchParams(window.location.search).get(
+        "deal",
+      );
+      const requestedDealName = new URLSearchParams(window.location.search).get(
+        "name",
+      );
+      setFocusedDealId(requestedDealId || "");
+      setFocusedDealName(requestedDealName || "");
       const [
-        { data: tripRows },
-        { data: itemRows },
-        { data: templateRows },
-        { data: templateItemRows },
-        { data: commentRows },
+        { data: tripRows, error: tripError },
+        { data: itemRows, error: itemError },
+        { data: templateRows, error: templateError },
+        { data: templateItemRows, error: templateItemError },
+        { data: commentRows, error: commentError },
       ] = await Promise.all([
         supabase
           .from("trips")
-          .select("id, name, status, start_date, end_date")
+          .select("id, deal_id, name, status, start_date, end_date, time_zone")
           .eq("organization_id", membership.organization_id)
           .order("created_at", { ascending: false }),
         supabase
           .from("itinerary_items")
-          .select("id, trip_id, day_number, item_type, title, starts_at, ends_at")
+          .select(
+            "id, trip_id, day_number, position, item_type, title, starts_at, ends_at, time_zone, location",
+          )
           .eq("organization_id", membership.organization_id)
-          .order("day_number"),
+          .order("day_number")
+          .order("position"),
         supabase
           .from("itinerary_templates")
           .select("id, name, description")
@@ -169,12 +248,29 @@ export default function ItinerariesPage() {
           .eq("organization_id", membership.organization_id)
           .order("created_at", { ascending: true }),
       ]);
-      setTrips((tripRows || []) as Trip[]);
+      const loadFailure =
+        tripError ??
+        itemError ??
+        templateError ??
+        templateItemError ??
+        commentError;
+      if (loadFailure) throw loadFailure;
+
+      const hydratedTrips = [...((tripRows || []) as Trip[])].sort(
+        (left, right) =>
+          Number(right.deal_id === requestedDealId) -
+          Number(left.deal_id === requestedDealId),
+      );
+      setTrips(hydratedTrips);
+      setSelectedTripId(
+        hydratedTrips.find((trip) => trip.deal_id === requestedDealId)?.id ||
+          hydratedTrips[0]?.id ||
+          "",
+      );
       setItems((itemRows || []) as Item[]);
       setTemplates((templateRows || []) as ItineraryTemplate[]);
       setTemplateItems((templateItemRows || []) as TemplateItem[]);
       setComments((commentRows || []) as ItineraryComment[]);
-      const hydratedTrips = (tripRows || []) as Trip[];
       if (hydratedTrips.length > 0) {
         const latestDrafts = await getLatestItineraryDrafts({
           organizationId: membership.organization_id,
@@ -189,10 +285,10 @@ export default function ItinerariesPage() {
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load the itinerary studio.");
+      setLoadError("The itinerary workspace could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   async function refreshTemplateData(currentOrganizationId: string) {
     const supabase = createSupabaseBrowserClient();
@@ -225,9 +321,12 @@ export default function ItinerariesPage() {
           name: String(form.get("name") || ""),
           startDate: String(form.get("startDate") || "") || null,
           endDate: String(form.get("endDate") || "") || null,
+          timeZone: String(form.get("timeZone") || ""),
           currency: "INR",
+          dealId: focusedDealId || null,
         });
         setTrips((current) => [trip as Trip, ...current]);
+        setSelectedTripId(trip.id);
         formElement.reset();
         setNotice("Internal trip draft created. Nothing has been booked or shared.");
       } catch (error) {
@@ -254,6 +353,9 @@ export default function ItinerariesPage() {
           itemType: String(form.get("itemType")) as "activity",
           title: String(form.get("title") || ""),
           locationName: String(form.get("location") || "") || null,
+          startsAtLocal: formLocalDateTime(form, "startsAt"),
+          endsAtLocal: formLocalDateTime(form, "endsAt"),
+          timeZone: String(form.get("timeZone") || "") || null,
         });
         setItems((current) => [...current, item as Item]);
         formElement.reset();
@@ -265,6 +367,45 @@ export default function ItinerariesPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not add this itinerary item.",
+        );
+      }
+    });
+  }
+
+  function moveItineraryItem(
+    tripId: string,
+    itineraryItemId: string,
+    direction: "up" | "down",
+  ) {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const reorderedItems = await reorderItineraryItem({
+          organizationId,
+          tripId,
+          itineraryItemId,
+          direction,
+        });
+        const positions = new Map(
+          reorderedItems.map((item) => [
+            item.itinerary_item_id,
+            item.item_position,
+          ]),
+        );
+        setItems((current) =>
+          current.map((item) => {
+            const position = positions.get(item.id);
+            return item.trip_id === tripId && position !== undefined
+              ? { ...item, position }
+              : item;
+          }),
+        );
+        setNotice(`Itinerary item moved ${direction}.`);
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The itinerary item could not be moved.",
         );
       }
     });
@@ -336,6 +477,8 @@ export default function ItinerariesPage() {
           itemType: suggestion.itemType,
           title: suggestion.title,
           locationName: null,
+          timeZone:
+            trips.find((trip) => trip.id === tripId)?.time_zone ?? null,
         });
         setItems((current) => [...current, item as Item]);
         setNotice(
@@ -392,9 +535,12 @@ export default function ItinerariesPage() {
         const supabase = createSupabaseBrowserClient();
         const { data: itemRows } = await supabase
           .from("itinerary_items")
-          .select("id, trip_id, day_number, item_type, title, starts_at, ends_at")
+          .select(
+            "id, trip_id, day_number, position, item_type, title, starts_at, ends_at, time_zone, location",
+          )
           .eq("organization_id", organizationId)
-          .order("day_number");
+          .order("day_number")
+          .order("position");
         setItems((itemRows || []) as Item[]);
         formElement.reset();
         setNotice(
@@ -444,30 +590,64 @@ export default function ItinerariesPage() {
           { href: "/", label: "Command center" },
           { href: "/quotes", label: "Quotes" },
           { href: "/trips", label: "Trip Operations" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
         ]}
       />
-      <section className="itinerary-hero">
-        <p>ITINERARY STUDIO / INTERNAL DRAFTS</p>
-        <h1>Design the journey before the world sees it.</h1>
-        <span>
-          Plan day-by-day experiences with your team. Bookings, documents, and
-          customer sharing remain locked behind their own approval gates.
-        </span>
-      </section>
+      <OperationalPageHeader
+        section="Travel"
+        title="Itineraries"
+        meta={`${trips.length} active drafts · ${templates.length} templates`}
+      />
+      <datalist id="travel-time-zones">
+        {COMMON_TRAVEL_TIME_ZONES.map((timeZone) => (
+          <option key={timeZone} value={timeZone} />
+        ))}
+      </datalist>
+      {focusedDealId ? (
+        <section
+          className="itinerary-opportunity-context"
+          aria-label="Opportunity context"
+        >
+          <div>
+            <p>OPPORTUNITY CONTEXT</p>
+            <h2>{focusedDealName || "Selected opportunity"}</h2>
+            <span>
+              {focusedTrip
+                ? `${focusedTrip.name} is linked to this opportunity.`
+                : "No itinerary is linked yet. Create the first internal trip draft below."}
+            </span>
+          </div>
+          <a href={`/leads/${focusedDealId}`}>Back to opportunity</a>
+        </section>
+      ) : null}
       {notice && (
         <p className="itinerary-notice" role="status">
           {notice}
         </p>
       )}
+      {loadError ? (
+        <ErrorState
+          title="Itineraries are unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : (
+      <>
+      {!canPlan && role ? (
+        <PermissionNotice description="You can inspect itinerary drafts and their readiness. Creating trips, applying templates, and accepting AI suggestions requires a planning role." />
+      ) : null}
       {canPlan && (
+        <details className="crm-action-drawer">
+          <summary>Create or update an itinerary</summary>
+          <div className="crm-action-drawer-body">
         <section className="itinerary-forms" aria-label="Trip planning forms">
-          <form onSubmit={createTrip}>
+          <form onSubmit={createTrip} key={`new-trip-${focusedDealId}`}>
             <b>New trip draft</b>
             <input
               name="name"
               required
               maxLength={180}
+              defaultValue={focusedDealName}
               placeholder="Japan family journey"
               aria-label="Trip name"
             />
@@ -477,6 +657,14 @@ export default function ItinerariesPage() {
               aria-label="Trip start date"
             />
             <input name="endDate" type="date" aria-label="Trip end date" />
+            <input
+              name="timeZone"
+              required
+              maxLength={80}
+              list="travel-time-zones"
+              placeholder="Destination time zone, e.g. Asia/Tokyo"
+              aria-label="Trip time zone"
+            />
             <button disabled={pending}>{pending ? "Saving..." : "Create draft"}</button>
           </form>
           <form onSubmit={addItem}>
@@ -484,7 +672,8 @@ export default function ItinerariesPage() {
             <select
               name="tripId"
               required
-              defaultValue=""
+              defaultValue={activeTrip?.id || ""}
+              key={`item-trip-${activeTrip?.id || "none"}`}
               aria-label="Trip for itinerary item"
             >
               <option value="" disabled>
@@ -530,6 +719,25 @@ export default function ItinerariesPage() {
               placeholder="Location (optional)"
               aria-label="Itinerary item location"
             />
+            <input
+              name="startsAt"
+              type="datetime-local"
+              aria-label="Itinerary item start"
+            />
+            <input
+              name="endsAt"
+              type="datetime-local"
+              aria-label="Itinerary item end"
+            />
+            <input
+              name="timeZone"
+              maxLength={80}
+              list="travel-time-zones"
+              defaultValue={activeTrip?.time_zone ?? ""}
+              key={`item-zone-${activeTrip?.id || "none"}`}
+              placeholder="IANA time zone for timed items"
+              aria-label="Itinerary item time zone"
+            />
             <button disabled={pending || trips.length === 0}>
               {pending ? "Saving..." : "Add item"}
             </button>
@@ -539,7 +747,8 @@ export default function ItinerariesPage() {
             <select
               name="sourceTripId"
               required
-              defaultValue=""
+              defaultValue={activeTrip?.id || ""}
+              key={`source-trip-${activeTrip?.id || "none"}`}
               aria-label="Source trip for template"
             >
               <option value="" disabled>
@@ -588,7 +797,8 @@ export default function ItinerariesPage() {
             <select
               name="targetTripId"
               required
-              defaultValue=""
+              defaultValue={activeTrip?.id || ""}
+              key={`target-trip-${activeTrip?.id || "none"}`}
               aria-label="Target trip for template"
             >
               <option value="" disabled>
@@ -605,6 +815,8 @@ export default function ItinerariesPage() {
             </button>
           </form>
         </section>
+          </div>
+        </details>
       )}
       <section className="itinerary-list" aria-labelledby="trip-drafts-title">
         <div className="section-heading">
@@ -614,6 +826,34 @@ export default function ItinerariesPage() {
           </div>
           <span>{trips.length} active</span>
         </div>
+        {!loading && trips.length > 0 ? (
+          <div
+            className="itinerary-record-switcher"
+            role="tablist"
+            aria-label="Trip drafts"
+          >
+            {trips.map((trip) => (
+              <button
+                key={trip.id}
+                type="button"
+                role="tab"
+                aria-selected={trip.id === activeTrip?.id}
+                aria-controls="active-itinerary"
+                onClick={() => setSelectedTripId(trip.id)}
+              >
+                <span>
+                  <b>{trip.name}</b>
+                  <small>
+                    {trip.start_date || "Dates unplanned"}
+                    {trip.end_date ? ` to ${trip.end_date}` : ""}
+                    {` · ${trip.time_zone || "Time zone not set"}`}
+                  </small>
+                </span>
+                <em>{trip.status}</em>
+              </button>
+            ))}
+          </div>
+        ) : null}
         {loading ? (
           <LoadingState label="Loading trip drafts" rows={3} />
         ) : trips.length === 0 ? (
@@ -622,18 +862,48 @@ export default function ItinerariesPage() {
             description="Start a draft when the team is ready to shape an itinerary."
           />
         ) : (
-          trips.map((trip) => {
+          [activeTrip]
+            .filter((trip): trip is Trip => Boolean(trip))
+            .map((trip) => {
             const readiness = readinessByTrip.get(trip.id);
             const conflicts = conflictsByTrip.get(trip.id) || [];
             const draft = drafts[trip.id];
+            const tripItems = items.filter((item) => item.trip_id === trip.id);
+            const dayNumbers = new Set(
+              tripItems.map((item) => item.day_number),
+            );
+            if (trip.start_date && trip.end_date) {
+              const start = new Date(`${trip.start_date}T00:00:00Z`);
+              const end = new Date(`${trip.end_date}T00:00:00Z`);
+              const datedDayCount = Math.min(
+                120,
+                Math.max(
+                  1,
+                  Math.floor((end.getTime() - start.getTime()) / 86_400_000) +
+                    1,
+                ),
+              );
+              for (let day = 1; day <= datedDayCount; day += 1) {
+                dayNumbers.add(day);
+              }
+            }
+            if (dayNumbers.size === 0) dayNumbers.add(1);
+            const sortedDayNumbers = [...dayNumbers].sort(
+              (left, right) => left - right,
+            );
             return (
-              <article key={trip.id}>
+              <article
+                key={trip.id}
+                id="active-itinerary"
+                className={trip.deal_id === focusedDealId ? "focused-trip" : ""}
+              >
                 <div className="trip-overview">
                   <span>{trip.status}</span>
                   <h3>{trip.name}</h3>
                   <small>
                     {trip.start_date || "Dates unplanned"}
                     {trip.end_date ? ` to ${trip.end_date}` : ""}
+                    {` · ${trip.time_zone || "Time zone not set"}`}
                   </small>
                   {readiness && (
                     <p className={`readiness ${readiness.status}`}>
@@ -672,17 +942,200 @@ export default function ItinerariesPage() {
                     </div>
                   )}
                 </div>
-                <ol className="current-items">
-                  {items
-                    .filter((item) => item.trip_id === trip.id)
-                    .map((item) => (
-                      <li key={item.id}>
-                        <b>Day {item.day_number}</b>
-                        <span>{item.item_type}</span>
-                        {item.title}
-                      </li>
-                    ))}
-                </ol>
+                <section
+                  className="itinerary-day-canvas"
+                  aria-label={`Day plan for ${trip.name}`}
+                >
+                  <div className="day-canvas-heading">
+                    <div>
+                      <p>DAY PLAN</p>
+                      <h4>Build the journey day by day</h4>
+                    </div>
+                    <span>
+                      {tripItems.length} {tripItems.length === 1 ? "item" : "items"}
+                    </span>
+                  </div>
+                  {tripItems.length === 0 ? (
+                    <div className="itinerary-plan-empty" role="status">
+                      <b>This itinerary draft is empty.</b>
+                      Add the first service or activity from Planning tools, or ask
+                      AIOS for an internal planning draft. Nothing has been booked
+                      or shared.
+                    </div>
+                  ) : null}
+                  <div className="itinerary-days">
+                    {sortedDayNumbers.map((dayNumber) => {
+                      const dayItems = tripItems
+                        .filter((item) => item.day_number === dayNumber)
+                        .sort((left, right) => left.position - right.position);
+                      return (
+                        <section className="itinerary-day" key={dayNumber}>
+                          <header>
+                            <div>
+                              <b>Day {dayNumber}</b>
+                              <span>
+                                {itineraryDayLabel(trip.start_date, dayNumber)}
+                              </span>
+                            </div>
+                            <small>
+                              {dayItems.length === 0
+                                ? "Open"
+                                : `${dayItems.length} ${dayItems.length === 1 ? "item" : "items"}`}
+                            </small>
+                          </header>
+                          {dayItems.length === 0 ? (
+                            <p className="empty-day">No services or activities planned yet.</p>
+                          ) : (
+                            <ol>
+                              {dayItems.map((item, itemIndex) => (
+                                <li key={item.id}>
+                                  <time>
+                                    {itineraryItemTime(
+                                      item.starts_at,
+                                      item.time_zone,
+                                    )}
+                                    {item.ends_at
+                                      ? `–${itineraryItemTime(
+                                          item.ends_at,
+                                          item.time_zone,
+                                        )}`
+                                      : ""}
+                                  </time>
+                                  <span>{item.item_type.replace("_", " ")}</span>
+                                  <div className="itinerary-item-copy">
+                                    <b>{item.title}</b>
+                                    {itineraryItemLocation(item.location) ? (
+                                      <small>
+                                        {itineraryItemLocation(item.location)}
+                                        {item.time_zone ? ` · ${item.time_zone}` : ""}
+                                      </small>
+                                    ) : item.time_zone ? (
+                                      <small>{item.time_zone}</small>
+                                    ) : item.starts_at ? (
+                                      <small>Legacy time zone needs review</small>
+                                    ) : null}
+                                  </div>
+                                  {canPlan ? (
+                                    <div
+                                      className="itinerary-item-order"
+                                      aria-label={`Reorder ${item.title}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        disabled={pending || itemIndex === 0}
+                                        aria-label={`Move ${item.title} up`}
+                                        title="Move earlier"
+                                        onClick={() =>
+                                          moveItineraryItem(trip.id, item.id, "up")
+                                        }
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          pending || itemIndex === dayItems.length - 1
+                                        }
+                                        aria-label={`Move ${item.title} down`}
+                                        title="Move later"
+                                        onClick={() =>
+                                          moveItineraryItem(trip.id, item.id, "down")
+                                        }
+                                      >
+                                        ↓
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                        </section>
+                      );
+                    })}
+                  </div>
+                  {canPlan ? (
+                    <form className="itinerary-quick-add" onSubmit={addItem}>
+                      <input type="hidden" name="tripId" value={trip.id} />
+                      <label className="quick-add-day">
+                        <span>Day</span>
+                        <input
+                          name="dayNumber"
+                          type="number"
+                          min="1"
+                          defaultValue="1"
+                          required
+                          aria-label="Quick add day"
+                        />
+                      </label>
+                      <label className="quick-add-category">
+                        <span>Type</span>
+                        <select
+                          name="itemType"
+                          defaultValue="activity"
+                          aria-label="Quick item category"
+                        >
+                          <option value="activity">Activity</option>
+                          <option value="stay">Stay</option>
+                          <option value="flight">Flight</option>
+                          <option value="transfer">Transfer</option>
+                          <option value="meal">Meal</option>
+                          <option value="free_time">Free time</option>
+                          <option value="note">Note</option>
+                        </select>
+                      </label>
+                      <label className="quick-add-title">
+                        <span>Plan item</span>
+                        <input
+                          name="title"
+                          required
+                          maxLength={300}
+                          placeholder="Add an activity, stay, transfer, or note"
+                          aria-label="Quick item name"
+                        />
+                      </label>
+                      <label className="quick-add-location">
+                        <span>Location</span>
+                        <input
+                          name="location"
+                          maxLength={180}
+                          placeholder="Optional place or area"
+                          aria-label="Quick item location"
+                        />
+                      </label>
+                      <label className="quick-add-start">
+                        <span>Starts</span>
+                        <input
+                          name="startsAt"
+                          type="datetime-local"
+                          aria-label="Quick item start"
+                        />
+                      </label>
+                      <label className="quick-add-end">
+                        <span>Ends</span>
+                        <input
+                          name="endsAt"
+                          type="datetime-local"
+                          aria-label="Quick item end"
+                        />
+                      </label>
+                      <label className="quick-add-timezone">
+                        <span>Time zone</span>
+                        <input
+                          name="timeZone"
+                          maxLength={80}
+                          list="travel-time-zones"
+                          defaultValue={trip.time_zone ?? ""}
+                          placeholder="Asia/Tokyo"
+                          aria-label="Quick item time zone"
+                        />
+                      </label>
+                      <button disabled={pending}>
+                        {pending ? "Adding..." : "Add to day plan"}
+                      </button>
+                    </form>
+                  ) : null}
+                </section>
                 {draft && (
                   <section className="ai-draft" aria-label={`AIOS preview for ${trip.name}`}>
                     <div className="ai-draft-heading">
@@ -810,6 +1263,8 @@ export default function ItinerariesPage() {
           </div>
         )}
       </section>
+      </>
+      )}
     </main>
   );
 }

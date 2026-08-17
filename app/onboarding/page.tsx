@@ -24,7 +24,7 @@ export default async function OnboardingPage({
         )}
         <form action={createWorkspace}>
           <FormField label="Workspace name">
-            <input name="name" required placeholder="Altitude Travel" />
+            <input name="name" required placeholder="Your agency name" />
           </FormField>
           <Button type="submit" fullWidth>
             Create workspace <span>→</span>

@@ -8,6 +8,23 @@
     #061017;
 }
 
+.finance-page[data-surface="finance"] .supplier-workbench,
+.finance-page[data-surface="finance"] .quote-catalog,
+.finance-page[data-surface="suppliers"] .finance-priority,
+.finance-page[data-surface="suppliers"] .finance-pulse,
+.finance-page[data-surface="suppliers"] .currency-strip,
+.finance-page[data-surface="suppliers"] .ledger-create,
+.finance-page[data-surface="suppliers"] .invoice-readiness-workspace,
+.finance-page[data-surface="suppliers"] .accounting-export,
+.finance-page[data-surface="suppliers"] .payment-ledger {
+  display: none;
+}
+
+.finance-page[data-surface="finance"] .finance-layout,
+.finance-page[data-surface="suppliers"] .finance-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .finance-hero {
   display: grid;
   max-width: 1240px;
@@ -199,7 +216,11 @@
   padding: 24px;
   border: 1px solid rgb(255 255 255 / 8%);
   border-radius: 19px;
-  background: linear-gradient(140deg, rgb(22 101 97 / 12%), rgb(14 27 37 / 82%));
+  background: linear-gradient(
+    140deg,
+    rgb(22 101 97 / 12%),
+    rgb(14 27 37 / 82%)
+  );
 }
 
 .currency-strip header h2,
@@ -1307,14 +1328,16 @@
 }
 
 .quote-catalog-grid article.archived {
-  opacity: .62;
+  opacity: 0.62;
 }
 
 .quote-catalog-grid article > span,
 .quote-catalog-grid article > em {
   color: #67d8c0;
-  font: 700 9px ui-monospace, monospace;
-  letter-spacing: .08em;
+  font:
+    700 9px ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -1449,13 +1472,435 @@
   }
 }
 
+/* Operational CRM canvas */
+.finance-page {
+  color: #403a49;
+  background: #f7f6f9;
+}
+
+.finance-record-tabs,
+.finance-priority {
+  max-width: 1176px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.finance-priority {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid #ded9e8;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 12px 34px rgb(54 41 93 / 5%);
+  scroll-margin-top: 18px;
+}
+
+.finance-priority-copy {
+  padding: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #332b52, #5d47aa);
+}
+
+.finance-priority-copy p {
+  margin: 0;
+  color: #d1c7ff;
+  font:
+    800 0.58rem ui-monospace,
+    monospace;
+  letter-spacing: 0.11em;
+}
+
+.finance-priority-copy h2 {
+  margin: 7px 0 5px;
+  font-size: 1.1rem;
+}
+
+.finance-priority-copy > span {
+  display: block;
+  color: #ddd7f4;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.finance-priority-copy a {
+  display: inline-flex;
+  margin-top: 13px;
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #49368c;
+  background: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.finance-priority-items {
+  display: grid;
+  align-content: stretch;
+}
+
+.finance-priority-items article {
+  display: flex;
+  min-width: 0;
+  padding: 13px 16px;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  border-bottom: 1px solid #eeeaf3;
+}
+
+.finance-priority-items article:last-child {
+  border-bottom: 0;
+}
+
+.finance-priority-items article > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.finance-priority-items span {
+  color: #7b68bc;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.finance-priority-items b {
+  overflow: hidden;
+  color: #403949;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finance-priority-items small {
+  color: #8b8492;
+  font-size: 0.61rem;
+}
+
+.finance-priority-items strong {
+  color: #40338a;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.finance-priority-empty {
+  align-self: center;
+  margin: 0;
+  padding: 22px;
+  color: #817a8a;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.finance-notice {
+  border-color: #d9d1f4;
+  color: #58479c;
+  background: #f2effd;
+}
+
+.finance-pulse {
+  margin-bottom: 16px;
+  border-color: #e1dde8;
+  background: #fff;
+  box-shadow: 0 9px 28px rgb(54 41 93 / 4%);
+}
+
+.finance-pulse article {
+  border-color: #ece8f1;
+}
+
+.finance-pulse span,
+.supplier-facts small,
+.payment-balance small {
+  color: #8a8293;
+}
+
+.finance-pulse b {
+  color: #403849;
+}
+
+.finance-pulse small {
+  color: #89828f;
+}
+
+.currency-strip {
+  margin-bottom: 20px;
+  border-color: #e1dce9;
+  background: #fff;
+  box-shadow: 0 9px 28px rgb(54 41 93 / 4%);
+}
+
+.finance-section-heading p,
+.currency-strip header p,
+.ledger-create > div > p,
+.accounting-export p {
+  color: #725db3;
+}
+
+.currency-strip header h2,
+.finance-section-heading h2,
+.ledger-create h2,
+.accounting-export h2 {
+  color: #3f3848;
+}
+
+.currency-strip article {
+  border-color: #e9e5ee;
+  background: #faf9fc;
+}
+
+.currency-strip article b {
+  color: #6650ad;
+}
+
+.currency-strip article span {
+  color: #514a58;
+}
+
+.currency-strip article small,
+.currency-empty {
+  color: #87808e;
+}
+
+.finance-layout {
+  margin-bottom: 24px;
+}
+
+.supplier-workbench,
+.ledger-create,
+.payment-ledger,
+.quote-catalog,
+.invoice-readiness-workspace,
+.accounting-export {
+  border-color: #e1dce9;
+  color: #403a49;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(54 41 93 / 4%);
+}
+
+.finance-section-heading > span {
+  border-color: #ddd5f3;
+  color: #604ba8;
+  background: #f3f0fc;
+}
+
+.supplier-tabs button,
+.supplier-profile,
+.supplier-forms details,
+.payment-actions details,
+.invoice-policy-form,
+.invoice-draft-card,
+.quote-catalog-grid article,
+.quote-catalog-forms details {
+  border-color: #e8e3ed;
+  color: #403a49;
+  background: #faf9fc;
+}
+
+.supplier-tabs button:hover,
+.supplier-tabs button.selected {
+  border-color: #cfc4ef;
+  background: #f1edfc;
+}
+
+.supplier-tabs span,
+.supplier-tabs small,
+.supplier-contact-list small,
+.supplier-contract-list small,
+.supplier-contact-list > p,
+.supplier-contract-list > p,
+.invoice-policy-form small,
+.invoice-draft-card small,
+.quote-catalog-boundary,
+.quote-catalog-empty,
+.quote-catalog-grid p,
+.quote-catalog-grid small,
+.accounting-export > div > span,
+.accounting-export > small {
+  color: #827b89;
+}
+
+.supplier-tabs b,
+.supplier-profile h3,
+.supplier-facts b,
+.supplier-contact-list b,
+.supplier-contract-list b,
+.quote-catalog-grid h3,
+.quote-catalog-grid dd,
+.invoice-draft-card,
+.invoice-document-readiness strong,
+.invoice-document-evidence strong {
+  color: #403a49;
+}
+
+.supplier-profile > header,
+.supplier-facts > span,
+.payment-balance > span,
+.invoice-zero-effect {
+  border-color: #ebe7ef;
+}
+
+.supplier-profile > header p,
+.quote-catalog-grid article > span,
+.quote-catalog-grid article > em,
+.invoice-document-readiness span,
+.invoice-document-evidence span {
+  color: #6e56b5;
+}
+
+.finance-page input,
+.finance-page select,
+.finance-page textarea,
+.quote-catalog-forms input,
+.quote-catalog-forms select {
+  border-color: #ddd8e4;
+  color: #403a49;
+  background: #fff;
+}
+
+.supplier-forms label,
+.ledger-create label,
+.payment-actions label,
+.invoice-policy-form label,
+.invoice-approval-form label,
+.quote-catalog-forms label {
+  color: #716a79;
+}
+
+.supplier-forms form > button,
+.ledger-create form > button,
+.payment-actions form > button,
+.invoice-policy-form button,
+.invoice-draft-card button,
+.quote-catalog-forms button,
+.accounting-export button {
+  color: #fff;
+  background: #6650b6;
+}
+
+.finance-readonly,
+.quote-catalog-grid dl div,
+.invoice-draft-facts span,
+.invoice-approval-form,
+.invoice-approval-state,
+.invoice-issued-evidence,
+.invoice-document-readiness,
+.invoice-document-evidence,
+.accounting-export dl div {
+  border-color: #e9e4ef;
+  color: #6e6775;
+  background: #f8f6fb;
+}
+
+.accounting-export dt,
+.accounting-export > small,
+.accounting-export dd,
+.quote-catalog-grid dt {
+  color: #756e7c;
+}
+
+.payment-ledger {
+  margin-top: 22px;
+  scroll-margin-top: 18px;
+}
+
+.ledger-controls button {
+  border-color: #e3dfea;
+  color: #766f7e;
+}
+
+.ledger-controls button.selected {
+  border-color: #d2c7f1;
+  color: #58439e;
+  background: #f1edfc;
+}
+
+.ledger-controls > label span {
+  color: #77707e;
+}
+
+.payment-card {
+  border-color: #e7e2ec;
+  border-left-color: #705ac0;
+  background: #fff;
+}
+
+.payment-card.overdue {
+  border-left-color: #d54d68;
+  background: linear-gradient(90deg, #fff4f6, #fff 23rem);
+}
+
+.payment-card h3,
+.payment-balance b {
+  color: #403a49;
+}
+
+.payment-card header p,
+.payment-description,
+.payment-note {
+  color: #7b7482;
+}
+
+.quote-receivable-provenance,
+.payment-link-readiness,
+.provider-reconciliation,
+.payment-link-approved,
+.payment-link-pending,
+.payment-link-sandbox-active,
+.payment-link-expired,
+.payment-link-approval-form {
+  border-color: #e6e1eb;
+  color: #5e5765;
+  background: #f8f6fb;
+}
+
+.quote-receivable-provenance a,
+.payment-link-pending a,
+.payment-link-sandbox-active a,
+.invoice-draft-card > header a,
+.invoice-approval-state a {
+  color: #5e46a8;
+}
+
+.invoice-issued-evidence,
+.invoice-document-evidence {
+  border-color: #cae8df;
+  background: #f1faf7;
+}
+
+.invoice-issued-evidence span {
+  color: #327563;
+}
+
+@media (max-width: 900px) {
+  .finance-priority {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .finance-record-tabs,
+  .finance-priority {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+
+  .finance-priority-items article {
+    align-items: start;
+  }
+}
+
 .invoice-readiness-workspace {
   margin: 0 28px 24px;
   border: 1px solid rgb(91 231 198 / 18%);
   border-radius: 16px;
   background:
-    linear-gradient(135deg, rgb(17 63 72 / 74%), rgb(9 30 42 / 92%)),
-    #0a1c27;
+    linear-gradient(135deg, rgb(17 63 72 / 74%), rgb(9 30 42 / 92%)), #0a1c27;
   padding: 22px;
 }
 
@@ -1723,4 +2168,162 @@
   .invoice-document-evidence button {
     width: 100%;
   }
+}
+
+/* Keep invoice operations inside the shared light CRM workspace. */
+.invoice-readiness-workspace,
+.invoice-policy-form,
+.invoice-draft-card {
+  border-color: #e1dce9;
+  color: #403a49;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(54 41 93 / 4%);
+}
+
+.invoice-policy-form,
+.invoice-draft-card {
+  border-color: #e8e3ed;
+  background: #faf9fc;
+  box-shadow: none;
+}
+
+.invoice-policy-form small,
+.invoice-draft-card small,
+.invoice-policy-form label {
+  color: #7e7785;
+}
+
+.invoice-policy-form button,
+.invoice-draft-card button {
+  color: #fff;
+  background: #6650b6;
+}
+
+.invoice-draft-card > header a,
+.invoice-approval-state a {
+  color: #5e46a8;
+}
+
+.invoice-draft-facts span,
+.invoice-approval-form,
+.invoice-approval-state,
+.invoice-document-readiness {
+  border-color: #e8e3ed;
+  color: #5f5866;
+  background: #f7f5fa;
+}
+
+.invoice-draft-facts b,
+.invoice-document-readiness strong,
+.invoice-document-evidence strong {
+  color: #403a49;
+}
+
+.invoice-zero-effect {
+  border-color: #e8e3ed;
+}
+
+.invoice-issued-evidence,
+.invoice-document-evidence {
+  border-color: #cae8df;
+  color: #326e5e;
+  background: #f1faf7;
+}
+
+.invoice-issued-evidence span,
+.invoice-document-readiness span,
+.invoice-document-evidence span {
+  color: #397b69;
+}
+
+/* Progressive disclosure keeps Finance record-first without hiding live facts. */
+.finance-action-drawer {
+  overflow: hidden;
+  border: 1px solid #e8e3ed;
+  border-radius: 12px;
+  color: #403a49;
+  background: #faf9fc;
+}
+
+.finance-action-drawer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  color: #4c4554;
+  font-size: 0.76rem;
+  font-weight: 760;
+  cursor: pointer;
+  list-style: none;
+}
+
+.finance-action-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+.finance-action-drawer > summary::after {
+  content: "+";
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #d9d0e6;
+  border-radius: 7px;
+  color: #6650b6;
+  background: #fff;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.finance-action-drawer[open] > summary::after {
+  content: "−";
+}
+
+.finance-action-drawer > summary:focus-visible {
+  outline: 3px solid rgb(102 80 182 / 22%);
+  outline-offset: -3px;
+}
+
+.finance-action-drawer > summary > small {
+  margin-left: auto;
+  color: #827b89;
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.obligation-drawer {
+  margin-top: 18px;
+}
+
+.obligation-drawer > form {
+  margin-top: 0;
+  padding: 16px;
+  border-top: 1px solid #e8e3ed;
+  background: #fff;
+}
+
+.invoice-control-drawer > summary > span {
+  display: grid;
+  gap: 4px;
+}
+
+.invoice-control-drawer > summary > span > small {
+  color: #725db3;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+}
+
+.invoice-control-drawer > summary > span > strong {
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.invoice-control-drawer .invoice-policy-form {
+  border: 0;
+  border-top: 1px solid #e8e3ed;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
 }

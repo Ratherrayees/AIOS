@@ -39,7 +39,10 @@ export function resolveApplicationOrigin({
   production = false,
 }: ApplicationOriginInput) {
   if (configuredOrigin)
-    return validOrigin(configuredOrigin, !production);
+    // A loopback origin must still be configured explicitly in a production
+    // preview. The deployment-readiness gate independently rejects loopback,
+    // so a public release can never pass with this local-only callback.
+    return validOrigin(configuredOrigin, true);
   if (production) return null;
   if (requestOrigin) {
     const localOrigin = validOrigin(requestOrigin, true);

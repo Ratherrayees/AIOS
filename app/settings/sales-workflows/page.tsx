@@ -7,10 +7,12 @@ import {
   createQualificationChecklistTemplate,
 } from "../../actions/crm";
 import { LoadingState } from "../../../components/ui/empty-state";
-import { FeatureHeader } from "../../../components/ui/feature-header";
+import { SettingsNavigation } from "../../../components/ui/settings-navigation";
+import { OperationalPageHeader } from "../../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
 import "./sales-workflows.css";
+import "./sales-workflows-structured.css";
 
 type QualificationTemplate = {
   id: string;
@@ -40,36 +42,54 @@ type FollowUpStep = {
   delay_days: number;
 };
 
-function qualificationLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const optional = line.startsWith("?");
-      const content = optional ? line.slice(1).trim() : line;
-      const [label, ...guidanceParts] = content.split("::");
-      return {
-        label: label.trim(),
-        guidance: guidanceParts.join("::").trim() || null,
-        required: !optional,
-      };
-    });
-}
+type QualificationDraftItem = {
+  id: string;
+  label: string;
+  guidance: string;
+  required: boolean;
+};
 
-function sequenceLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const separator = line.indexOf("|");
-      if (separator < 1) return { delayDays: Number.NaN, title: line };
-      return {
-        delayDays: Number(line.slice(0, separator).trim()),
-        title: line.slice(separator + 1).trim(),
-      };
-    });
+type SequenceDraftStep = {
+  id: string;
+  delayDays: number;
+  title: string;
+};
+
+const initialQualificationItems: QualificationDraftItem[] = [
+  {
+    id: "travel-dates",
+    label: "Confirm travel dates",
+    guidance: "Record flexibility and preferred departure",
+    required: true,
+  },
+  {
+    id: "traveller-count",
+    label: "Validate traveller count",
+    guidance: "",
+    required: true,
+  },
+  {
+    id: "working-budget",
+    label: "Confirm working budget",
+    guidance: "",
+    required: true,
+  },
+  {
+    id: "visa-support",
+    label: "Record visa support preference",
+    guidance: "",
+    required: false,
+  },
+];
+
+const initialSequenceSteps: SequenceDraftStep[] = [
+  { id: "initial-brief", delayDays: 0, title: "Confirm the traveller brief" },
+  { id: "itinerary-review", delayDays: 2, title: "Review itinerary direction" },
+  { id: "decision-timeline", delayDays: 5, title: "Recheck decision timeline" },
+];
+
+function draftId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function loadSalesWorkflows(organizationId: string) {
@@ -123,6 +143,12 @@ export default function SalesWorkflowsPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [qualificationDraftItems, setQualificationDraftItems] = useState(
+    initialQualificationItems,
+  );
+  const [sequenceDraftSteps, setSequenceDraftSteps] = useState(
+    initialSequenceSteps,
+  );
 
   async function refresh(organization: string) {
     const rows = await loadSalesWorkflows(organization);
@@ -157,9 +183,13 @@ export default function SalesWorkflowsPage() {
     if (!organizationId || pending) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const parsedItems = qualificationLines(
-      String(data.get("checklistItems") || ""),
-    );
+    const parsedItems = qualificationDraftItems
+      .map((item) => ({
+        label: item.label.trim(),
+        guidance: item.guidance.trim() || null,
+        required: item.required,
+      }))
+      .filter((item) => item.label.length > 0);
     startTransition(async () => {
       try {
         const result = await createQualificationChecklistTemplate({
@@ -175,6 +205,7 @@ export default function SalesWorkflowsPage() {
         }
         await refresh(organizationId);
         form.reset();
+        setQualificationDraftItems(initialQualificationItems);
         setNotice("Qualification checklist is ready for live opportunities.");
       } catch (error) {
         setNotice(
@@ -191,7 +222,12 @@ export default function SalesWorkflowsPage() {
     if (!organizationId || pending) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const parsedSteps = sequenceLines(String(data.get("sequenceSteps") || ""));
+    const parsedSteps = sequenceDraftSteps
+      .map((step) => ({
+        delayDays: Number(step.delayDays),
+        title: step.title.trim(),
+      }))
+      .filter((step) => step.title.length > 0);
     startTransition(async () => {
       try {
         const result = await createFollowUpSequence({
@@ -207,6 +243,7 @@ export default function SalesWorkflowsPage() {
         }
         await refresh(organizationId);
         form.reset();
+        setSequenceDraftSteps(initialSequenceSteps);
         setNotice("Internal follow-up sequence is ready to apply.");
       } catch (error) {
         setNotice(
@@ -222,34 +259,12 @@ export default function SalesWorkflowsPage() {
 
   return (
     <main className="sales-workflows" id="main-content" tabIndex={-1}>
-      <FeatureHeader
-        links={[
-          { href: "/", label: "Pipeline" },
-          { href: "/settings/lead-capture", label: "Lead capture" },
-          { href: "/analytics", label: "Analytics" },
-          { href: "/aios", label: "AIOS Control" },
-        ]}
+      <SettingsNavigation />
+      <OperationalPageHeader
+        section="Administration"
+        title="Sales workflows"
+        meta={`${templates.length} checklists · ${sequences.length} sequences`}
       />
-      <section className="sales-workflows-hero">
-        <div>
-          <p>REUSABLE SALES OPERATIONS</p>
-          <h1>Qualify consistently. Follow up without drift.</h1>
-          <span>
-            Checklists gate commercial advancement. Sequences create
-            tenant-scoped internal tasks only—never messages or commitments.
-          </span>
-        </div>
-        <aside>
-          <div>
-            <b>{templates.length}</b>
-            <span>CHECKLISTS</span>
-          </div>
-          <div>
-            <b>{sequences.length}</b>
-            <span>SEQUENCES</span>
-          </div>
-        </aside>
-      </section>
       {notice && (
         <p className="sales-workflows-notice" role="status">
           {notice}
@@ -264,8 +279,8 @@ export default function SalesWorkflowsPage() {
               <p>QUALIFICATION CONTRACTS</p>
               <h2>Required evidence before proposal.</h2>
               <span>
-                Prefix an optional item with <code>?</code>. Add guidance after{" "}
-                <code>::</code>.
+                Add the evidence your sales team must capture. Mark only the
+                items that can be skipped.
               </span>
             </header>
             {canManage && (
@@ -287,17 +302,90 @@ export default function SalesWorkflowsPage() {
                     placeholder="Evidence required before itinerary pricing"
                   />
                 </label>
-                <label>
-                  Checklist items
-                  <textarea
-                    name="checklistItems"
-                    rows={6}
-                    defaultValue={
-                      "Confirm travel dates :: Record flexibility and preferred departure\nValidate traveller count\nConfirm working budget\n? Record visa support preference"
+                <fieldset className="workflow-structured-list">
+                  <legend>Checklist items</legend>
+                  {qualificationDraftItems.map((item, index) => (
+                    <div className="workflow-structured-row qualification-row" key={item.id}>
+                      <label>
+                        Evidence item {index + 1}
+                        <input
+                          value={item.label}
+                          maxLength={180}
+                          required
+                          onChange={(event) =>
+                            setQualificationDraftItems((current) =>
+                              current.map((candidate) =>
+                                candidate.id === item.id
+                                  ? { ...candidate, label: event.target.value }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Guidance for the team
+                        <input
+                          value={item.guidance}
+                          maxLength={500}
+                          placeholder="Optional clarification"
+                          onChange={(event) =>
+                            setQualificationDraftItems((current) =>
+                              current.map((candidate) =>
+                                candidate.id === item.id
+                                  ? { ...candidate, guidance: event.target.value }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="workflow-requirement">
+                        Requirement
+                        <select
+                          value={item.required ? "required" : "optional"}
+                          onChange={(event) =>
+                            setQualificationDraftItems((current) =>
+                              current.map((candidate) =>
+                                candidate.id === item.id
+                                  ? { ...candidate, required: event.target.value === "required" }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="required">Required</option>
+                          <option value="optional">Optional</option>
+                        </select>
+                      </label>
+                      <button
+                        className="workflow-row-remove"
+                        type="button"
+                        disabled={qualificationDraftItems.length === 1}
+                        aria-label={`Remove evidence item ${index + 1}`}
+                        onClick={() =>
+                          setQualificationDraftItems((current) =>
+                            current.filter((candidate) => candidate.id !== item.id),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="workflow-row-add"
+                    type="button"
+                    onClick={() =>
+                      setQualificationDraftItems((current) => [
+                        ...current,
+                        { id: draftId("qualification"), label: "", guidance: "", required: true },
+                      ])
                     }
-                    required
-                  />
-                </label>
+                  >
+                    Add evidence item
+                  </button>
+                </fieldset>
                 <button type="submit" disabled={pending}>
                   Create checklist
                 </button>
@@ -337,8 +425,8 @@ export default function SalesWorkflowsPage() {
               <p>INTERNAL TASK SEQUENCES</p>
               <h2>Turn a playbook into owned work.</h2>
               <span>
-                Enter one step per line as <code>delay days | task title</code>.
-                Delays must increase.
+                Define when each internal task becomes due. Delays must move
+                forward through the sequence.
               </span>
             </header>
             {canManage && (
@@ -360,17 +448,79 @@ export default function SalesWorkflowsPage() {
                     placeholder="Internal milestones after qualification"
                   />
                 </label>
-                <label>
-                  Sequence steps
-                  <textarea
-                    name="sequenceSteps"
-                    rows={6}
-                    defaultValue={
-                      "0 | Confirm the traveller brief\n2 | Review itinerary direction\n5 | Recheck decision timeline"
+                <fieldset className="workflow-structured-list">
+                  <legend>Sequence steps</legend>
+                  {sequenceDraftSteps.map((step, index) => (
+                    <div className="workflow-structured-row sequence-row" key={step.id}>
+                      <label>
+                        Due after days
+                        <input
+                          type="number"
+                          min={0}
+                          max={365}
+                          step={1}
+                          value={step.delayDays}
+                          required
+                          onChange={(event) =>
+                            setSequenceDraftSteps((current) =>
+                              current.map((candidate) =>
+                                candidate.id === step.id
+                                  ? { ...candidate, delayDays: Number(event.target.value) }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Internal task {index + 1}
+                        <input
+                          value={step.title}
+                          maxLength={180}
+                          required
+                          onChange={(event) =>
+                            setSequenceDraftSteps((current) =>
+                              current.map((candidate) =>
+                                candidate.id === step.id
+                                  ? { ...candidate, title: event.target.value }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <button
+                        className="workflow-row-remove"
+                        type="button"
+                        disabled={sequenceDraftSteps.length === 1}
+                        aria-label={`Remove sequence step ${index + 1}`}
+                        onClick={() =>
+                          setSequenceDraftSteps((current) =>
+                            current.filter((candidate) => candidate.id !== step.id),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="workflow-row-add"
+                    type="button"
+                    onClick={() =>
+                      setSequenceDraftSteps((current) => [
+                        ...current,
+                        {
+                          id: draftId("sequence"),
+                          delayDays: (current.at(-1)?.delayDays ?? -1) + 1,
+                          title: "",
+                        },
+                      ])
                     }
-                    required
-                  />
-                </label>
+                  >
+                    Add sequence step
+                  </button>
+                </fieldset>
                 <button type="submit" disabled={pending}>
                   Create internal sequence
                 </button>

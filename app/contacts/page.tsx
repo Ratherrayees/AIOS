@@ -19,17 +19,32 @@ import {
   updateContactOwner,
   updateContactPreferences,
 } from "../actions/crm";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { findContactDuplicateCandidates } from "../../lib/crm/contact-duplicates";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import type { WorkspaceRole } from "../../lib/workspace/active-workspace";
 import type { Json } from "../../types/database";
 import "./contacts.css";
 import "./contacts-duplicates.css";
 import "./contacts-saved-views.css";
 
 type Company = { id: string; name: string };
+const contactWriteRoles = new Set<WorkspaceRole>([
+  "owner",
+  "admin",
+  "sales",
+  "trip_designer",
+  "operations",
+  "agent",
+]);
 type Contact = {
   id: string;
   first_name: string;
@@ -104,6 +119,7 @@ function queryFromSavedView(savedView: SavedView | undefined) {
 
 export default function ContactsPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [role, setRole] = useState<WorkspaceRole | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -120,24 +136,30 @@ export default function ContactsPage() {
     duplicateId: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, startTransition] = useTransition();
+  const canWrite = role ? contactWriteRoles.has(role) : false;
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
       setOrganizationId(membership.organization_id);
+      setRole(membership.role);
       const [
-        { data: companyRows },
-        { data: contactRows },
-        { data: activityRows },
-        { data: savedViewRows },
-        { data: memberRows },
+        { data: companyRows, error: companyError },
+        { data: contactRows, error: contactError },
+        { data: activityRows, error: activityError },
+        { data: savedViewRows, error: savedViewError },
+        { data: memberRows, error: memberError },
       ] = await Promise.all([
         supabase
           .from("companies")
@@ -172,13 +194,23 @@ export default function ContactsPage() {
           .eq("status", "active")
           .order("created_at", { ascending: true }),
       ]);
+      const loadFailure =
+        companyError ??
+        contactError ??
+        activityError ??
+        savedViewError ??
+        memberError;
+      if (loadFailure) throw loadFailure;
+
       const memberIds = (memberRows || []).map((member) => member.user_id);
-      const { data: profileRows } = memberIds.length
+      const profileResult = memberIds.length
         ? await supabase
             .from("profiles")
             .select("id, full_name")
             .in("id", memberIds)
-        : { data: [] };
+        : { data: [], error: null };
+      if (profileResult.error) throw profileResult.error;
+      const profileRows = profileResult.data;
       const names = new Map(
         (profileRows || []).map((profile) => [profile.id, profile.full_name]),
       );
@@ -198,10 +230,10 @@ export default function ContactsPage() {
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load the traveller directory.");
+      setLoadError("The traveller directory could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.id === selectedContactId) || null,
@@ -657,27 +689,27 @@ export default function ContactsPage() {
       <FeatureHeader
         links={[{ href: "/", label: "Back to command center" }]}
       />
-      <section className="contacts-hero">
-        <div>
-          <p>CRM FOUNDATION</p>
-          <h1>Know every traveller and commercial relationship.</h1>
-          <span>
-            Contacts, companies, and an auditable timeline now live together in
-            your tenant-secured workspace.
-          </span>
-        </div>
-        <aside>
-          <b>{contacts.length}</b>
-          <small>live contacts</small>
-          <b>{companies.length}</b>
-          <small>companies</small>
-        </aside>
-      </section>
+      <OperationalPageHeader
+        section="Sales"
+        title="Contacts"
+        meta={`${contacts.length} contacts · ${companies.length} companies`}
+      />
       {notice && (
         <p className="contacts-notice" role="status">
           {notice}
         </p>
       )}
+      {loadError ? (
+        <ErrorState
+          title="Contacts are unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : null}
+      {!loadError && canWrite ? (
+        <details className="crm-action-drawer">
+          <summary>Add or import contacts</summary>
+          <div className="crm-action-drawer-body">
       <section className="contacts-tools">
         <form onSubmit={submitContact}>
           <label>
@@ -743,7 +775,12 @@ export default function ContactsPage() {
           </button>
         </form>
       </section>
-      {duplicateCandidates.length > 0 && (
+          </div>
+        </details>
+      ) : !loadError && role ? (
+        <PermissionNotice description="You can search and inspect traveller records. Contact creation, merges, ownership, preferences, and notes are limited to CRM operators." />
+      ) : null}
+      {!loadError && canWrite && duplicateCandidates.length > 0 && (
         <section
           className="contact-duplicates"
           aria-labelledby="duplicate-review-title"
@@ -843,6 +880,7 @@ export default function ContactsPage() {
           })}
         </section>
       )}
+      {!loadError ? (
       <section className="contacts-workspace">
         <aside className="contact-list">
           <header>
@@ -905,6 +943,11 @@ export default function ContactsPage() {
               </button>
             )}
           </div>
+          <div className="contact-directory-columns" aria-hidden="true">
+            <span>Name</span>
+            <span>Contact</span>
+            <span>Owner</span>
+          </div>
           {loading ? (
             <LoadingState label="Loading contacts" rows={4} />
           ) : contacts.length === 0 ? (
@@ -941,6 +984,14 @@ export default function ContactsPage() {
                       ? companyNames.get(contact.company_id) || "Company"
                       : "Independent traveller"}
                   </small>
+                </span>
+                <span className="contact-channel">
+                  <b>{contact.email || "No email"}</b>
+                  <small>{contact.phone || "No phone"}</small>
+                </span>
+                <span className="contact-row-owner">
+                  {members.find((member) => member.id === contact.owner_id)
+                    ?.name || "Shared queue"}
                 </span>
               </button>
             ))
@@ -1004,7 +1055,7 @@ export default function ContactsPage() {
                   Contact owner
                   <select
                     value={selectedContact.owner_id || ""}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onChange={(event) =>
                       changeContactOwner(event.target.value || null)
                     }
@@ -1034,6 +1085,7 @@ export default function ContactsPage() {
                     <select
                       name="consentStatus"
                       defaultValue={selectedContact.communication_consent}
+                      disabled={pending || !canWrite}
                     >
                       <option value="unknown">Unknown</option>
                       <option value="granted">Granted</option>
@@ -1046,6 +1098,7 @@ export default function ContactsPage() {
                       name="consentSource"
                       defaultValue={selectedContact.consent_source || ""}
                       placeholder="Required for granted/withdrawn"
+                      disabled={pending || !canWrite}
                     />
                   </label>
                   <label>
@@ -1053,6 +1106,7 @@ export default function ContactsPage() {
                     <select
                       name="preferredChannel"
                       defaultValue={selectedContact.preferred_channel}
+                      disabled={pending || !canWrite}
                     >
                       <option value="email">Email</option>
                       <option value="phone">Phone</option>
@@ -1066,6 +1120,7 @@ export default function ContactsPage() {
                       name="preferredLocale"
                       defaultValue={selectedContact.preferred_locale || ""}
                       placeholder="en-IN"
+                      disabled={pending || !canWrite}
                     />
                   </label>
                   <label>
@@ -1074,9 +1129,10 @@ export default function ContactsPage() {
                       name="timeZone"
                       defaultValue={selectedContact.time_zone || ""}
                       placeholder="Asia/Kolkata"
+                      disabled={pending || !canWrite}
                     />
                   </label>
-                  <button type="submit" disabled={pending}>
+                  <button type="submit" disabled={pending || !canWrite}>
                     Save preferences
                   </button>
                 </form>
@@ -1101,9 +1157,9 @@ export default function ContactsPage() {
                   <input
                     name="note"
                     placeholder="Add a private CRM note…"
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                   />
-                  <button type="submit" disabled={pending}>
+                  <button type="submit" disabled={pending || !canWrite}>
                     Record note
                   </button>
                 </form>
@@ -1132,6 +1188,7 @@ export default function ContactsPage() {
           )}
         </section>
       </section>
+      ) : null}
     </main>
   );
 }

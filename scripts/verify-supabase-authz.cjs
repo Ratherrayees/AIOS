@@ -4513,6 +4513,36 @@ async function verifyAuthorization() {
         `Entry-readiness risk could not be corrected: ${clearedEntryCheck.error.message}`,
       );
 
+    const [invalidTripTimeZone, missingTimedItemZone] = await Promise.all([
+      owner
+        .from("trips")
+        .update({ time_zone: "Mars/Olympus_Mons" })
+        .eq("id", firstConversion.data.id)
+        .select("id"),
+      owner
+        .from("itinerary_items")
+        .insert({
+          organization_id: organizationA.id,
+          trip_id: firstConversion.data.id,
+          day_number: 1,
+          position: 99,
+          item_type: "activity",
+          title: "Invalid zone-free timed item",
+          starts_at: "2027-07-10T09:00:00.000Z",
+        })
+        .select("id"),
+    ]);
+    record(
+      "database rejects invalid IANA trip time zones",
+      Boolean(invalidTripTimeZone.error),
+      invalidTripTimeZone.error?.message ?? null,
+    );
+    record(
+      "database rejects new timed itinerary items without a zone",
+      Boolean(missingTimedItemZone.error),
+      missingTimedItemZone.error?.message ?? null,
+    );
+
     const itineraryFixtures = Array.from({ length: 9 }, (_, index) => ({
       organization_id: organizationA.id,
       trip_id: firstConversion.data.id,
@@ -4521,13 +4551,83 @@ async function verifyAuthorization() {
       item_type: "note",
       title: `Authorization itinerary day ${index + 1}`,
     }));
-    const { error: itineraryFixtureError } = await owner
+    const { data: itineraryRows, error: itineraryFixtureError } = await owner
       .from("itinerary_items")
-      .insert(itineraryFixtures);
+      .insert(itineraryFixtures)
+      .select("id, day_number, position");
     if (itineraryFixtureError)
       throw new Error(
         `Itinerary coverage fixture could not be created: ${itineraryFixtureError.message}`,
       );
+
+    const { data: reorderTarget, error: reorderTargetError } = await owner
+      .from("itinerary_items")
+      .insert({
+        organization_id: organizationA.id,
+        trip_id: firstConversion.data.id,
+        day_number: 1,
+        position: 2,
+        item_type: "activity",
+        title: "Authorization itinerary reorder target",
+      })
+      .select("id")
+      .single();
+    if (reorderTargetError || !reorderTarget)
+      throw (
+        reorderTargetError ??
+        new Error("Itinerary reorder fixture could not be created.")
+      );
+    const firstDayItem = itineraryRows?.find(
+      (item) => item.day_number === 1 && item.position === 1,
+    );
+    if (!firstDayItem)
+      throw new Error("The first itinerary ordering fixture is missing.");
+
+    const [ownerReorder, viewerReorder, ownerForeignReorder] = await Promise.all([
+      owner.rpc("reorder_itinerary_item", {
+        target_organization_id: organizationA.id,
+        target_trip_id: firstConversion.data.id,
+        target_itinerary_item_id: reorderTarget.id,
+        target_direction: "up",
+      }),
+      viewer.rpc("reorder_itinerary_item", {
+        target_organization_id: organizationB.id,
+        target_trip_id: firstConversion.data.id,
+        target_itinerary_item_id: reorderTarget.id,
+        target_direction: "up",
+      }),
+      owner.rpc("reorder_itinerary_item", {
+        target_organization_id: organizationB.id,
+        target_trip_id: firstConversion.data.id,
+        target_itinerary_item_id: reorderTarget.id,
+        target_direction: "up",
+      }),
+    ]);
+    const { data: reorderedDay, error: reorderedDayError } = await owner
+      .from("itinerary_items")
+      .select("id, position")
+      .eq("trip_id", firstConversion.data.id)
+      .eq("day_number", 1)
+      .order("position");
+    record(
+      "planning roles can reorder itinerary items through the guarded boundary",
+      !ownerReorder.error &&
+        !reorderedDayError &&
+        reorderedDay?.length === 2 &&
+        reorderedDay[0]?.id === reorderTarget.id &&
+        reorderedDay[1]?.id === firstDayItem.id,
+      ownerReorder.error?.message ?? reorderedDayError?.message ?? null,
+    );
+    record(
+      "viewers cannot reorder itinerary items",
+      Boolean(viewerReorder.error),
+      viewerReorder.error?.message ?? null,
+    );
+    record(
+      "itinerary reordering cannot cross workspace boundaries",
+      Boolean(ownerForeignReorder.error),
+      ownerForeignReorder.error?.message ?? null,
+    );
 
     const readinessClearScan = await owner
       .rpc("refresh_operational_exceptions", {
@@ -6246,7 +6346,9 @@ async function verifyAuthorization() {
       !viewerImportedRead.error &&
         viewerImportedRead.data?.length === 0 &&
         !viewerImportedSearch.error &&
-        viewerImportedSearch.data?.length === 0,
+        !viewerImportedSearch.data?.some(
+          (result) => result.source_id === importedKnowledgeSource.data.id,
+        ),
       viewerImportedRead.error?.message ??
         viewerImportedSearch.error?.message ??
         null,
@@ -7888,6 +7990,16 @@ async function verifyAuthorization() {
       Boolean(forgedApproval.error),
     );
 
+    const { error: approvalRolePolicyError } = await owner
+      .from("ai_autonomy_policies")
+      .insert({
+        organization_id: organizationA.id,
+        action: "authz.fixture",
+        mode: "approval_required",
+        approval_roles: ["owner", "admin"],
+      });
+    if (approvalRolePolicyError) throw approvalRolePolicyError;
+
     const { data: pendingApproval, error: pendingApprovalError } = await owner
       .from("approval_requests")
       .insert({
@@ -7916,6 +8028,19 @@ async function verifyAuthorization() {
     record(
       "authenticated clients cannot update approval state directly",
       Boolean(directApprovalUpdate.error),
+    );
+
+    const unauthorizedRoleResolution = await operations.rpc(
+      "resolve_approval_request",
+      {
+        target_organization_id: organizationA.id,
+        target_approval_id: pendingApproval.id,
+        target_decision: "approved",
+      },
+    );
+    record(
+      "approval resolution rechecks the current action role policy",
+      Boolean(unauthorizedRoleResolution.error),
     );
 
     const firstApprovalResolution = await owner.rpc(
@@ -7955,6 +8080,205 @@ async function verifyAuthorization() {
       "approval resolution writes an audit event atomically",
       !approvalAudit.error && approvalAudit.data?.length === 1,
     );
+
+    const { error: escalationMembershipError } = await admin
+      .from("memberships")
+      .insert({
+        organization_id: organizationA.id,
+        user_id: viewerUser.id,
+        role: "admin",
+        status: "active",
+      });
+    if (escalationMembershipError) throw escalationMembershipError;
+    const { error: escalationPolicyError } = await owner
+      .from("ai_autonomy_policies")
+      .insert({
+        organization_id: organizationA.id,
+        action: "authz.approval.escalation",
+        mode: "approval_required",
+        approval_roles: ["owner", "admin"],
+        escalation_after_minutes: 5,
+      });
+    if (escalationPolicyError) throw escalationPolicyError;
+    const { data: overdueApproval, error: overdueApprovalError } = await owner
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: ownerUser.id,
+        action: "authz.approval.escalation",
+        entity_type: "authorization_fixture",
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (overdueApprovalError || !overdueApproval)
+      throw overdueApprovalError ?? new Error("Overdue approval was not created.");
+
+    const escalatedApproval = await owner.rpc("escalate_approval_request", {
+      target_organization_id: organizationA.id,
+      target_approval_id: overdueApproval.id,
+    });
+    record(
+      "an owner can reroute one overdue pending approval",
+      !escalatedApproval.error &&
+        escalatedApproval.data?.[0]?.escalation_outcome === "rerouted" &&
+        escalatedApproval.data?.[0]?.approver_id === viewerUser.id &&
+        escalatedApproval.data?.[0]?.escalation_number === 1,
+    );
+    const { data: storedEscalationApproval, error: storedEscalationError } =
+      await owner
+        .from("approval_requests")
+        .select(
+          "status, approver_id, escalation_count, last_escalation_outcome, last_escalated_at, expires_at",
+        )
+        .eq("id", overdueApproval.id)
+        .single();
+    record(
+      "escalation preserves the pending decision and renews its deadline",
+      !storedEscalationError &&
+        storedEscalationApproval?.status === "pending" &&
+        storedEscalationApproval.approver_id === viewerUser.id &&
+        storedEscalationApproval.escalation_count === 1 &&
+        storedEscalationApproval.last_escalation_outcome === "rerouted" &&
+        new Date(storedEscalationApproval.expires_at).getTime() > Date.now(),
+    );
+    const { data: escalationTask, error: escalationTaskError } = await owner
+      .from("tasks")
+      .select("id, status, assignee_id, due_at, approval_request_id")
+      .eq("organization_id", organizationA.id)
+      .eq("approval_request_id", overdueApproval.id)
+      .single();
+    record(
+      "an escalated approval creates one assigned internal attention task",
+      !escalationTaskError &&
+        escalationTask?.status === "open" &&
+        escalationTask.assignee_id === viewerUser.id &&
+        escalationTask.approval_request_id === overdueApproval.id &&
+        Boolean(escalationTask.due_at),
+    );
+    const prematureEscalation = await owner.rpc("escalate_approval_request", {
+      target_organization_id: organizationA.id,
+      target_approval_id: overdueApproval.id,
+    });
+    record(
+      "an approval cannot be escalated again before its renewed deadline",
+      Boolean(prematureEscalation.error),
+    );
+    const forgedEscalationEvent = await owner
+      .from("approval_escalation_events")
+      .insert({
+        organization_id: organizationA.id,
+        approval_request_id: overdueApproval.id,
+        escalation_number: 2,
+        outcome: "reminder",
+        approver_id: viewerUser.id,
+        source: "operator",
+      });
+    record(
+      "browser clients cannot forge approval escalation evidence",
+      Boolean(forgedEscalationEvent.error),
+    );
+    const { data: escalationEvidence, error: escalationEvidenceError } =
+      await owner
+        .from("approval_escalation_events")
+        .select("id, outcome, source")
+        .eq("approval_request_id", overdueApproval.id)
+        .single();
+    record(
+      "approval escalation creates one immutable evidence event",
+      !escalationEvidenceError &&
+        escalationEvidence?.outcome === "rerouted" &&
+        escalationEvidence.source === "operator",
+    );
+    const immutableEscalation = await admin
+      .from("approval_escalation_events")
+      .update({ outcome: "reminder" })
+      .eq("id", escalationEvidence?.id ?? randomUUID());
+    record(
+      "even service access cannot rewrite escalation evidence",
+      Boolean(immutableEscalation.error),
+    );
+    const resolvedEscalation = await owner.rpc("resolve_approval_request", {
+      target_organization_id: organizationA.id,
+      target_approval_id: overdueApproval.id,
+      target_decision: "approved",
+    });
+    if (resolvedEscalation.error) throw resolvedEscalation.error;
+    const { data: completedEscalationTask } = await owner
+      .from("tasks")
+      .select("status, completed_at")
+      .eq("id", escalationTask?.id ?? randomUUID())
+      .single();
+    record(
+      "resolving the human gate completes its internal attention task",
+      completedEscalationTask?.status === "completed" &&
+        Boolean(completedEscalationTask.completed_at),
+    );
+
+    const { data: workerApproval, error: workerApprovalError } = await admin
+      .from("approval_requests")
+      .insert({
+        organization_id: organizationA.id,
+        requester_id: ownerUser.id,
+        approver_id: viewerUser.id,
+        action: "authz.approval.escalation",
+        entity_type: "authorization_fixture",
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (workerApprovalError || !workerApproval)
+      throw workerApprovalError ?? new Error("Worker approval was not created.");
+    const workerEscalation = await admin.rpc(
+      "escalate_overdue_approval_requests",
+      { target_limit: 10 },
+    );
+    record(
+      "the service worker reroutes only due pending approvals",
+      !workerEscalation.error &&
+        workerEscalation.data?.[0]?.inspected === 1 &&
+        workerEscalation.data?.[0]?.rerouted === 1 &&
+        workerEscalation.data?.[0]?.failed === 0,
+    );
+    const { data: workerEscalatedApproval } = await admin
+      .from("approval_requests")
+      .select("approver_id, escalation_count, last_escalation_outcome")
+      .eq("id", workerApproval.id)
+      .single();
+    record(
+      "the worker preserves a renewed human decision gate",
+      workerEscalatedApproval?.approver_id === ownerUser.id &&
+        workerEscalatedApproval.escalation_count === 1 &&
+        workerEscalatedApproval.last_escalation_outcome === "rerouted",
+    );
+    const { data: workerEscalationTask } = await owner
+      .from("tasks")
+      .select("status, assignee_id")
+      .eq("organization_id", organizationA.id)
+      .eq("approval_request_id", workerApproval.id)
+      .single();
+    record(
+      "the worker routes one deduplicated internal task to the new approver",
+      workerEscalationTask?.status === "open" &&
+        workerEscalationTask.assignee_id === ownerUser.id,
+    );
+    const { data: escalationAudits, error: escalationAuditError } = await owner
+      .from("audit_events")
+      .select("metadata")
+      .eq("organization_id", organizationA.id)
+      .eq("event_type", "approval.escalated");
+    record(
+      "operator and worker escalation both retain bounded audit evidence",
+      !escalationAuditError && escalationAudits?.length === 2,
+    );
+    const { error: escalationMembershipCleanupError } = await admin
+      .from("memberships")
+      .delete()
+      .eq("organization_id", organizationA.id)
+      .eq("user_id", viewerUser.id);
+    if (escalationMembershipCleanupError)
+      throw escalationMembershipCleanupError;
 
     const externalAutoPolicy = await owner
       .from("ai_autonomy_policies")
@@ -8545,6 +8869,707 @@ async function verifyAuthorization() {
       (Boolean(ownerDocumentDelete.error) ||
         (ownerDocumentDelete.data?.length ?? 0) === 0) &&
         !ownerDocumentStillPresent.error,
+    );
+
+    const ownerIntegrationSecretRead = await owner
+      .from("organization_integrations")
+      .select("encrypted_secrets")
+      .eq("organization_id", organizationA.id);
+    record(
+      "browser clients cannot read tenant integration ciphertext",
+      Boolean(ownerIntegrationSecretRead.error),
+    );
+
+    const ownerIntegrationInsert = await owner
+      .from("organization_integrations")
+      .insert({
+        organization_id: organizationA.id,
+        category: "ai",
+        provider: "openai",
+        is_enabled: false,
+        encrypted_secrets: `v1.${"0".repeat(80)}`,
+        credential_hint: "••••test",
+        created_by: ownerUser.id,
+        updated_by: ownerUser.id,
+      })
+      .select("id");
+    record(
+      "browser clients cannot write tenant integration credentials",
+      Boolean(ownerIntegrationInsert.error) ||
+        (ownerIntegrationInsert.data?.length ?? 0) === 0,
+    );
+
+    const { error: platformGrantError } = await admin
+      .from("platform_admins")
+      .insert({
+        user_id: ownerUser.id,
+        role: "platform_admin",
+        status: "active",
+        granted_by: ownerUser.id,
+      });
+    record(
+      "service role can grant a separate platform role",
+      !platformGrantError,
+    );
+
+    const ownerPlatformAccess = await owner
+      .from("platform_admins")
+      .select("user_id, role, status")
+      .eq("user_id", ownerUser.id);
+    record(
+      "platform administrator can read only its own access record",
+      !ownerPlatformAccess.error &&
+        ownerPlatformAccess.data?.length === 1 &&
+        ownerPlatformAccess.data[0]?.role === "platform_admin",
+    );
+
+    const viewerPlatformAccess = await viewer
+      .from("platform_admins")
+      .select("user_id, role, status")
+      .eq("user_id", ownerUser.id);
+    record(
+      "tenant users cannot enumerate platform administrators",
+      !viewerPlatformAccess.error && viewerPlatformAccess.data?.length === 0,
+    );
+
+    const ownerPlatformIntegrationRead = await owner
+      .from("platform_integrations")
+      .select("encrypted_secrets");
+    record(
+      "browser platform roles cannot read platform credential ciphertext",
+      Boolean(ownerPlatformIntegrationRead.error),
+    );
+
+    const ownerPlatformIntegrationInsert = await owner
+      .from("platform_integrations")
+      .insert({
+        provider: "resend",
+        encrypted_secrets: `v1.${"0".repeat(80)}`,
+        credential_hint: "masked",
+      });
+    record(
+      "browser platform roles cannot write platform credentials",
+      Boolean(ownerPlatformIntegrationInsert.error),
+    );
+
+    const ownerLifecycleRead = await owner
+      .from("organization_lifecycle")
+      .select("organization_id, status")
+      .eq("organization_id", organizationA.id);
+    record(
+      "browser platform roles cannot read service-managed agency lifecycle rows",
+      Boolean(ownerLifecycleRead.error),
+    );
+
+    const ownerLifecycleMutation = await owner.rpc(
+      "set_organization_lifecycle_service",
+      {
+        target_organization_id: organizationA.id,
+        target_status: "suspended",
+        actor_id: ownerUser.id,
+        change_reason: "Blocked browser lifecycle mutation attempt",
+        expected_version: 1,
+      },
+    );
+    record(
+      "browser platform roles cannot call the lifecycle service mutation",
+      Boolean(ownerLifecycleMutation.error),
+    );
+
+    const browserPlatformAccessMutation = await owner.rpc(
+      "set_platform_access_service",
+      {
+        target_user_id: viewerUser.id,
+        target_role: "platform_admin",
+        target_status: "active",
+        actor_id: ownerUser.id,
+        change_reason: "Blocked browser platform authority mutation",
+        expected_version: null,
+      },
+    );
+    record(
+      "browser sessions cannot invoke platform access mutations",
+      Boolean(browserPlatformAccessMutation.error),
+    );
+
+    const platformAdminAccessMutation = await admin.rpc(
+      "set_platform_access_service",
+      {
+        target_user_id: viewerUser.id,
+        target_role: "platform_admin",
+        target_status: "active",
+        actor_id: ownerUser.id,
+        change_reason: "Platform admin authority must remain insufficient",
+        expected_version: null,
+      },
+    );
+    record(
+      "platform access service rejects a platform admin actor",
+      Boolean(platformAdminAccessMutation.error),
+    );
+
+    const browserProvisioning = await owner.rpc(
+      "provision_organization_service",
+      {
+        organization_name: `Blocked Browser Agency ${suffix}`,
+        organization_slug: `blocked-browser-${suffix}`,
+        owner_email: `blocked-browser-${suffix}@stateai.invalid`,
+        invitation_token_hash: "0".repeat(64),
+        actor_id: ownerUser.id,
+        provision_reason: "Blocked browser provisioning attempt",
+      },
+    );
+    record(
+      "browser platform roles cannot invoke agency provisioning",
+      Boolean(browserProvisioning.error),
+    );
+
+    const platformAdminProvisioning = await admin.rpc(
+      "provision_organization_service",
+      {
+        organization_name: `Blocked Platform Admin ${suffix}`,
+        organization_slug: `blocked-platform-admin-${suffix}`,
+        owner_email: `blocked-platform-admin-${suffix}@stateai.invalid`,
+        invitation_token_hash: "1".repeat(64),
+        actor_id: ownerUser.id,
+        provision_reason: "Platform admin authority must remain insufficient",
+      },
+    );
+    record(
+      "service provisioning rejects a platform admin actor",
+      Boolean(platformAdminProvisioning.error),
+    );
+
+    const browserCommercialRead = await owner
+      .from("platform_plans")
+      .select("id");
+    record(
+      "browser platform roles cannot bypass the commercial service boundary",
+      Boolean(browserCommercialRead.error),
+    );
+    const browserPlanCreation = await owner.rpc(
+      "create_platform_plan_service",
+      {
+        target_plan_code: `blocked_${suffix}`,
+        target_name: "Blocked browser plan",
+        target_description: "Browser sessions cannot create product plans.",
+        target_currency: "INR",
+        target_interval: "month",
+        target_amount_minor: 10000,
+        target_user_limit: 5,
+        target_monthly_ai_runs: 100,
+        target_storage_gb: 5,
+        target_assisted_ai: true,
+        target_autopilot_ai: false,
+        target_email_automation: true,
+        target_whatsapp_automation: false,
+        target_analytics_exports: true,
+        actor_id: ownerUser.id,
+        creation_reason: "Blocked browser commercial mutation attempt",
+      },
+    );
+    record(
+      "browser platform roles cannot invoke commercial service mutations",
+      Boolean(browserPlanCreation.error),
+    );
+    const platformAdminPlanCreation = await admin.rpc(
+      "create_platform_plan_service",
+      {
+        target_plan_code: `blocked_${suffix}`,
+        target_name: "Blocked platform admin plan",
+        target_description: "Platform admins may inspect but cannot mutate product plans.",
+        target_currency: "INR",
+        target_interval: "month",
+        target_amount_minor: 10000,
+        target_user_limit: 5,
+        target_monthly_ai_runs: 100,
+        target_storage_gb: 5,
+        target_assisted_ai: true,
+        target_autopilot_ai: false,
+        target_email_automation: true,
+        target_whatsapp_automation: false,
+        target_analytics_exports: true,
+        actor_id: ownerUser.id,
+        creation_reason: "Platform admin commercial authority must remain insufficient",
+      },
+    );
+    record(
+      "service commercial mutations reject a platform admin actor",
+      Boolean(platformAdminPlanCreation.error),
+    );
+    const browserUsageSnapshot = await owner.rpc(
+      "get_platform_usage_snapshot_service",
+      {
+        actor_id: ownerUser.id,
+        target_since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+      },
+    );
+    record(
+      "browser platform roles cannot invoke the aggregate usage service",
+      Boolean(browserUsageSnapshot.error),
+    );
+    const serviceUsageSnapshot = await admin.rpc(
+      "get_platform_usage_snapshot_service",
+      {
+        actor_id: ownerUser.id,
+        target_since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+      },
+    );
+    const organizationAUsage = serviceUsageSnapshot.data?.find(
+      (row) => row.organization_id === organizationA.id,
+    );
+    record(
+      "platform admin receives aggregate usage without tenant payload fields",
+      !serviceUsageSnapshot.error &&
+        (organizationAUsage?.active_users ?? 0) >= 1 &&
+        !Object.keys(organizationAUsage ?? {}).some((key) =>
+          ["content", "payload", "prompt", "result", "file_name", "recipient"].includes(key),
+        ),
+      {
+        error: serviceUsageSnapshot.error?.message ?? null,
+        organizationUsage: organizationAUsage ?? null,
+      },
+    );
+
+    const { error: promoteProvisioningActorError } = await admin
+      .from("platform_admins")
+      .update({ role: "superadmin" })
+      .eq("user_id", ownerUser.id);
+    if (promoteProvisioningActorError) throw promoteProvisioningActorError;
+
+    const platformAccessGrant = await admin.rpc("set_platform_access_service", {
+      target_user_id: viewerUser.id,
+      target_role: "platform_admin",
+      target_status: "active",
+      actor_id: ownerUser.id,
+      change_reason: "Authorization verification platform access grant",
+      expected_version: null,
+    });
+    const platformAccessSelfChange = await admin.rpc("set_platform_access_service", {
+      target_user_id: ownerUser.id,
+      target_role: "platform_admin",
+      target_status: "active",
+      actor_id: ownerUser.id,
+      change_reason: "Authorization verification self change rejection",
+      expected_version: 1,
+    });
+    const stalePlatformAccessChange = await admin.rpc("set_platform_access_service", {
+      target_user_id: viewerUser.id,
+      target_role: "platform_admin",
+      target_status: "suspended",
+      actor_id: ownerUser.id,
+      change_reason: "Authorization verification stale platform update",
+      expected_version: 999,
+    });
+    const platformAccessSuspension = await admin.rpc("set_platform_access_service", {
+      target_user_id: viewerUser.id,
+      target_role: "platform_admin",
+      target_status: "suspended",
+      actor_id: ownerUser.id,
+      change_reason: "Authorization verification platform suspension",
+      expected_version: 1,
+    });
+    const { data: platformAccessAudit } = await admin
+      .from("platform_audit_events")
+      .select("event_type, metadata")
+      .eq("entity_id", viewerUser.id)
+      .like("event_type", "access.%")
+      .order("created_at");
+    record(
+      "superadmin platform access changes are atomic, versioned, and audited",
+      !platformAccessGrant.error &&
+        platformAccessGrant.data?.version === 1 &&
+        Boolean(platformAccessSelfChange.error) &&
+        Boolean(stalePlatformAccessChange.error) &&
+        !platformAccessSuspension.error &&
+        platformAccessSuspension.data?.version === 2 &&
+        platformAccessAudit?.length === 2 &&
+        platformAccessAudit.every((event) =>
+          typeof event.metadata?.reason === "string" &&
+          typeof event.metadata?.version === "number"
+        ),
+      {
+        grantError: platformAccessGrant.error?.message ?? null,
+        selfChangeError: platformAccessSelfChange.error?.message ?? null,
+        staleChangeError: stalePlatformAccessChange.error?.message ?? null,
+        suspensionError: platformAccessSuspension.error?.message ?? null,
+        audit: platformAccessAudit ?? null,
+      },
+    );
+
+    const ownerEmptyBillingSummary = await owner.rpc(
+      "get_current_billing_summary",
+      { target_organization_id: organizationA.id },
+    );
+    const viewerForeignBillingSummary = await viewer.rpc(
+      "get_current_billing_summary",
+      { target_organization_id: organizationA.id },
+    );
+    record(
+      "agency owner can use the customer-safe billing boundary",
+      !ownerEmptyBillingSummary.error && ownerEmptyBillingSummary.data?.length === 0,
+      { error: ownerEmptyBillingSummary.error?.message ?? null },
+    );
+    record(
+      "foreign tenant cannot read another agency billing summary",
+      Boolean(viewerForeignBillingSummary.error),
+    );
+
+    const provisionedAgency = await admin.rpc(
+      "provision_organization_service",
+      {
+        organization_name: `Provisioned Agency ${suffix}`,
+        organization_slug: `provisioned-agency-${suffix}`,
+        owner_email: `provisioned-owner-${suffix}@stateai.invalid`,
+        invitation_token_hash: createHash("sha256")
+          .update(randomBytes(32))
+          .digest("hex"),
+        actor_id: ownerUser.id,
+        provision_reason: "Authorization verification approved provisioning",
+      },
+    );
+    const provisionedOrganizationId = provisionedAgency.data?.[0]?.organization_id;
+    if (provisionedOrganizationId) organizationIds.push(provisionedOrganizationId);
+    const [provisionedLifecycle, provisionedInvitation, provisionedAudit] =
+      provisionedOrganizationId
+        ? await Promise.all([
+            admin
+              .from("organization_lifecycle")
+              .select("status")
+              .eq("organization_id", provisionedOrganizationId)
+              .single(),
+            admin
+              .from("organization_invitations")
+              .select("role, status, token_hash")
+              .eq("organization_id", provisionedOrganizationId)
+              .single(),
+            admin
+              .from("platform_audit_events")
+              .select("event_type")
+              .eq("entity_id", provisionedOrganizationId)
+              .eq("event_type", "agency.provisioned")
+              .single(),
+          ])
+        : [{ data: null }, { data: null }, { data: null }];
+    record(
+      "superadmin service provisioning creates one isolated pending agency",
+      !provisionedAgency.error &&
+        provisionedLifecycle.data?.status === "provisioning" &&
+        provisionedInvitation.data?.role === "owner" &&
+        provisionedInvitation.data?.status === "pending" &&
+        provisionedInvitation.data?.token_hash?.length === 64 &&
+        provisionedAudit.data?.event_type === "agency.provisioned",
+      {
+        rpcError: provisionedAgency.error?.message ?? null,
+        rpcData: provisionedAgency.data ?? null,
+        lifecycle: provisionedLifecycle.data ?? null,
+        invitation: provisionedInvitation.data ?? null,
+        audit: provisionedAudit.data ?? null,
+      },
+    );
+    const rotatedInvitation = provisionedOrganizationId && provisionedAgency.data?.[0]?.invitation_id
+      ? await admin.rpc("resend_organization_invitation_service", {
+          target_organization_id: provisionedOrganizationId,
+          target_invitation_id: provisionedAgency.data[0].invitation_id,
+          replacement_token_hash: createHash("sha256")
+            .update(randomBytes(32))
+            .digest("hex"),
+          actor_id: ownerUser.id,
+          resend_reason: "Authorization verification approved invitation retry",
+        })
+      : { data: null, error: new Error("Provisioned invitation was unavailable.") };
+    const { data: rotatedInvitationRows } = provisionedOrganizationId
+      ? await admin
+          .from("organization_invitations")
+          .select("id, status, token_hash")
+          .eq("organization_id", provisionedOrganizationId)
+          .order("created_at")
+      : { data: [] };
+    record(
+      "superadmin invitation resend revokes the old token and records one replacement",
+      !rotatedInvitation.error &&
+        rotatedInvitationRows?.length === 2 &&
+        rotatedInvitationRows[0]?.status === "revoked" &&
+        rotatedInvitationRows[1]?.status === "pending" &&
+        rotatedInvitationRows[0]?.token_hash !== rotatedInvitationRows[1]?.token_hash,
+      {
+        error: rotatedInvitation.error?.message ?? null,
+        invitations: rotatedInvitationRows ?? null,
+      },
+    );
+    const { error: restoreProvisioningActorError } = await admin
+      .from("platform_admins")
+      .update({ role: "platform_admin" })
+      .eq("user_id", ownerUser.id);
+    if (restoreProvisioningActorError) throw restoreProvisioningActorError;
+
+    const { data: lifecycleBefore, error: lifecycleBeforeError } = await admin
+      .from("organization_lifecycle")
+      .select("status, version")
+      .eq("organization_id", organizationA.id)
+      .single();
+    if (lifecycleBeforeError || !lifecycleBefore)
+      throw lifecycleBeforeError ?? new Error("Agency lifecycle fixture was not created.");
+
+    const lifecycleSuspension = await admin.rpc(
+      "set_organization_lifecycle_service",
+      {
+        target_organization_id: organizationA.id,
+        target_status: "suspended",
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification suspension",
+        expected_version: lifecycleBefore.version,
+      },
+    );
+    const { data: lifecycleAfterSuspension } = await admin
+      .from("organization_lifecycle")
+      .select("status, version")
+      .eq("organization_id", organizationA.id)
+      .single();
+    record(
+      "service lifecycle mutation suspends an agency atomically",
+      !lifecycleSuspension.error &&
+        lifecycleAfterSuspension?.status === "suspended" &&
+        lifecycleAfterSuspension.version === lifecycleBefore.version + 1,
+    );
+
+    const [suspendedOrganizations, suspendedContacts] = await Promise.all([
+      owner.from("organizations").select("id").eq("id", organizationA.id),
+      owner.from("contacts").select("id").eq("organization_id", organizationA.id),
+    ]);
+    record(
+      "suspended agencies immediately lose tenant workspace resolution",
+      !suspendedOrganizations.error && suspendedOrganizations.data?.length === 0,
+    );
+    record(
+      "suspended agencies immediately lose tenant record access",
+      !suspendedContacts.error && suspendedContacts.data?.length === 0,
+    );
+
+    const invalidLifecycleTransition = await admin.rpc(
+      "set_organization_lifecycle_service",
+      {
+        target_organization_id: organizationA.id,
+        target_status: "provisioning",
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification invalid transition",
+        expected_version: lifecycleAfterSuspension?.version ?? 0,
+      },
+    );
+    record(
+      "database rejects lifecycle transitions outside the reviewed graph",
+      Boolean(invalidLifecycleTransition.error),
+    );
+
+    const lifecycleRestore = await admin.rpc(
+      "set_organization_lifecycle_service",
+      {
+        target_organization_id: organizationA.id,
+        target_status: "active",
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification restoration",
+        expected_version: lifecycleAfterSuspension?.version ?? 0,
+      },
+    );
+    const [restoredOrganizations, lifecycleEvents, lifecycleAudit] = await Promise.all([
+      owner.from("organizations").select("id").eq("id", organizationA.id),
+      admin
+        .from("organization_lifecycle_events")
+        .select("id")
+        .eq("organization_id", organizationA.id),
+      admin
+        .from("platform_audit_events")
+        .select("id")
+        .eq("entity_id", organizationA.id)
+        .eq("event_type", "agency.lifecycle_changed"),
+    ]);
+    record(
+      "valid lifecycle restoration returns tenant workspace access",
+      !lifecycleRestore.error && restoredOrganizations.data?.length === 1,
+    );
+    record(
+      "lifecycle changes preserve immutable and platform audit evidence",
+      lifecycleEvents.data?.length === 2 && lifecycleAudit.data?.length === 2,
+    );
+
+    const ownerCurrentSecurity = await owner
+      .rpc("get_current_identity_security_control")
+      .single();
+    record(
+      "users can read only their bounded current account security state",
+      !ownerCurrentSecurity.error &&
+        ownerCurrentSecurity.data?.status === "active" &&
+        ownerCurrentSecurity.data?.password_reset_required === false,
+      { error: ownerCurrentSecurity.error?.message ?? null, data: ownerCurrentSecurity.data ?? null },
+    );
+
+    const ownerSecurityTableRead = await owner
+      .from("identity_security_controls")
+      .select("user_id");
+    record(
+      "browser clients cannot enumerate identity security controls",
+      Boolean(ownerSecurityTableRead.error),
+    );
+
+    const browserSecurityMutation = await owner.rpc(
+      "revoke_identity_sessions_service",
+      {
+        target_user_id: viewerUser.id,
+        actor_id: ownerUser.id,
+        change_reason: "Blocked browser session revocation attempt",
+        expected_version: 1,
+      },
+    );
+    record(
+      "browser clients cannot invoke identity security service mutations",
+      Boolean(browserSecurityMutation.error),
+    );
+
+    const platformAdminSecurityMutation = await admin.rpc(
+      "revoke_identity_sessions_service",
+      {
+        target_user_id: viewerUser.id,
+        actor_id: ownerUser.id,
+        change_reason: "Platform admin identity authority must remain insufficient",
+        expected_version: 1,
+      },
+    );
+    record(
+      "identity security service rejects a platform admin actor",
+      Boolean(platformAdminSecurityMutation.error),
+    );
+
+    const { error: promoteIdentityActorError } = await admin
+      .from("platform_admins")
+      .update({ role: "superadmin" })
+      .eq("user_id", ownerUser.id);
+    if (promoteIdentityActorError) throw promoteIdentityActorError;
+
+    const requiredReset = await admin.rpc(
+      "require_identity_password_reset_service",
+      {
+        target_user_id: viewerUser.id,
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification password reset",
+        expected_version: 1,
+      },
+    );
+    const { data: controlAfterRequiredReset } = await admin
+      .from("identity_security_controls")
+      .select("status, sessions_valid_after, password_reset_required, version")
+      .eq("user_id", viewerUser.id)
+      .single();
+    record(
+      "superadmin can require a versioned password reset and revoke sessions",
+      !requiredReset.error &&
+        controlAfterRequiredReset?.password_reset_required === true &&
+        controlAfterRequiredReset.version === 2,
+      { error: requiredReset.error?.message ?? null, control: controlAfterRequiredReset ?? null },
+    );
+
+    const browserResetBypass = await viewer.rpc(
+      "complete_required_password_reset_service",
+      { target_user_id: viewerUser.id },
+    );
+    record(
+      "browser clients cannot clear the required password reset flag",
+      Boolean(browserResetBypass.error),
+    );
+
+    const completedReset = await admin.rpc(
+      "complete_required_password_reset_service",
+      { target_user_id: viewerUser.id },
+    );
+    const revokedSessions = await admin.rpc(
+      "revoke_identity_sessions_service",
+      {
+        target_user_id: viewerUser.id,
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification session revocation",
+        expected_version: 3,
+      },
+    );
+    record(
+      "trusted password completion and session revocation preserve ordered versions",
+      !completedReset.error && completedReset.data === true && !revokedSessions.error,
+      {
+        completionError: completedReset.error?.message ?? null,
+        completionData: completedReset.data ?? null,
+        revocationError: revokedSessions.error?.message ?? null,
+      },
+    );
+
+    const suspendedIdentity = await admin.rpc(
+      "set_identity_security_status_service",
+      {
+        target_user_id: viewerUser.id,
+        target_status: "suspended",
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification account suspension",
+        expected_version: 4,
+      },
+    );
+    const restoredIdentity = await admin.rpc(
+      "set_identity_security_status_service",
+      {
+        target_user_id: viewerUser.id,
+        target_status: "active",
+        actor_id: ownerUser.id,
+        change_reason: "Authorization verification account restoration",
+        expected_version: 5,
+      },
+    );
+    const [{ data: finalSecurityControl }, { data: identitySecurityEvents }, { data: identityAuditEvents }] =
+      await Promise.all([
+        admin
+          .from("identity_security_controls")
+          .select("status, password_reset_required, version")
+          .eq("user_id", viewerUser.id)
+          .single(),
+        admin
+          .from("identity_security_events")
+          .select("id")
+          .eq("user_id", viewerUser.id),
+        admin
+          .from("platform_audit_events")
+          .select("id")
+          .eq("entity_id", viewerUser.id)
+          .like("event_type", "identity.%"),
+      ]);
+    record(
+      "account suspension and restoration are immediate, reversible, and versioned",
+      !suspendedIdentity.error &&
+        !restoredIdentity.error &&
+        finalSecurityControl?.status === "active" &&
+        finalSecurityControl.password_reset_required === false &&
+        finalSecurityControl.version === 6,
+      {
+        suspensionError: suspendedIdentity.error?.message ?? null,
+        restorationError: restoredIdentity.error?.message ?? null,
+        control: finalSecurityControl ?? null,
+      },
+    );
+    record(
+      "identity security actions preserve immutable security and platform evidence",
+      identitySecurityEvents?.length === 5 && identityAuditEvents?.length === 5,
+      {
+        securityEventCount: identitySecurityEvents?.length ?? null,
+        auditEventCount: identityAuditEvents?.length ?? null,
+      },
+    );
+
+    const { error: restoreIdentityActorError } = await admin
+      .from("platform_admins")
+      .update({ role: "platform_admin" })
+      .eq("user_id", ownerUser.id);
+    if (restoreIdentityActorError) throw restoreIdentityActorError;
+
+    const ownerInboundEnvelopeRead = await owner
+      .from("email_inbound_events")
+      .select("payload");
+    record(
+      "tenant browsers cannot read raw inbound email envelopes",
+      Boolean(ownerInboundEnvelopeRead.error),
     );
 
     const viewerContactInsert = await viewer.from("contacts").insert({

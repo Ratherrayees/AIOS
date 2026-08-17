@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { safeInternalPath } from "../../lib/auth/safe-next";
+import { resolvePostAuthDestination } from "../../lib/auth/post-auth-destination";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { hasSupabaseEnv } from "../../lib/env";
 
@@ -24,5 +25,6 @@ export async function signIn(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword(result.data);
   if (error) redirect(signInFailurePath("credentials", nextPath));
-  redirect(nextPath);
+  const destination = await resolvePostAuthDestination(supabase, nextPath);
+  redirect(destination);
 }

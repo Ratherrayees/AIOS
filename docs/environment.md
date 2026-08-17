@@ -1,16 +1,18 @@
 # Environment setup
 
-No environment value is required to build the current application. Before Phase 04 authentication and live Supabase data are enabled, create a local `.env.local` file containing the deployment values for:
+No environment value is required to compile the application. Live CRM and AIOS
+work require a server-only `.env.local` in development and equivalent managed
+secrets in each deployed environment. Start from `.env.example`; never copy a
+development secret into production.
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-APP_BASE_URL=https://travel.stateai.in
+APP_BASE_URL=https://crm.example.com
 SUPABASE_SECRET_KEY=
-RESEND_API_KEY=
-RESEND_WEBHOOK_SECRET=
-RESEND_FROM_EMAIL=AIOS Travel <hello@travel.stateai.in>
-RESEND_REPLY_TO_EMAIL=travel@stateai.in
+TENANT_INTEGRATION_ENCRYPTION_KEY=
+AIOS_WORKER_SECRET=
+EMAIL_INBOUND_WORKER_SECRET=
 ```
 
 Rules:
@@ -18,11 +20,15 @@ Rules:
 - Keep `.env.local` out of version control.
 - Set `APP_BASE_URL` to the deployment's canonical HTTPS origin. Production authentication emails fail closed when it is absent or malformed.
 - The supplied Supabase secret key is stored as `SUPABASE_SECRET_KEY`; never expose it to the browser, client components, logs, or build output.
-- Add payment, mail, AI-provider, and integration credentials only when their phases begin. Each requires server-only validation, least-privilege scopes, and secret rotation ownership.
-- `RESEND_API_KEY` is server-only. Never prefix it with `NEXT_PUBLIC_`, expose it in a client component, or paste it into a browser console.
-- Use a dedicated verified sender subdomain for production mail (recommended: `travel.stateai.in` or `auth.stateai.in`) and update `RESEND_FROM_EMAIL` to match it.
+- `TENANT_INTEGRATION_ENCRYPTION_KEY` must decode to exactly 32 bytes and must be identical on every app and worker instance. Back it up before storing tenant credentials; changing it requires a credential-envelope migration.
+- Tenant mail, payment, WhatsApp, and agency-owned model credentials are added by an owner/admin in **Settings → Integrations**. They are encrypted and never fall back to platform credentials.
+- Platform email belongs in **Platform → Platform email** and uses `travel@lumierah.in`. Deployment-level Resend variables are a platform-only fallback, never an agency sender.
+- Supabase Auth mail uses `AIOS <auth@lumierah.in>` and a separate authentication-only SMTP credential configured in the hosted Supabase project. It is not read from tenant integrations or the platform email vault. Locally, `supabase/config.toml` sends the same identity through Mailpit with a code-only signup template.
+- The platform model router supports Groq → ZhiPuAI → NVIDIA NIM → OpenRouter → OpenAI → Anthropic → Gemini → Qwen, filtered by each workspace allow-list. Keep all keys server-only.
+- `AIOS_WORKER_SECRET` protects the AI job, approval-escalation, Operations Radar, and management-report schedules. `EMAIL_INBOUND_WORKER_SECRET` protects tenant IMAP ingestion. Use independent high-entropy values.
 - Use separate credentials for development, staging, and production.
 - Run `npm run security:secrets` before committing or deploying.
+- Run `npm run verify:deploy` against the deployment environment. It prints only missing names and external actions, never secret values.
 
 ## Authenticated browser verification
 

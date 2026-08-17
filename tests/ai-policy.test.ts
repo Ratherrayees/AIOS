@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AIOS_ACTION_CATALOG, evaluateAutonomy } from "../lib/ai/autonomy";
+import {
+  AIOS_ACTION_CATALOG,
+  canRunOperatorRequestedDraft,
+  evaluateAutonomy,
+} from "../lib/ai/autonomy";
 import {
   inspectItineraryDraftInput,
   inspectLeadIntakeInput,
 } from "../lib/ai/input-safety";
 import { evaluateAgentAction } from "../lib/ai/policy";
 import { parseLeadExtraction } from "../lib/ai/contracts";
+import {
+  DAILY_COORDINATOR_LIMITS,
+  DAILY_COORDINATOR_WORKFLOWS,
+  summarizeDailyCoordinator,
+} from "../lib/ai/daily-coordinator";
 
 test("AIOS executes only explicitly low-risk actions in auto mode", () => {
   assert.deepEqual(evaluateAutonomy("internal.task.create", "auto"), {
@@ -26,6 +35,80 @@ test("AIOS may auto-triage only bounded internal lead risks", () => {
     evaluateAutonomy("trip.operations.monitor", "auto").decision,
     "execute",
   );
+});
+
+test("the daily coordinator is internal-only and preserves bounded child workflows", () => {
+  assert.equal(
+    evaluateAutonomy("workspace.daily.coordinate", "auto").decision,
+    "execute",
+  );
+  assert.equal(DAILY_COORDINATOR_LIMITS.externalActions, false);
+  assert.deepEqual(
+    DAILY_COORDINATOR_WORKFLOWS.map((workflow) => workflow.action),
+    [
+      "crm.deal.route",
+      "crm.lead.triage",
+      "inbox.sla.triage",
+      "trip.operations.monitor",
+    ],
+  );
+  for (const workflow of DAILY_COORDINATOR_WORKFLOWS) {
+    const action = AIOS_ACTION_CATALOG.find(
+      (candidate) => candidate.action === workflow.action,
+    );
+    assert.ok(action);
+    assert.equal(action.hardApproval, false);
+  }
+});
+
+test("the daily coordinator treats approvals as expected and child failures as partial", () => {
+  const baseline = {
+    routing: {
+      status: "completed" as const,
+      scanned: 2,
+      changed: 1,
+      approvals: 1,
+      skipped: 0,
+    },
+    leadRisks: {
+      status: "approval_required" as const,
+      scanned: 0,
+      changed: 0,
+      approvals: 1,
+      skipped: 0,
+    },
+    inboxSlas: {
+      status: "completed" as const,
+      scanned: 3,
+      changed: 2,
+      approvals: 0,
+      skipped: 1,
+    },
+    operations: {
+      status: "completed" as const,
+      scanned: 4,
+      changed: 1,
+      approvals: 0,
+      skipped: 3,
+    },
+  };
+  const completed = summarizeDailyCoordinator(baseline);
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.externalActions, false);
+  assert.deepEqual(completed.totals, {
+    scanned: 9,
+    changed: 4,
+    approvals: 2,
+    skipped: 4,
+    failed: 0,
+  });
+
+  const partial = summarizeDailyCoordinator({
+    ...baseline,
+    operations: { ...baseline.operations, status: "failed" },
+  });
+  assert.equal(partial.status, "partial");
+  assert.equal(partial.totals.failed, 1);
 });
 
 test("AIOS may auto-triage overdue Inbox SLAs only as internal work", () => {
@@ -66,6 +149,7 @@ test("every external-effect catalog action is non-bypassable", () => {
     (action) =>
       ![
         "internal.task.create",
+        "workspace.daily.coordinate",
         "crm.field_draft.create",
         "itinerary.draft.prepare",
         "crm.deal.route",
@@ -90,6 +174,34 @@ test("every external-effect catalog action is non-bypassable", () => {
       `${action.action} must reject auto execution`,
     );
   }
+});
+
+test("every registered workflow follows the complete Manual Assisted Autopilot matrix", () => {
+  assert.equal(AIOS_ACTION_CATALOG.length, 19);
+  for (const action of AIOS_ACTION_CATALOG) {
+    const manual = evaluateAutonomy(action.action, "observe");
+    const assisted = evaluateAutonomy(action.action, "assist");
+    const autopilot = evaluateAutonomy(action.action, "auto");
+
+    if (action.hardApproval) {
+      assert.equal(manual.decision, "approval_required", `${action.action}: Manual`);
+      assert.equal(assisted.decision, "approval_required", `${action.action}: Assisted`);
+      assert.equal(autopilot.decision, "approval_required", `${action.action}: Autopilot`);
+      continue;
+    }
+
+    assert.equal(manual.decision, "observe", `${action.action}: Manual`);
+    assert.equal(assisted.decision, "draft", `${action.action}: Assisted`);
+    assert.equal(autopilot.decision, "execute", `${action.action}: Autopilot`);
+  }
+});
+
+test("Manual permits only explicit, reversible internal AI drafts", () => {
+  assert.equal(canRunOperatorRequestedDraft("observe"), true);
+  assert.equal(canRunOperatorRequestedDraft("draft"), true);
+  assert.equal(canRunOperatorRequestedDraft("execute"), true);
+  assert.equal(canRunOperatorRequestedDraft("approval_required"), false);
+  assert.equal(canRunOperatorRequestedDraft("blocked"), false);
 });
 
 test("agent policy routes supplier communication to approval", () => {

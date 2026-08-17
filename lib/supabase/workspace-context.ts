@@ -8,16 +8,27 @@ import {
 } from "../workspace/active-workspace";
 
 type BrowserSupabaseClient = ReturnType<typeof createSupabaseBrowserClient>;
-
-export async function loadWorkspaceContext(
-  supabase: BrowserSupabaseClient,
-): Promise<{
+type WorkspaceContext = {
   active: WorkspaceChoice | null;
   workspaces: WorkspaceChoice[];
-}> {
+};
+
+let inFlightContext: Promise<WorkspaceContext> | null = null;
+
+async function fetchWorkspaceContext(
+  supabase: BrowserSupabaseClient,
+): Promise<WorkspaceContext> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) return { active: null, workspaces: [] };
+
   const { data: membershipRows, error: membershipError } = await supabase
     .from("memberships")
     .select("organization_id, role")
+    .eq("user_id", user.id)
     .eq("status", "active")
     .order("created_at", { ascending: true });
 
@@ -64,6 +75,26 @@ export async function loadWorkspaceContext(
   return { active, workspaces };
 }
 
+export function loadWorkspaceContext(
+  supabase: BrowserSupabaseClient,
+): Promise<WorkspaceContext> {
+  if (inFlightContext) {
+    return inFlightContext;
+  }
+
+  const request = fetchWorkspaceContext(supabase);
+  inFlightContext = request;
+  const clearRequest = () => {
+    if (inFlightContext === request) inFlightContext = null;
+  };
+  void request.then(clearRequest, clearRequest);
+  return request;
+}
+
+export function invalidateWorkspaceContext() {
+  inFlightContext = null;
+}
+
 export function saveActiveWorkspace(
   organizationId: string,
   availableWorkspaces: WorkspaceChoice[],
@@ -77,4 +108,5 @@ export function saveActiveWorkspace(
   }
 
   window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, organizationId);
+  invalidateWorkspaceContext();
 }

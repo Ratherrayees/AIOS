@@ -17,7 +17,7 @@ export const contactInputSchema = z.object({
   ownerId: z.uuid().nullable().optional(),
 });
 
-const optionalTimeZoneSchema = z
+const timeZoneSchema = z
   .string()
   .trim()
   .min(1)
@@ -29,9 +29,16 @@ const optionalTimeZoneSchema = z
     } catch {
       return false;
     }
-  }, "Use a valid IANA time zone.")
-  .nullable()
-  .optional();
+  }, "Use a valid IANA time zone.");
+
+const optionalTimeZoneSchema = timeZoneSchema.nullable().optional();
+
+const localDateTimeSchema = z
+  .iso.datetime({ local: true })
+  .refine(
+    (value) => !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value),
+    "Use a local date and time without a UTC offset.",
+  );
 
 export const contactPreferencesInputSchema = z
   .object({
@@ -158,7 +165,7 @@ export const savedViewInputSchema = z.discriminatedUnion("feature", [
     feature: z.literal("tasks"),
     filters: z.object({
       query: z.string().trim().max(200),
-      assigneeId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
+      assigneeId: z.union([z.uuid(), z.enum(["mine", "all", "unassigned"])]),
       timing: z.enum(["all", "overdue", "due_soon", "no_due"]),
     }),
   }),
@@ -167,7 +174,7 @@ export const savedViewInputSchema = z.discriminatedUnion("feature", [
     filters: z.object({
       query: z.string().trim().max(200),
       status: z.enum(["all", "inbox", "open", "pending", "closed"]),
-      assigneeId: z.union([z.uuid(), z.enum(["all", "unassigned"])]),
+      assigneeId: z.union([z.uuid(), z.enum(["mine", "all", "unassigned"])]),
       sla: z.enum(["all", "overdue", "due_soon", "no_deadline"]),
     }),
   }),
@@ -744,6 +751,7 @@ export const tripDraftInputSchema = z
     dealId: z.uuid().nullable().optional(),
     startDate: z.iso.date().nullable().optional(),
     endDate: z.iso.date().nullable().optional(),
+    timeZone: timeZoneSchema,
     currency: z.string().trim().regex(/^[A-Z]{3}$/).default("INR"),
   })
   .refine(
@@ -762,6 +770,7 @@ export const tripOperationsUpdateSchema = z
     tripId: z.uuid(),
     name: z.string().trim().min(1).max(180),
     destination: z.string().trim().min(1).max(180).nullable(),
+    timeZone: timeZoneSchema,
     startDate: z.iso.date().nullable(),
     endDate: z.iso.date().nullable(),
     currency: z.string().trim().regex(/^[A-Z]{3}$/),
@@ -1164,14 +1173,51 @@ export const paymentStatusRefreshSchema = z.object({
   organizationId: z.uuid(),
 });
 
-export const itineraryItemInputSchema = z.object({
+export const itineraryItemInputSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tripId: z.uuid(),
+    dayNumber: z.number().int().min(1).max(365),
+    itemType: z.enum([
+      "flight",
+      "stay",
+      "transfer",
+      "activity",
+      "meal",
+      "free_time",
+      "note",
+    ]),
+    title: z.string().trim().min(1).max(300),
+    locationName: z.string().trim().min(1).max(180).nullable().optional(),
+    notes: z.string().trim().max(4_000).nullable().optional(),
+    startsAtLocal: localDateTimeSchema.nullable().optional(),
+    endsAtLocal: localDateTimeSchema.nullable().optional(),
+    timeZone: optionalTimeZoneSchema,
+  })
+  .refine((value) => !value.endsAtLocal || Boolean(value.startsAtLocal), {
+    message: "An itinerary end time requires a start time.",
+    path: ["endsAtLocal"],
+  })
+  .refine((value) => !value.startsAtLocal || Boolean(value.timeZone), {
+    message: "A timed itinerary item requires an IANA time zone.",
+    path: ["timeZone"],
+  })
+  .refine(
+    (value) =>
+      !value.startsAtLocal ||
+      !value.endsAtLocal ||
+      value.endsAtLocal > value.startsAtLocal,
+    {
+      message: "The itinerary end time must be after its start time.",
+      path: ["endsAtLocal"],
+    },
+  );
+
+export const itineraryItemReorderSchema = z.object({
   organizationId: z.uuid(),
   tripId: z.uuid(),
-  dayNumber: z.number().int().min(1).max(365),
-  itemType: z.enum(["flight", "stay", "transfer", "activity", "meal", "free_time", "note"]),
-  title: z.string().trim().min(1).max(300),
-  locationName: z.string().trim().min(1).max(180).nullable().optional(),
-  notes: z.string().trim().max(4_000).nullable().optional(),
+  itineraryItemId: z.uuid(),
+  direction: z.enum(["up", "down"]),
 });
 
 export const itineraryTemplateFromTripInputSchema = z.object({
@@ -1391,6 +1437,9 @@ export type PaymentStatusRefreshInput = z.infer<
   typeof paymentStatusRefreshSchema
 >;
 export type ItineraryItemInput = z.infer<typeof itineraryItemInputSchema>;
+export type ItineraryItemReorderInput = z.infer<
+  typeof itineraryItemReorderSchema
+>;
 export type ItineraryTemplateFromTripInput = z.infer<
   typeof itineraryTemplateFromTripInputSchema
 >;

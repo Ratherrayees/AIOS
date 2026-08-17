@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState, useTransition } from "react";
 
 import {
   reviewLeadIntakeDraft,
+  runDailyAiosCoordinator,
   startLeadIntakeRun,
   triageAtRiskLeads,
   triageInboxSlaRisks,
@@ -13,11 +16,19 @@ import {
   requeueAiosJob,
   runReadyAiosJobs,
   setAiosBudgetPolicy,
+  setAiosOperatingMode,
   setAutonomyEnabled,
   setAutonomyMode,
 } from "../actions/aios";
-import { resolveApprovalRequest } from "../actions/approvals";
+import {
+  escalateApprovalRequest,
+  resolveApprovalRequest,
+} from "../actions/approvals";
 import { AIOS_ACTION_CATALOG, type AutonomyMode } from "../../lib/ai/autonomy";
+import {
+  canResolveApproval as canResolveApprovalAccess,
+  isInPersonalApprovalQueue,
+} from "../../lib/ai/approval-access";
 import {
   MODEL_PROVIDERS,
   parseModelProvider,
@@ -35,15 +46,10 @@ import {
 } from "../../lib/ai/sales-copilot-quality";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import "./aios.css";
-
-const financeApprovalActions = new Set([
-  "invoice.issue",
-  "payment.link.create",
-  "payment.refund",
-]);
 
 const modes: { value: AutonomyMode; label: string; help: string }[] = [
   { value: "observe", label: "Observe", help: "Monitor and recommend only" },
@@ -55,8 +61,54 @@ const modes: { value: AutonomyMode; label: string; help: string }[] = [
     help: "Route every action to a human",
   },
 ];
+const automationCategories = [
+  {
+    label: "Workspace coordination",
+    actions: ["workspace.daily.coordinate"],
+  },
+  {
+    label: "Sales",
+    actions: [
+      "internal.task.create",
+      "crm.lead.triage",
+      "crm.deal.route",
+      "crm.field_draft.create",
+      "quote.share",
+      "pricing.override",
+    ],
+  },
+  {
+    label: "Customer communication",
+    actions: [
+      "inbox.sla.triage",
+      "inbox.reply_draft.prepare",
+      "external_message.send",
+    ],
+  },
+  {
+    label: "Trips & suppliers",
+    actions: [
+      "trip.operations.monitor",
+      "itinerary.draft.prepare",
+      "supplier.follow_up.send",
+      "booking.confirm",
+      "document.share",
+    ],
+  },
+  {
+    label: "Finance",
+    actions: ["invoice.issue", "payment.link.create", "payment.refund"],
+  },
+  {
+    label: "Knowledge",
+    actions: ["knowledge.answer.compose"],
+  },
+] as const;
 const providerLabels: Record<ModelProvider, string> = {
-  glm: "GLM",
+  groq: "Groq",
+  glm: "ZhiPuAI (GLM)",
+  nvidia: "NVIDIA NIM",
+  openrouter: "OpenRouter",
   openai: "OpenAI",
   gemini: "Gemini",
   anthropic: "Claude",
@@ -68,9 +120,19 @@ type PendingApproval = {
   id: string;
   action: string;
   entity_type: string;
+  entity_id: string | null;
   rationale: string | null;
+  requester_id: string;
+  approver_id: string | null;
+  created_at: string;
   expires_at: string | null;
+  escalation_count: number;
+  last_escalated_at: string | null;
+  last_escalation_outcome: string | null;
 };
+type ApprovalPerson = { name: string; role: string | null };
+type ApprovalScope = "mine" | "workspace";
+type ActivityStatus = "all" | "succeeded" | "failed" | "blocked" | "active";
 type ReviewRun = { id: string; result: unknown; created_at: string };
 type ReviewField =
   "destination" | "travelStart" | "travelEnd" | "travellerCount";
@@ -78,6 +140,7 @@ type ProviderStatus = {
   provider: ModelProvider;
   model: string;
   configured: boolean;
+  source?: "deployment" | "tenant";
 };
 type RunHistory = {
   id: string;
@@ -129,6 +192,23 @@ function parseLeadDraft(result: unknown): LeadExtraction | null {
   return parsed.success ? parsed.data : null;
 }
 
+function latestPendingLeadRuns(
+  completedRuns: ReviewRun[],
+  reviewedRunIds: ReadonlySet<string>,
+) {
+  const seenLeads = new Set<string>();
+  return completedRuns.filter((run) => {
+    const draft = parseLeadDraft(run.result);
+    const leadId = draft?.citations.find(
+      (citation) => citation.sourceType === "deal",
+    )?.sourceId;
+    const queueKey = leadId || `run:${run.id}`;
+    if (seenLeads.has(queueKey)) return false;
+    seenLeads.add(queueKey);
+    return !reviewedRunIds.has(run.id);
+  });
+}
+
 function modelLabel(result: unknown) {
   if (!result || typeof result !== "object" || Array.isArray(result))
     return "Model details unavailable";
@@ -138,8 +218,29 @@ function modelLabel(result: unknown) {
     : "Model details unavailable";
 }
 
-async function fetchProviderStatus(provider?: ModelProvider) {
-  const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+function approvalEntityLink(approval: PendingApproval) {
+  if (!approval.entity_id) return null;
+  if (approval.entity_type === "deal") return `/leads/${approval.entity_id}`;
+  if (approval.entity_type === "trip") return `/trips/${approval.entity_id}`;
+  if (approval.entity_type === "quote") return "/quotes";
+  if (approval.entity_type === "conversation") return "/inbox";
+  if (
+    approval.entity_type === "invoice_draft" ||
+    approval.entity_type === "payment_link_draft" ||
+    approval.entity_type === "payment"
+  )
+    return "/finance";
+  return null;
+}
+
+async function fetchProviderStatus(
+  provider?: ModelProvider,
+  organizationId?: string,
+) {
+  const parameters = new URLSearchParams();
+  if (provider) parameters.set("provider", provider);
+  if (organizationId) parameters.set("organizationId", organizationId);
+  const query = parameters.size ? `?${parameters.toString()}` : "";
   const response = await fetch(`/api/aios/status${query}`, {
     cache: "no-store",
   });
@@ -147,18 +248,35 @@ async function fetchProviderStatus(provider?: ModelProvider) {
 }
 
 export default function AiosControlPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const surface = pathname.startsWith("/aios/approvals")
+    ? "approvals"
+    : pathname.startsWith("/aios/automations")
+      ? "automations"
+      : "activity";
   const [organizationId, setOrganizationId] = useState<string | null>(null);
-  const [workspaceName, setWorkspaceName] = useState("your workspace");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, AutonomyMode>>({});
+  const [approvalRolesByAction, setApprovalRolesByAction] = useState<
+    Record<string, string[]>
+  >({});
   const [disabledActions, setDisabledActions] = useState<Set<string>>(
     new Set(),
   );
   const [deals, setDeals] = useState<DealOption[]>([]);
   const [selectedDealId, setSelectedDealId] = useState("");
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [approvalPeople, setApprovalPeople] = useState<
+    Record<string, ApprovalPerson>
+  >({});
+  const [approvalScope, setApprovalScope] =
+    useState<ApprovalScope>("mine");
   const [reviewRuns, setReviewRuns] = useState<ReviewRun[]>([]);
   const [recentRuns, setRecentRuns] = useState<RunHistory[]>([]);
+  const [activityStatus, setActivityStatus] =
+    useState<ActivityStatus>("all");
   const [todayModelUsage, setTodayModelUsage] = useState<ModelUsageRun[]>([]);
   const [modelPrices, setModelPrices] = useState<ModelPrice[]>([]);
   const [priceModel, setPriceModel] = useState("");
@@ -190,7 +308,27 @@ export default function AiosControlPage() {
   const [notice, setNotice] = useState("");
   const [runNotice, setRunNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [approvalClock, setApprovalClock] = useState(0);
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (pathname !== "/aios") return;
+    const hash = window.location.hash;
+    router.replace(
+      hash === "#approvals" || hash === "#approval-queue"
+        ? "/aios/approvals"
+        : hash === "#automations" || hash === "#operating-mode"
+          ? "/aios/automations"
+          : "/aios/activity",
+    );
+  }, [pathname, router]);
+
+  useEffect(() => {
+    const refreshApprovalClock = () => setApprovalClock(Date.now());
+    refreshApprovalClock();
+    const interval = window.setInterval(refreshApprovalClock, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -203,10 +341,13 @@ export default function AiosControlPage() {
       }
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
       const utcDayStart = new Date();
       utcDayStart.setUTCHours(0, 0, 0, 0);
       const [
-        { data: workspace },
         { data: policyRows },
         { data: dealRows },
         { data: approvalRows },
@@ -218,15 +359,11 @@ export default function AiosControlPage() {
         { data: jobRows },
         { data: priceRows },
         { data: qualityRow, error: qualityError },
+        { data: approvalMemberRows },
       ] = await Promise.all([
         supabase
-          .from("organizations")
-          .select("name")
-          .eq("id", membership.organization_id)
-          .maybeSingle(),
-        supabase
           .from("ai_autonomy_policies")
-          .select("action, mode, is_enabled")
+          .select("action, mode, is_enabled, approval_roles")
           .eq("organization_id", membership.organization_id),
         supabase
           .from("deals")
@@ -236,7 +373,9 @@ export default function AiosControlPage() {
           .limit(20),
         supabase
           .from("approval_requests")
-          .select("id, action, entity_type, rationale, expires_at")
+          .select(
+            "id, action, entity_type, entity_id, rationale, requester_id, approver_id, created_at, expires_at, escalation_count, last_escalated_at, last_escalation_outcome",
+          )
           .eq("organization_id", membership.organization_id)
           .eq("status", "pending")
           .order("created_at", { ascending: true })
@@ -303,11 +442,57 @@ export default function AiosControlPage() {
             target_organization_id: membership.organization_id,
           })
           .single(),
+        supabase
+          .from("memberships")
+          .select("user_id, role")
+          .eq("organization_id", membership.organization_id)
+          .eq("status", "active"),
       ]);
-      if (workspace?.name) setWorkspaceName(workspace.name);
+      const approvalUserIds = Array.from(
+        new Set([
+          ...(approvalMemberRows || []).map((member) => member.user_id),
+          ...(approvalRows || []).map((approval) => approval.requester_id),
+          ...(approvalRows || []).flatMap((approval) =>
+            approval.approver_id ? [approval.approver_id] : [],
+          ),
+        ]),
+      );
+      const approvalProfileRows = approvalUserIds.length
+        ? (
+            await supabase
+              .from("profiles")
+              .select("id, full_name")
+              .in("id", approvalUserIds)
+          ).data || []
+        : [];
+      const approvalRoles = new Map(
+        (approvalMemberRows || []).map((member) => [
+          member.user_id,
+          member.role,
+        ]),
+      );
+      setApprovalPeople(
+        Object.fromEntries(
+          approvalProfileRows.map((profile) => [
+            profile.id,
+            {
+              name: profile.full_name?.trim() || "Workspace member",
+              role: approvalRoles.get(profile.id) || null,
+            },
+          ]),
+        ),
+      );
       setOverrides(
         Object.fromEntries(
           (policyRows || []).map((policy) => [policy.action, policy.mode]),
+        ),
+      );
+      setApprovalRolesByAction(
+        Object.fromEntries(
+          (policyRows || []).map((policy) => [
+            policy.action,
+            policy.approval_roles,
+          ]),
         ),
       );
       setDisabledActions(
@@ -325,7 +510,7 @@ export default function AiosControlPage() {
         (reviewedRows || []).map((review) => review.ai_run_id),
       );
       setReviewRuns(
-        (completedRuns || []).filter((run) => !reviewedRunIds.has(run.id)),
+        latestPendingLeadRuns(completedRuns || [], reviewedRunIds),
       );
       setRecentRuns((runRows || []) as RunHistory[]);
       setTodayModelUsage((usageRows || []) as ModelUsageRun[]);
@@ -354,7 +539,7 @@ export default function AiosControlPage() {
       const statusEntries = await Promise.all(
         MODEL_PROVIDERS.map(async (provider) => [
           provider,
-          await fetchProviderStatus(provider),
+          await fetchProviderStatus(provider, membership.organization_id),
         ] as const),
       );
       const nextProviderStatuses = Object.fromEntries(
@@ -388,12 +573,52 @@ export default function AiosControlPage() {
           ...current,
           [policy.action]: policy.mode,
         }));
+        setApprovalRolesByAction((current) => ({
+          ...current,
+          [policy.action]: policy.approval_roles,
+        }));
         setNotice(`${action} is now set to ${policy.mode.replace("_", " ")}.`);
       } catch (error) {
         setNotice(
           error instanceof Error
             ? error.message
             : "AIOS could not update this policy.",
+        );
+      }
+    });
+  }
+
+  function applyOperatingMode(mode: "manual" | "assisted" | "autopilot") {
+    if (!organizationId || pending) return;
+    setRunNotice("");
+    startTransition(async () => {
+      try {
+        const nextPolicies = await setAiosOperatingMode({
+          organizationId,
+          mode,
+        });
+        setOverrides((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            nextPolicies.map((policy) => [policy.action, policy.mode]),
+          ),
+        }));
+        setApprovalRolesByAction((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            nextPolicies.map((policy) => [
+              policy.action,
+              policy.approval_roles,
+            ]),
+          ),
+        }));
+        setNotice(`AIOS is now operating in ${mode} mode.`);
+        window.dispatchEvent(new Event("aios:mode-changed"));
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not update the operating mode.",
         );
       }
     });
@@ -454,6 +679,7 @@ export default function AiosControlPage() {
         );
         const status = await fetchProviderStatus(
           selectedProvider,
+          organizationId || undefined,
         );
         if (status) {
           setProviderStatus(status);
@@ -518,6 +744,77 @@ export default function AiosControlPage() {
       .order("updated_at", { ascending: false })
       .limit(1000);
     setAiJobs((jobs || []) as AiJobTelemetry[]);
+  }
+
+  async function refreshAgentActivity() {
+    if (!organizationId) return;
+    const supabase = createSupabaseBrowserClient();
+    const utcDayStart = new Date();
+    utcDayStart.setUTCHours(0, 0, 0, 0);
+    const [
+      { data: completedRuns },
+      { data: reviewedRows },
+      { data: runRows },
+      { data: usageRows },
+    ] = await Promise.all([
+      supabase
+        .from("ai_runs")
+        .select("id, result, created_at")
+        .eq("organization_id", organizationId)
+        .eq("agent_type", "lead_intake")
+        .eq("status", "succeeded")
+        .order("created_at", { ascending: false })
+        .limit(12),
+      supabase
+        .from("ai_field_reviews")
+        .select("ai_run_id")
+        .eq("organization_id", organizationId),
+      supabase
+        .from("ai_runs")
+        .select(
+          "id, agent_type, status, result, error_code, duration_ms, created_at, completed_at",
+        )
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: false })
+        .limit(12),
+      supabase
+        .from("ai_runs")
+        .select(
+          "id, status, input_tokens, output_tokens, estimated_cost, estimated_cost_currency",
+        )
+        .eq("organization_id", organizationId)
+        .in("agent_type", [
+          "lead_intake",
+          "itinerary_draft",
+          "knowledge_answer",
+        ])
+        .gte("created_at", utcDayStart.toISOString())
+        .limit(1000),
+    ]);
+    const reviewedRunIds = new Set(
+      (reviewedRows || []).map((review) => review.ai_run_id),
+    );
+    setReviewRuns(
+      latestPendingLeadRuns(completedRuns || [], reviewedRunIds),
+    );
+    setRecentRuns((runRows || []) as RunHistory[]);
+    setTodayModelUsage((usageRows || []) as ModelUsageRun[]);
+    await refreshAiJobTelemetry();
+  }
+
+  async function refreshApprovals() {
+    if (!organizationId) return;
+    const supabase = createSupabaseBrowserClient();
+    const { data: pendingApprovals } = await supabase
+      .from("approval_requests")
+      .select(
+        "id, action, entity_type, entity_id, rationale, requester_id, approver_id, created_at, expires_at, escalation_count, last_escalated_at, last_escalation_outcome",
+      )
+      .eq("organization_id", organizationId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+    setApprovals(pendingApprovals || []);
+    window.dispatchEvent(new Event("aios:approvals-changed"));
   }
 
   function processReadyJobs() {
@@ -587,14 +884,38 @@ export default function AiosControlPage() {
         });
         setRunNotice(
           result.status === "succeeded"
-            ? `Lead intake completed: ${result.runId}. Refresh to review it.`
+            ? `Lead intake completed: ${result.runId}. The draft is ready for review below.`
             : result.message || "AIOS blocked the run.",
         );
+        await Promise.all([refreshApprovals(), refreshAgentActivity()]);
       } catch (error) {
         setRunNotice(
           error instanceof Error
             ? error.message
             : "AIOS could not start this run.",
+        );
+      }
+    });
+  }
+
+  function runDailyCoordinator() {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const result = await runDailyAiosCoordinator({ organizationId });
+        setRunNotice(
+          result.status === "completed" || result.status === "partial"
+            ? `Daily sweep ${result.status}: ${result.totals.scanned} records or risk signals checked, ${result.totals.changed} internal records reconciled, ${result.totals.approvals} approval${result.totals.approvals === 1 ? "" : "s"} requested${result.totals.failed ? `, ${result.totals.failed} child workflow failed safely` : ""}. No external action was available.`
+            : result.status === "approval_required"
+              ? "The daily AIOS sweep is waiting for human approval. No child workflow has run yet."
+              : `The daily AIOS sweep is ${result.status}. No external action was performed.`,
+        );
+        await Promise.all([refreshApprovals(), refreshAgentActivity()]);
+      } catch (error) {
+        setRunNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not run the daily internal sweep.",
         );
       }
     });
@@ -614,6 +935,7 @@ export default function AiosControlPage() {
               ? "AIOS triage has been routed to a human approver."
               : `AIOS triage is ${result.status}.`,
         );
+        await Promise.all([refreshApprovals(), refreshAgentActivity()]);
       } catch (error) {
         setRunNotice(
           error instanceof Error
@@ -638,6 +960,7 @@ export default function AiosControlPage() {
               ? "Inbox SLA triage has been routed to a human approver."
               : `Inbox SLA triage is ${result.status}.`,
         );
+        await Promise.all([refreshApprovals(), refreshAgentActivity()]);
       } catch (error) {
         setRunNotice(
           error instanceof Error
@@ -663,6 +986,7 @@ export default function AiosControlPage() {
         setApprovals((current) =>
           current.filter((approval) => approval.id !== approvalId),
         );
+        window.dispatchEvent(new Event("aios:approvals-changed"));
         setRunNotice(
           result.resumedRun
             ? `Approval recorded. AIOS run ${result.resumedRun.runId} is ${result.resumedRun.status}.`
@@ -673,6 +997,46 @@ export default function AiosControlPage() {
           error instanceof Error
             ? error.message
             : "AIOS could not resolve this approval.",
+        );
+      }
+    });
+  }
+
+  function escalateApproval(approvalId: string) {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const escalation = await escalateApprovalRequest({
+          organizationId,
+          approvalId,
+        });
+        setApprovals((current) =>
+          current.map((approval) =>
+            approval.id === approvalId
+              ? {
+                  ...approval,
+                  escalation_count: escalation.escalation_number,
+                  last_escalated_at: escalation.escalated_at,
+                  last_escalation_outcome: escalation.escalation_outcome,
+                  approver_id: escalation.approver_id,
+                  expires_at: escalation.next_expires_at,
+                }
+              : approval,
+          ),
+        );
+        window.dispatchEvent(new Event("aios:approvals-changed"));
+        setRunNotice(
+          escalation.escalation_outcome === "rerouted"
+            ? "Approval escalated to the next eligible human. The decision is still pending."
+            : escalation.escalation_outcome === "assigned"
+              ? "Approval assigned to an eligible human. The decision is still pending."
+              : "No alternate approver was available. The current human was reminded and the decision deadline was renewed.",
+        );
+      } catch (error) {
+        setRunNotice(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not escalate this approval.",
         );
       }
     });
@@ -726,13 +1090,43 @@ export default function AiosControlPage() {
   }
 
   const canManage = role === "owner" || role === "admin";
-  const canApprove = canManage || role === "operations" || role === "finance";
-  const canResolveApproval = (action: string) =>
-    canApprove &&
-    (!financeApprovalActions.has(action) ||
-      role === "owner" ||
-      role === "admin" ||
-      role === "finance");
+  const canRunCoordinator = canManage || role === "operations";
+  const canResolveApproval = (
+    action: string,
+    approverId: string | null,
+  ) =>
+    canResolveApprovalAccess({
+      action,
+      approver_id: approverId,
+      role,
+      userId: currentUserId,
+      approvalRolesByAction,
+    });
+  const assignedApprovals = approvals.filter(
+    (approval) =>
+      isInPersonalApprovalQueue({
+        action: approval.action,
+        approver_id: approval.approver_id,
+        role,
+        userId: currentUserId,
+        approvalRolesByAction,
+      }),
+  );
+  const visibleApprovals =
+    approvalScope === "mine" ? assignedApprovals : approvals;
+  const visibleRecentRuns = recentRuns.filter((run) => {
+    if (activityStatus === "all") return true;
+    if (activityStatus === "active") return !run.completed_at;
+    return run.status === activityStatus;
+  });
+  const approvalPersonLabel = (personId: string | null) => {
+    if (!personId) return "Any eligible approver";
+    const person = approvalPeople[personId];
+    if (!person)
+      return personId === currentUserId ? "You" : "Workspace member";
+    const personRole = person.role?.replaceAll("_", " ");
+    return `${person.name}${personId === currentUserId ? " (you)" : ""}${personRole ? ` · ${personRole}` : ""}`;
+  };
   const inputTokensToday = todayModelUsage.reduce(
     (total, run) => total + (run.input_tokens || 0),
     0,
@@ -773,44 +1167,123 @@ export default function AiosControlPage() {
     .map((job) => job.available_at)
     .sort()[0];
   const copilotQuality = summarizeSalesCopilotQuality(copilotQualityRow);
+  const internalModes = AIOS_ACTION_CATALOG.filter(
+    (item) => !item.hardApproval,
+  ).map((item) => overrides[item.action] ?? item.defaultMode);
+  const operatingMode = internalModes.every((mode) => mode === "observe")
+    ? "manual"
+    : internalModes.every((mode) => mode === "auto")
+      ? "autopilot"
+      : "assisted";
+  const pageTitle =
+    surface === "approvals"
+      ? "Approvals"
+      : surface === "automations"
+        ? "Automations"
+        : "AI Activity";
+  const pageMeta =
+    surface === "approvals"
+      ? `${assignedApprovals.length} assigned to you · ${approvals.length} workspace`
+      : surface === "automations"
+        ? `${operatingMode[0].toUpperCase()}${operatingMode.slice(1)} · ${AIOS_ACTION_CATALOG.length} governed workflows`
+        : `${recentRuns.length} recent actions · ${reviewRuns.length} drafts awaiting review`;
 
   return (
-    <main className="aios-page" id="main-content" tabIndex={-1}>
+    <main
+      className="aios-page"
+      data-surface={surface}
+      id="main-content"
+      tabIndex={-1}
+    >
       <FeatureHeader links={[{ href: "/", label: "Back to workspace" }]} />
-      <section className="aios-hero">
-        <p>AIOS CONTROL PLANE</p>
-        <h1>Set how autonomous your travel operation should be.</h1>
-        <span>
-          {workspaceName} decides when AIOS observes, assists, acts
-          automatically, or asks a human.
-        </span>
+      <OperationalPageHeader
+        section="AI work"
+        title={pageTitle}
+        meta={pageMeta}
+      />
+      <nav className="crm-record-tabs aios-record-tabs" aria-label="AIOS sections">
+        <Link
+          href="/aios/activity"
+          aria-current={surface === "activity" ? "page" : undefined}
+        >
+          Activity
+        </Link>
+        <Link
+          href="/aios/approvals"
+          aria-current={surface === "approvals" ? "page" : undefined}
+        >
+          Approvals
+        </Link>
+        <Link
+          href="/aios/automations"
+          aria-current={surface === "automations" ? "page" : undefined}
+        >
+          Automations
+        </Link>
+      </nav>
+      <section className="aios-operating-mode" id="operating-mode">
+        <header>
+          <div>
+            <p>OPERATING MODE</p>
+            <h2>{operatingMode === "manual" ? "Manual" : operatingMode === "autopilot" ? "Autopilot" : "Assisted"}</h2>
+          </div>
+          <span>External actions still require approval</span>
+        </header>
         <div>
-          <b>Policy owner:</b> {role || "loading"} <i>/</i>{" "}
-          <b>
-            {providerStatus
-              ? `${providerStatus.provider} · ${providerStatus.model} · ${providerStatus.configured ? "ready" : "not configured"}`
-              : pending
-                ? "Saving policy..."
-                : "Every change is audited"}
-          </b>
+          <button
+            type="button"
+            className={operatingMode === "manual" ? "active" : ""}
+            disabled={!canManage || pending}
+            onClick={() => applyOperatingMode("manual")}
+          >
+            <b>Manual</b>
+            <small>AI recommends. Your team executes.</small>
+          </button>
+          <button
+            type="button"
+            className={operatingMode === "assisted" ? "active" : ""}
+            disabled={!canManage || pending}
+            onClick={() => applyOperatingMode("assisted")}
+          >
+            <b>Assisted</b>
+            <small>AI prepares work and handles safe internal tasks.</small>
+          </button>
+          <button
+            type="button"
+            className={operatingMode === "autopilot" ? "active" : ""}
+            disabled={!canManage || pending}
+            onClick={() => applyOperatingMode("autopilot")}
+          >
+            <b>Autopilot</b>
+            <small>AI runs permitted workflows and asks when approval is needed.</small>
+          </button>
         </div>
-      </section>
-      <section className="aios-safety">
-        <span>*</span>
-        <p>
-          <b>Autonomy is bounded, not blind.</b>
-          <small>
-            Traveller and supplier messages, document and quote sharing,
-            pricing, bookings, and refunds always require human approval. They
-            cannot be put on Auto.
-          </small>
-        </p>
       </section>
       {notice && (
         <p className="aios-notice" role="status">
           {notice}
         </p>
       )}
+      <section className="aios-coordinator" aria-labelledby="daily-coordinator-title">
+        <div>
+          <p>TODAY'S INTERNAL SWEEP</p>
+          <h2 id="daily-coordinator-title">Coordinate the workday</h2>
+          <span>
+            Route unassigned opportunities, triage overdue follow-ups, and
+            refresh trip risks. Each workflow follows its own policy; customer,
+            supplier, booking, pricing, and money actions are unavailable here.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={runDailyCoordinator}
+          disabled={!canRunCoordinator || pending}
+        >
+          Run daily AIOS sweep
+        </button>
+      </section>
+      <details className="crm-advanced-panel">
+        <summary>Model provider and budget</summary>
       <section className="aios-budget">
         <div>
           <p>WORKSPACE MODEL BUDGET</p>
@@ -829,7 +1302,7 @@ export default function AiosControlPage() {
               min={1}
               max={1000}
               value={dailyModelRunLimit}
-              disabled={!canManage || pending}
+              disabled={!canManage || pending || loading}
               onChange={(event) =>
                 setDailyModelRunLimit(Number(event.target.value))
               }
@@ -839,7 +1312,7 @@ export default function AiosControlPage() {
             Selected provider
             <select
               value={selectedModelProvider}
-              disabled={!canManage || pending}
+              disabled={!canManage || pending || loading}
               onChange={(event) =>
                 selectProvider(event.target.value as ModelProvider)
               }
@@ -861,7 +1334,7 @@ export default function AiosControlPage() {
             <select
               aria-label="Transient fallback"
               value={fallbackModelProvider ?? ""}
-              disabled={!canManage || pending}
+              disabled={!canManage || pending || loading}
               onChange={(event) =>
                 selectFallbackProvider(
                   event.target.value
@@ -880,8 +1353,8 @@ export default function AiosControlPage() {
                   {providerLabels[provider]}
                   {providerStatuses[provider]
                     ? providerStatuses[provider]?.configured
-                      ? " Â· ready"
-                      : " Â· not configured"
+                      ? " · ready"
+                      : " · not configured"
                     : ""}
                 </option>
               ))}
@@ -896,7 +1369,7 @@ export default function AiosControlPage() {
             <input
               type="checkbox"
               checked={modelExecutionEnabled}
-              disabled={!canManage || pending}
+              disabled={!canManage || pending || loading}
               onChange={(event) =>
                 setModelExecutionEnabled(event.target.checked)
               }
@@ -910,7 +1383,9 @@ export default function AiosControlPage() {
               </small>
             </span>
           </label>
-          <button disabled={!canManage || pending}>Save budget policy</button>
+          <button disabled={!canManage || pending || loading}>
+            Save budget policy
+          </button>
           <fieldset className="aios-provider-allowlist">
             <legend>Allowed providers</legend>
             {MODEL_PROVIDERS.map((provider) => (
@@ -921,6 +1396,7 @@ export default function AiosControlPage() {
                   disabled={
                     !canManage ||
                     pending ||
+                    loading ||
                     provider === selectedModelProvider
                   }
                   onChange={(event) =>
@@ -962,7 +1438,10 @@ export default function AiosControlPage() {
           </p>
         </div>
       </section>
+      </details>
 
+      <details className="crm-advanced-panel">
+        <summary>Model pricing</summary>
       <section className="aios-pricing" aria-labelledby="aios-pricing-title">
         <div>
           <p>Approved cost telemetry</p>
@@ -1051,7 +1530,10 @@ export default function AiosControlPage() {
           </button>
         </form>
       </section>
+      </details>
 
+      <details className="crm-advanced-panel">
+        <summary>Execution queue and diagnostics</summary>
       <section className="aios-queue" aria-labelledby="aios-queue-title">
         <header>
           <div>
@@ -1132,6 +1614,7 @@ export default function AiosControlPage() {
           </button>
         </footer>
       </section>
+      </details>
       <section className="aios-runtime" id="lead-intake">
         <div>
           <p>LIVE AGENT RUNTIME</p>
@@ -1390,20 +1873,43 @@ export default function AiosControlPage() {
           })
         )}
       </section>
-      <section className="aios-run-history">
+      <section className="aios-run-history" id="activity">
         <header>
           <div>
             <p>AGENT RUN LEDGER</p>
             <h2>What AIOS has actually done</h2>
           </div>
-          <span>{recentRuns.length} recent runs</span>
+          <div className="aios-run-tools">
+            <label>
+              Status
+              <select
+                value={activityStatus}
+                onChange={(event) =>
+                  setActivityStatus(event.target.value as ActivityStatus)
+                }
+                aria-label="Filter AIOS activity by status"
+              >
+                <option value="all">All activity</option>
+                <option value="succeeded">Succeeded</option>
+                <option value="active">Active</option>
+                <option value="blocked">Blocked</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+            <span>{visibleRecentRuns.length} shown</span>
+          </div>
         </header>
         {recentRuns.length === 0 ? (
           <p className="aios-empty">
             No agent runs have been recorded in this workspace.
           </p>
+        ) : visibleRecentRuns.length === 0 ? (
+          <p className="aios-empty">
+            No agent runs match this status. Choose another filter to inspect the
+            ledger.
+          </p>
         ) : (
-          recentRuns.map((run) => (
+          visibleRecentRuns.map((run) => (
             <article key={run.id}>
               <i className={run.status}>
                 {run.status === "succeeded"
@@ -1430,107 +1936,220 @@ export default function AiosControlPage() {
           ))
         )}
       </section>
-      <section className="aios-approvals" id="approval-queue">
+      <span className="aios-anchor-alias" id="approval-queue" />
+      <section className="aios-approvals" id="approvals">
         <header>
           <div>
             <p>HUMAN DECISION QUEUE</p>
-            <h2>Approvals waiting for you</h2>
+            <h2>
+              {approvalScope === "mine"
+                ? "Approvals waiting for you"
+                : "Workspace approval queue"}
+            </h2>
           </div>
-          <span>{approvals.length} pending</span>
+          <span>{visibleApprovals.length} shown</span>
         </header>
-        {approvals.length === 0 ? (
-          <p className="aios-empty">
-            No actions are waiting for a human decision.
-          </p>
+        <div className="aios-approval-scopes" aria-label="Approval queue view">
+          <button
+            type="button"
+            aria-pressed={approvalScope === "mine"}
+            onClick={() => setApprovalScope("mine")}
+          >
+            My decisions <span>{assignedApprovals.length}</span>
+          </button>
+          <button
+            type="button"
+            aria-pressed={approvalScope === "workspace"}
+            onClick={() => setApprovalScope("workspace")}
+          >
+            Workspace queue <span>{approvals.length}</span>
+          </button>
+        </div>
+        {visibleApprovals.length === 0 ? (
+          <div className="aios-approval-empty">
+            <div>
+              <strong>
+                {approvals.length
+                  ? "Nothing is assigned to you"
+                  : "No human decisions are waiting"}
+              </strong>
+              <p>
+                {approvals.length
+                  ? "Open the workspace queue to see decisions assigned to other eligible teammates."
+                  : "When AIOS reaches a protected action—such as sharing, booking, or money movement—it will appear here before anything happens."}
+              </p>
+            </div>
+            <ul aria-label="Approval categories">
+              <li><b>Communication</b><span>Customer and supplier messages</span></li>
+              <li><b>Commercial</b><span>Prices, proposals and bookings</span></li>
+              <li><b>Finance</b><span>Invoices, payments and refunds</span></li>
+            </ul>
+            <Link href="/aios/automations">Review automation permissions</Link>
+          </div>
         ) : (
-          approvals.map((approval) => (
-            <article key={approval.id}>
-              <div>
-                <b>{approval.action.replaceAll(".", " ")}</b>
-                <span>
-                  {approval.rationale ||
-                    `AIOS requested an action on a ${approval.entity_type}.`}
-                </span>
-                <small>
-                  {approval.expires_at
-                    ? `Expires ${new Date(approval.expires_at).toLocaleString()}`
-                    : "No expiry configured"}
-                </small>
-              </div>
-              <aside>
-                <button
-                  type="button"
-                  className="approve"
-                  disabled={!canResolveApproval(approval.action) || pending}
-                  onClick={() => resolveApproval(approval.id, "approved")}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="reject"
-                  disabled={!canResolveApproval(approval.action) || pending}
-                  onClick={() => resolveApproval(approval.id, "rejected")}
-                >
-                  Reject
-                </button>
-              </aside>
-            </article>
-          ))
+          visibleApprovals.map((approval) => {
+            const escalationDue = Boolean(
+              approval.expires_at &&
+                new Date(approval.expires_at).getTime() <= approvalClock,
+            );
+            const entityHref = approvalEntityLink(approval);
+            return (
+              <article key={approval.id}>
+                <div>
+                  <b>{approval.action.replaceAll(".", " ")}</b>
+                  <span>
+                    {approval.rationale ||
+                      `AIOS requested an action on a ${approval.entity_type}.`}
+                  </span>
+                  <div className="aios-approval-meta">
+                    <span>
+                      Assigned to <b>{approvalPersonLabel(approval.approver_id)}</b>
+                    </span>
+                    <span>
+                      Requested by <b>{approvalPersonLabel(approval.requester_id)}</b>
+                      {` · ${new Date(approval.created_at).toLocaleString()}`}
+                    </span>
+                    <span>
+                      Record: {approval.entity_type.replaceAll("_", " ")}
+                      {approval.entity_id
+                        ? ` · ${approval.entity_id.slice(0, 8)}…`
+                        : " · workspace-level"}
+                      {entityHref ? (
+                        <Link href={entityHref}>Open record</Link>
+                      ) : null}
+                    </span>
+                  </div>
+                  <small>
+                    {approval.expires_at
+                      ? `${escalationDue ? "Escalation overdue" : "Escalates"} ${new Date(approval.expires_at).toLocaleString()}`
+                      : "No escalation deadline configured"}
+                    {approval.escalation_count
+                      ? ` · Escalated ${approval.escalation_count} time${approval.escalation_count === 1 ? "" : "s"}${approval.last_escalation_outcome ? ` (${approval.last_escalation_outcome})` : ""}`
+                      : ""}
+                  </small>
+                </div>
+                <aside>
+                  {canManage && approval.expires_at ? (
+                    <button
+                      type="button"
+                      className="escalate"
+                      disabled={!escalationDue || pending}
+                      onClick={() => escalateApproval(approval.id)}
+                    >
+                      Escalate now
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="approve"
+                    disabled={
+                      !canResolveApproval(
+                        approval.action,
+                        approval.approver_id,
+                      ) || pending
+                    }
+                    onClick={() => resolveApproval(approval.id, "approved")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="reject"
+                    disabled={
+                      !canResolveApproval(
+                        approval.action,
+                        approval.approver_id,
+                      ) || pending
+                    }
+                    onClick={() => resolveApproval(approval.id, "rejected")}
+                  >
+                    Reject
+                  </button>
+                </aside>
+              </article>
+            );
+          })
         )}
       </section>
-      <section className="autonomy-grid">
-        {AIOS_ACTION_CATALOG.map((item) => {
-          const current = overrides[item.action] ?? item.defaultMode;
-          const disabled = disabledActions.has(item.action);
+      <section className="autonomy-categories" id="automations">
+        <header>
+          <div>
+            <p>ADVANCED CONTROLS</p>
+            <h2>Automation permissions</h2>
+          </div>
+          <span>{AIOS_ACTION_CATALOG.length} workflows</span>
+        </header>
+        {automationCategories.map((category) => {
+          const items = AIOS_ACTION_CATALOG.filter((item) =>
+            category.actions.some((action) => action === item.action),
+          );
+          const approvalCount = items.filter((item) => item.hardApproval).length;
           return (
-            <article className="autonomy-card" key={item.action}>
-              <header>
-                <div>
-                  <p>{item.hardApproval ? "HUMAN GATE" : "AIOS WORKFLOW"}</p>
-                  <h2>{item.title}</h2>
-                </div>
-                <span
-                  className={`autonomy-state ${disabled ? "observe" : current}`}
-                >
-                  {disabled ? "disabled" : current.replace("_", " ")}
+            <details key={category.label}>
+              <summary>
+                <span>
+                  <b>{category.label}</b>
+                  <small>
+                    {items.length} {items.length === 1 ? "automation" : "automations"}
+                    {approvalCount
+                      ? ` · ${approvalCount} ${approvalCount === 1 ? "requires" : "require"} approval`
+                      : ""}
+                  </small>
                 </span>
-              </header>
-              <p className="autonomy-description">{item.description}</p>
-              <button
-                className="aios-kill-switch"
-                type="button"
-                disabled={!canManage || pending}
-                onClick={() => setEnabled(item.action, disabled)}
-              >
-                {disabled ? "Enable workflow" : "Disable workflow"}
-              </button>
-              <div className="autonomy-modes">
-                {modes.map((mode) => {
-                  const locked =
-                    disabled ||
-                    (item.hardApproval && mode.value !== "approval_required");
+                <i>Configure</i>
+              </summary>
+              <div className="autonomy-grid">
+                {items.map((item) => {
+                  const current = overrides[item.action] ?? item.defaultMode;
+                  const disabled = disabledActions.has(item.action);
                   return (
-                    <button
-                      key={mode.value}
-                      type="button"
-                      disabled={!canManage || pending || locked}
-                      className={current === mode.value ? "active" : ""}
-                      onClick={() => setMode(item.action, mode.value)}
-                    >
-                      <b>{mode.label}</b>
-                      <small>
-                        {locked
-                          ? disabled
-                            ? "Workflow disabled"
-                            : "Human approval required"
-                          : mode.help}
-                      </small>
-                    </button>
+                    <article className="autonomy-card" key={item.action}>
+                      <header>
+                        <div>
+                          <p>{item.hardApproval ? "APPROVAL REQUIRED" : "INTERNAL WORKFLOW"}</p>
+                          <h2>{item.title}</h2>
+                        </div>
+                        <span className={`autonomy-state ${disabled ? "observe" : current}`}>
+                          {disabled ? "disabled" : current.replace("_", " ")}
+                        </span>
+                      </header>
+                      <p className="autonomy-description">{item.description}</p>
+                      <button
+                        className="aios-kill-switch"
+                        type="button"
+                        disabled={!canManage || pending}
+                        onClick={() => setEnabled(item.action, disabled)}
+                      >
+                        {disabled ? "Enable workflow" : "Disable workflow"}
+                      </button>
+                      <div className="autonomy-modes">
+                        {modes.map((mode) => {
+                          const locked = disabled || (item.hardApproval && mode.value !== "approval_required");
+                          return (
+                            <button
+                              key={mode.value}
+                              type="button"
+                              disabled={!canManage || pending || locked}
+                              className={current === mode.value ? "active" : ""}
+                              onClick={() => setMode(item.action, mode.value)}
+                            >
+                              <b>{mode.label}</b>
+                              <small>
+                                {locked
+                                  ? disabled
+                                    ? "Workflow disabled"
+                                    : "Human approval required"
+                                  : mode.help}
+                              </small>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
                   );
                 })}
               </div>
-            </article>
+            </details>
           );
         })}
       </section>

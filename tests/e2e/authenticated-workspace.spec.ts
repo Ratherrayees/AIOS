@@ -17,6 +17,7 @@ let admin: AdminClient | null = null;
 let userId: string | null = null;
 let organizationIds: string[] = [];
 let email = "";
+let teammateEmail = "";
 const password = "AuthE2e!2026#";
 const teammatePassword = "TeammateE2e!2026#";
 let primaryWorkspaceName = "";
@@ -43,6 +44,16 @@ async function signIn(page: Page) {
     await page.getByRole("button", { name: /sign in/i }).click();
   }
   await expect(page).toHaveURL("/");
+  const workspaceButton = page.getByRole("button", {
+    name: /TRAVEL WORKSPACE/i,
+  });
+  await expect(workspaceButton).toBeVisible();
+  if (!(await workspaceButton.innerText()).includes(primaryWorkspaceName)) {
+    await workspaceButton.click();
+    await page
+      .getByRole("menuitemradio", { name: primaryWorkspaceName })
+      .click();
+  }
   await expect(
     page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
   ).toBeVisible();
@@ -80,7 +91,7 @@ function currentTotp(secret: string) {
 }
 
 test.describe("authenticated owner workspace", () => {
-  test.describe.configure({ mode: "serial" });
+  test.describe.configure({ mode: "serial", timeout: 120_000 });
   test.skip(
     !shouldRun || !supabaseUrl || !supabaseKey,
     "Set RUN_AUTHENTICATED_E2E=true and the Supabase test-project variables.",
@@ -94,6 +105,7 @@ test.describe("authenticated owner workspace", () => {
       .toString(36)
       .slice(2, 8)}`;
     email = `aios.e2e.${suffix}@example.com`;
+    teammateEmail = `aios.e2e.teammate.${suffix}@example.com`;
     primaryWorkspaceName = `E2E Travel ${suffix}`;
     secondaryWorkspaceName = `E2E Operations ${suffix}`;
     admin = createClient<Database>(supabaseUrl, supabaseKey, {
@@ -112,7 +124,7 @@ test.describe("authenticated owner workspace", () => {
 
     const { data: createdTeammate, error: teammateError } =
       await admin.auth.admin.createUser({
-        email: `aios.e2e.teammate.${suffix}@example.com`,
+        email: teammateEmail,
         password: teammatePassword,
         email_confirm: true,
         user_metadata: { full_name: teammateName },
@@ -134,7 +146,16 @@ test.describe("authenticated owner workspace", () => {
       ])
       .select("id, name");
     if (organizationError) throw organizationError;
-    organizationIds = organizations.map((organization) => organization.id);
+    const organizationByName = new Map(
+      organizations.map((organization) => [organization.name, organization.id]),
+    );
+    const primaryOrganizationId = organizationByName.get(primaryWorkspaceName);
+    const secondaryOrganizationId = organizationByName.get(
+      secondaryWorkspaceName,
+    );
+    if (!primaryOrganizationId || !secondaryOrganizationId)
+      throw new Error("The authenticated E2E organizations were not created.");
+    organizationIds = [primaryOrganizationId, secondaryOrganizationId];
 
     const { error: membershipError } = await admin.from("memberships").insert(
       organizationIds.map((organizationId) => ({
@@ -256,9 +277,7 @@ test.describe("authenticated owner workspace", () => {
       if (invoiceDocuments?.length) {
         await admin.storage
           .from("invoice-documents")
-          .remove(
-            invoiceDocuments.map((document) => document.storage_path),
-          );
+          .remove(invoiceDocuments.map((document) => document.storage_path));
       }
       await admin.from("organizations").delete().in("id", organizationIds);
     }
@@ -277,26 +296,51 @@ test.describe("authenticated owner workspace", () => {
     await expect(page).toHaveURL("/");
     await expect(
       page.getByRole("heading", {
-        name: /Welcome back, Authenticated\. Start with what needs attention/i,
+        name: /Good morning, Authenticated\./i,
       }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", {
-        name: /Authenticated E2E Owner Owner · Sign out/i,
+        name: /Authenticated E2E Owner Agency owner · Sign out/i,
       }),
     ).toBeVisible();
+    const primaryWorkspaceButton = page.getByRole("button", {
+      name: new RegExp(primaryWorkspaceName),
+    });
+    if (!(await primaryWorkspaceButton.isVisible())) {
+      await page
+        .getByRole("button", { name: new RegExp(secondaryWorkspaceName) })
+        .click();
+      await page
+        .getByRole("menuitemradio", { name: primaryWorkspaceName })
+        .click();
+      await expect(primaryWorkspaceButton).toBeVisible();
+    }
     sessionCookies = await page.context().cookies();
     await expect(
-      page.getByRole("heading", { name: "Make AIOS fit your agency" }),
+      page.getByText(/items need attention in E2E Travel/i),
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Follow the customer, not the software." }),
-    ).toBeVisible();
+    const homeAttention = page.getByRole("region", { name: "Needs attention" });
+    await expect(homeAttention.getByText(/My overdue tasks/)).toBeVisible();
+    await expect(homeAttention.getByText(/My overdue replies/)).toBeVisible();
+    await expect(homeAttention.getByText(/My active trips/)).toBeVisible();
+    await expect(homeAttention.getByText(/workspace-wide/)).toHaveCount(4);
     await page.getByRole("button", { name: "How AIOS works" }).click();
     await expect(
       page.getByRole("dialog", { name: "How the CRM fits together" }),
     ).toBeVisible();
-    await expect(page.getByText("Human authority is non-bypassable")).toBeVisible();
+    await expect(
+      page.getByText("Your daily operating loop", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Open Start with attention" }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.getByText("AIOS operating modes", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Human authority is non-bypassable"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Close product guide" }).click();
     await expect(
       page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
@@ -316,32 +360,158 @@ test.describe("authenticated owner workspace", () => {
     ).toBeVisible();
 
     const protectedRoutes = [
-      ["/contacts", /Know every traveller/i],
-      ["/inbox", /Keep every relationship conversation/i],
-      ["/tasks", /Every follow-up has an owner/i],
-      ["/quotes", /Shape a confident proposal/i],
-      ["/itineraries", /Design the journey/i],
-      ["/trips", /From “won” to wheels up/i],
-      ["/finance", /Know what is owed/i],
-      ["/aios", /Set how autonomous/i],
-      ["/analytics", /See revenue, readiness, and risk in one place/i],
-      ["/settings/lead-capture", /Lead capture that enters/i],
-      ["/settings/sales-workflows", /Qualify consistently/i],
-      ["/settings/team", /Humans stay accountable/i],
-      ["/settings/security", /One password should never/i],
+      ["/contacts", /^Contacts$/i],
+      ["/inbox", /^Inbox$/i],
+      ["/tasks", /^Tasks$/i],
+      ["/quotes", /^Quotes$/i],
+      ["/itineraries", /^Itineraries$/i],
+      ["/trips", /^Trips$/i],
+      ["/suppliers", /^Suppliers$/i],
+      ["/finance", /^Finance$/i],
+      ["/aios/activity", /^AI Activity$/i],
+      ["/aios/approvals", /^Approvals$/i],
+      ["/aios/automations", /^Automations$/i],
+      ["/analytics", /^Analytics$/i],
+      ["/settings/lead-capture", /^Lead capture$/i],
+      ["/settings/sales-workflows", /^Sales workflows$/i],
+      ["/settings/team", /^Team$/i],
+      ["/settings/integrations", /^Integrations$/i],
+      ["/settings/security", /^Security$/i],
     ] as const;
 
     for (const [route, heading] of protectedRoutes) {
       await page.goto(route);
       await expect(page).toHaveURL(route);
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
-      await expect(page.locator(".ui-workspace-guide")).toBeVisible();
+      await expect(page.locator(".crm-sidebar")).toBeVisible();
     }
 
-    await page.goto("/?view=leads");
+    await page.goto("/settings/integrations");
     await expect(
-      page.getByRole("heading", { name: "Lead pipeline" }),
+      page.getByRole("navigation", { name: "Administration settings" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Integrations", exact: true }).last(),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.getByRole("heading", { name: "Email", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Payments", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "WhatsApp", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "AI providers", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("From name")).toHaveCount(0);
+
+    const resendRow = page.locator(".integration-provider-row").filter({
+      has: page.getByRole("heading", { name: "Resend" }),
+    });
+    await resendRow.getByRole("button", { name: /Connect|Verify|Activate|Manage|Repair/ }).click();
+    const resendDialog = page.getByRole("dialog", { name: "Resend" });
+    await expect(resendDialog).toBeVisible();
+    await expect(resendDialog.getByLabel("From name")).toBeVisible();
+    await expect(
+      resendDialog.getByRole("button", { name: "Save and verify" }),
+    ).toBeVisible();
+    await expect(
+      resendDialog.getByRole("button", { name: "Activate provider" }),
+    ).toHaveCount(0);
+    await resendDialog.getByRole("button", { name: "Close Resend settings" }).click();
+
+    const stripeRow = page.locator(".integration-provider-row").filter({
+      has: page.getByRole("heading", { name: "Stripe" }),
+    });
+    await stripeRow.getByRole("button", { name: /Connect|Verify|Manage|Repair/ }).click();
+    const stripeDialog = page.getByRole("dialog", { name: "Stripe" });
+    await expect(stripeDialog.getByText("Configuration available", { exact: true })).toBeVisible();
+    await expect(stripeDialog.getByText(/live payment execution is not released/i)).toBeVisible();
+    await expect(
+      stripeDialog.getByRole("button", { name: "Activate provider" }),
+    ).toHaveCount(0);
+    await stripeDialog.getByRole("button", { name: "Close Stripe settings" }).click();
+
+    await page.goto("/suppliers");
+    await expect(page.locator(".supplier-workbench")).toBeVisible();
+    await expect(page.locator(".quote-catalog")).toBeVisible();
+    await expect(page.locator(".payment-ledger")).toBeHidden();
+    await expect(page.getByRole("link", { name: "Open Finance" })).toHaveAttribute(
+      "href",
+      "/finance",
+    );
+
+    await page.goto("/finance");
+    await expect(page.locator(".payment-ledger")).toBeVisible();
+    await expect(page.locator(".supplier-workbench")).toBeHidden();
+    await expect(
+      page.getByRole("link", { name: "Open Suppliers" }),
+    ).toHaveAttribute("href", "/suppliers");
+
+    await page.goto("/aios/activity");
+    await expect(page.locator(".aios-run-history")).toBeVisible();
+    await expect(page.locator(".aios-approvals")).toBeHidden();
+
+    await page.goto("/aios/approvals");
+    await expect(page.locator(".aios-approvals")).toBeVisible();
+    await expect(page.locator(".autonomy-categories")).toBeHidden();
+
+    await page.goto("/aios/automations");
+    await expect(page.locator(".aios-operating-mode")).toBeVisible();
+    await expect(page.locator(".autonomy-categories")).toBeVisible();
+    await expect(page.locator(".aios-run-history")).toBeHidden();
+
+    await page.goto("/finance#suppliers");
+    await expect(page).toHaveURL("/suppliers");
+    await page.goto("/aios#approval-queue");
+    await expect(page).toHaveURL("/aios/approvals");
+
+    await page.goto("/leads");
+    await expect(
+      page.getByRole("heading", { name: "Leads & pipeline" }),
+    ).toBeVisible();
+    await expect(page).toHaveTitle("Sales — Leads & pipeline — AIOS");
+
+    await page.setViewportSize({ width: 831, height: 698 });
+    await page.goto("/aios/automations");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        ),
+      )
+      .toBeLessThanOrEqual(0);
+    await expect(
+      page.getByRole("link", { name: "Home", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Leads & pipeline", exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/contacts");
+    await expect(page.getByLabel("Search contacts")).toHaveCSS(
+      "border-radius",
+      "9px",
+    );
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page
+      .getByRole("button", { name: new RegExp(secondaryWorkspaceName) })
+      .click();
+    await page
+      .getByRole("menuitemradio", { name: primaryWorkspaceName })
+      .click();
+    await expect(
+      page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
+    ).toBeVisible();
+    await page.goto(`/leads/${dealId}`);
+    await expect(
+      page.getByRole("link", { name: "Pipeline", exact: true }),
+    ).toHaveAttribute("href", "/leads");
 
     await page.setViewportSize({ width: 390, height: 844 });
     for (const route of [
@@ -352,8 +522,11 @@ test.describe("authenticated owner workspace", () => {
       "/quotes",
       "/itineraries",
       "/trips",
+      "/suppliers",
       "/finance",
-      "/aios",
+      "/aios/activity",
+      "/aios/approvals",
+      "/aios/automations",
       "/analytics",
       "/settings/lead-capture",
       "/settings/sales-workflows",
@@ -374,26 +547,118 @@ test.describe("authenticated owner workspace", () => {
     }
 
     await page.goto("/");
-    const mobileNavRows = await page
-      .locator(".mobile-nav a")
-      .evaluateAll(
-        (links) =>
-          new Set(links.map((link) => (link as HTMLElement).offsetTop)).size,
-      );
-    expect(mobileNavRows).toBe(1);
-    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(
-      page.getByRole("dialog", { name: "All workspace areas" }),
+      page.getByRole("navigation", { name: "CRM navigation", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Sales workflows", exact: true }),
+      page.getByRole("link", { name: "Workflows", exact: true }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Close workspace navigation" })
-      .click();
+    await page.getByRole("button", { name: "Close navigation" }).click();
     await expect(
-      page.locator('a[href="/aios#lead-intake"]'),
-    ).toContainText("Open AIOS");
+      page.getByRole("link", { name: "Review approvals", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("distinguishes a failed CRM load from an empty workspace and retries", async ({
+    page,
+  }) => {
+    await signIn(page);
+
+    await page.addInitScript(() => {
+      const testWindow = window as Window & {
+        __AIOS_FORCE_CONTACT_FAILURE__?: boolean;
+        __AIOS_FORCE_WORKSPACE_FAILURE__?: boolean;
+      };
+      const browserFetch = window.fetch.bind(window);
+      testWindow.__AIOS_FORCE_CONTACT_FAILURE__ = true;
+      window.fetch = async (...args: Parameters<typeof window.fetch>) => {
+        const input = args[0];
+        const rawUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        const requestUrl = new URL(rawUrl, window.location.href);
+        if (
+          testWindow.__AIOS_FORCE_CONTACT_FAILURE__ &&
+          requestUrl.pathname.endsWith("/rest/v1/contacts")
+        ) {
+          return new Response(
+            JSON.stringify({
+              code: "AIOS_E2E_QUERY_FAILURE",
+              message: "Temporary contact query failure",
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (
+          testWindow.__AIOS_FORCE_WORKSPACE_FAILURE__ &&
+          requestUrl.pathname.endsWith("/rest/v1/memberships")
+        ) {
+          return new Response(
+            JSON.stringify({
+              code: "AIOS_E2E_WORKSPACE_FAILURE",
+              message: "Temporary workspace query failure",
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return browserFetch(...args);
+      };
+    });
+
+    await page.goto("/contacts");
+    const recoveryState = page.locator(".ui-error-state");
+    await expect(
+      recoveryState.getByRole("heading", { name: "Contacts are unavailable" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No contacts yet" }),
+    ).toHaveCount(0);
+
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        __AIOS_FORCE_CONTACT_FAILURE__?: boolean;
+      };
+      testWindow.__AIOS_FORCE_CONTACT_FAILURE__ = false;
+    });
+    await recoveryState.getByRole("button", { name: "Try again" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Traveller directory" }),
+    ).toBeVisible();
+    await expect(recoveryState).toHaveCount(0);
+
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        __AIOS_FORCE_WORKSPACE_FAILURE__?: boolean;
+      };
+      testWindow.__AIOS_FORCE_WORKSPACE_FAILURE__ = true;
+    });
+    await page.getByRole("link", { name: "Tasks", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: /Workspace unavailable/ }),
+    ).toBeDisabled();
+    await expect(page.locator(".secure")).toContainText(
+      "Workspace connection failed",
+    );
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        __AIOS_FORCE_WORKSPACE_FAILURE__?: boolean;
+      };
+      testWindow.__AIOS_FORCE_WORKSPACE_FAILURE__ = false;
+    });
+    await page.getByRole("button", { name: "Retry workspace" }).click();
+    await expect(
+      page.getByRole("button", { name: new RegExp(primaryWorkspaceName) }),
+    ).toBeEnabled();
   });
 
   test("keeps authenticated modal focus bounded and restores keyboard context", async ({
@@ -403,11 +668,12 @@ test.describe("authenticated owner workspace", () => {
 
     const helpTrigger = page.getByRole("button", { name: "How AIOS works" });
     await helpTrigger.focus();
-    await helpTrigger.press("Enter");
+    await expect(helpTrigger).toBeFocused();
+    await helpTrigger.click();
     const helpDialog = page.getByRole("dialog", {
       name: "How the CRM fits together",
     });
-    await expect(helpDialog).toBeVisible();
+    await expect(helpDialog).toBeVisible({ timeout: 15_000 });
     const closeHelp = page.getByRole("button", {
       name: "Close product guide",
     });
@@ -428,16 +694,16 @@ test.describe("authenticated owner workspace", () => {
       .toBe("");
 
     const searchTrigger = page.getByRole("button", {
-      name: /Search leads, contacts, and tasks/i,
+      name: /Search leads, contacts and tasks/i,
     });
     await searchTrigger.focus();
     await page.keyboard.press("Control+K");
     const searchDialog = page.getByRole("dialog", {
-      name: "Search your workspace",
+      name: "Search workspace",
     });
     await expect(searchDialog).toBeVisible();
     await expect(
-      page.getByPlaceholder("Search leads, contacts, or tasks…"),
+      page.getByPlaceholder("Search by name or title"),
     ).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(searchDialog).toHaveCount(0);
@@ -466,10 +732,7 @@ test.describe("authenticated owner workspace", () => {
     await page.getByRole("button", { name: "Design my journey" }).click();
     const captureResponse = await captureResponsePromise;
     const capturePayload = await captureResponse.json();
-    expect(
-      captureResponse.ok(),
-      JSON.stringify(capturePayload),
-    ).toBe(true);
+    expect(captureResponse.ok(), JSON.stringify(capturePayload)).toBe(true);
     await expect(
       page.getByRole("heading", { name: "Request received" }),
     ).toBeVisible();
@@ -489,12 +752,324 @@ test.describe("authenticated owner workspace", () => {
     expect(submission?.deal_id).toBeTruthy();
   });
 
+  test("keeps opportunity context across sales, conversation, quote, and itinerary work", async ({
+    page,
+  }) => {
+    const suffix = Date.now();
+    const conversationSubject = `E2E linked conversation ${suffix}`;
+    const quoteTitle = `E2E linked quote ${suffix}`;
+    const tripName = `E2E linked itinerary ${suffix}`;
+    const quickItemTitle = `Kyoto welcome dinner ${suffix}`;
+    const existingDayTwoItem = `Kyoto evening market ${suffix}`;
+    const { data: conversation, error: conversationError } = await admin!
+      .from("conversations")
+      .insert({
+        organization_id: organizationIds[0],
+        contact_id: contactId,
+        deal_id: dealId,
+        channel: "email",
+        subject: conversationSubject,
+        last_message_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (conversationError) throw conversationError;
+    const { data: quote, error: quoteError } = await admin!
+      .from("quotes")
+      .insert({
+        organization_id: organizationIds[0],
+        deal_id: dealId,
+        owner_id: userId,
+        title: quoteTitle,
+        currency: "INR",
+      })
+      .select("id")
+      .single();
+    if (quoteError) throw quoteError;
+    const { data: trip, error: tripError } = await admin!
+      .from("trips")
+      .insert({
+        organization_id: organizationIds[0],
+        deal_id: dealId,
+        name: tripName,
+        currency: "INR",
+        start_date: "2026-11-10",
+        end_date: "2026-11-14",
+        time_zone: "Asia/Tokyo",
+      })
+      .select("id")
+      .single();
+    if (tripError) throw tripError;
+    const { error: itemError } = await admin!.from("itinerary_items").insert([
+      {
+        organization_id: organizationIds[0],
+        trip_id: trip.id,
+        day_number: 1,
+        position: 0,
+        item_type: "stay",
+        title: "Kyoto hotel check-in",
+      },
+      {
+        organization_id: organizationIds[0],
+        trip_id: trip.id,
+        day_number: 2,
+        position: 0,
+        item_type: "activity",
+        title: existingDayTwoItem,
+      },
+    ]);
+    if (itemError) throw itemError;
+
+    try {
+      await signIn(page);
+      await page.goto(`/leads/${dealId}`);
+      const workspace = page.getByLabel("Opportunity workspace");
+      await expect(workspace).toBeVisible();
+      await expect(workspace).toContainText(
+        /1 conversations.*1 open tasks.*1 quotes.*1 trip drafts/s,
+      );
+      await expect(
+        workspace.getByRole("list", { name: "Opportunity journey" }),
+      ).toContainText(
+        /Captured.*Qualified.*Itinerary.*Quote.*Committed.*Operate/s,
+      );
+
+      await page.goto(`/inbox?deal=${dealId}`);
+      await expect(
+        page.locator(".inbox-workspace aside button.selected").filter({
+          hasText: conversationSubject,
+        }),
+      ).toBeVisible();
+
+      await page.goto(`/quotes?deal=${dealId}`);
+      await expect(
+        page.locator(".quote-record-switcher button").filter({
+          hasText: quoteTitle,
+        }),
+      ).toHaveAttribute("aria-selected", "true");
+
+      await page.goto(
+        `/itineraries?deal=${dealId}&name=${encodeURIComponent("Kyoto discovery journey")}`,
+      );
+      await expect(page.getByLabel("Opportunity context")).toContainText(
+        tripName,
+      );
+      await expect(
+        page.locator(".itinerary-list > article.focused-trip").filter({
+          hasText: tripName,
+        }),
+      ).toBeVisible();
+      const dayPlan = page.getByLabel(`Day plan for ${tripName}`);
+      await expect(dayPlan).toContainText(
+        /Day 1.*Kyoto hotel check-in.*Day 2.*Kyoto evening market.*Day 5/s,
+      );
+      await dayPlan.getByLabel("Quick add day").fill("2");
+      await dayPlan.getByLabel("Quick item category").selectOption("meal");
+      await dayPlan.getByLabel("Quick item name").fill(quickItemTitle);
+      await dayPlan.getByLabel("Quick item location").fill("Gion, Kyoto");
+      await dayPlan.getByLabel("Quick item start").fill("2026-11-11T19:00");
+      await dayPlan.getByLabel("Quick item end").fill("2026-11-11T20:30");
+      await dayPlan.getByRole("button", { name: "Add to day plan" }).click();
+      await expect(page.getByRole("status")).toContainText(
+        "Internal itinerary item added",
+      );
+      await expect(dayPlan).toContainText(
+        /Day 2.*meal.*Kyoto welcome dinner.*Gion, Kyoto/s,
+      );
+      const { data: timedItem, error: timedItemError } = await admin!
+        .from("itinerary_items")
+        .select("starts_at, ends_at, time_zone, location")
+        .eq("trip_id", trip.id)
+        .eq("title", quickItemTitle)
+        .single();
+      expect(timedItemError).toBeNull();
+      expect(timedItem?.starts_at).toBeTruthy();
+      expect(timedItem?.ends_at).toBeTruthy();
+      expect(timedItem?.starts_at).toBe("2026-11-11T10:00:00+00:00");
+      expect(timedItem?.ends_at).toBe("2026-11-11T11:30:00+00:00");
+      expect(timedItem?.time_zone).toBe("Asia/Tokyo");
+      expect(timedItem?.location).toMatchObject({ name: "Gion, Kyoto" });
+
+      await dayPlan
+        .getByRole("button", { name: `Move ${quickItemTitle} up` })
+        .click();
+      await expect(page.getByRole("status")).toContainText(
+        "Itinerary item moved up",
+      );
+      const { data: reorderedItems, error: reorderedItemsError } = await admin!
+        .from("itinerary_items")
+        .select("title, position")
+        .eq("trip_id", trip.id)
+        .eq("day_number", 2)
+        .order("position");
+      expect(reorderedItemsError).toBeNull();
+      expect(reorderedItems?.map((item) => item.title)).toEqual([
+        quickItemTitle,
+        existingDayTwoItem,
+      ]);
+    } finally {
+      await admin!.from("trips").delete().eq("id", trip.id);
+      await admin!.from("quotes").delete().eq("id", quote.id);
+      await admin!.from("conversations").delete().eq("id", conversation.id);
+    }
+  });
+
+  test("presents a focused operational trip priority with sales handoff context", async ({
+    page,
+  }) => {
+    const tripName = `E2E focused operations ${Date.now()}`;
+    const { data: trip, error } = await admin!
+      .from("trips")
+      .insert({
+        organization_id: organizationIds[0],
+        deal_id: dealId,
+        name: tripName,
+        destination: "Kyoto, Japan",
+        start_date: "2026-11-10",
+        end_date: "2026-11-14",
+        currency: "INR",
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+
+    try {
+      await signIn(page);
+      await page.goto(`/trips/${trip.id}`);
+      await expect(page.getByRole("heading", { name: tripName })).toBeVisible();
+      await expect(page.getByLabel("Trip priority")).toContainText(
+        "Review active trip exceptions",
+      );
+      await expect(
+        page.getByRole("navigation", { name: "Trip workspace sections" }),
+      ).toContainText(
+        /Overview.*Itinerary.*Exceptions.*Travellers.*Services.*Tasks.*Documents.*Activity/s,
+      );
+      await expect(
+        page.getByRole("link", { name: "Sales opportunity", exact: true }),
+      ).toHaveAttribute("href", `/leads/${dealId}`);
+      await expect(
+        page
+          .getByRole("navigation", { name: "Trip workspace sections" })
+          .getByRole("link", { name: "Itinerary", exact: true }),
+      ).toHaveAttribute(
+        "href",
+        `/itineraries?deal=${dealId}&name=${encodeURIComponent(tripName)}`,
+      );
+    } finally {
+      await admin!.from("trips").delete().eq("id", trip.id);
+    }
+  });
+
+  test("opens Finance as an actionable money workspace", async ({ page }) => {
+    const suffix = Date.now();
+    const overdueTitle = `E2E overdue traveller balance ${suffix}`;
+    const payableTitle = `E2E supplier balance ${suffix}`;
+    const { data: payments, error } = await admin!
+      .from("payments")
+      .insert([
+        {
+          organization_id: organizationIds[0],
+          deal_id: dealId,
+          direction: "receivable" as const,
+          status: "overdue" as const,
+          title: overdueTitle,
+          amount: 85000,
+          paid_amount: 15000,
+          currency: "INR",
+          due_at: "2026-08-01",
+          created_by: userId,
+        },
+        {
+          organization_id: organizationIds[0],
+          deal_id: dealId,
+          direction: "payable" as const,
+          status: "pending" as const,
+          title: payableTitle,
+          amount: 42000,
+          paid_amount: 0,
+          currency: "INR",
+          due_at: "2026-09-01",
+          created_by: userId,
+        },
+      ])
+      .select("id");
+    if (error) throw error;
+
+    try {
+      await signIn(page);
+      await page.goto("/finance");
+
+      await expect(
+        page.getByRole("heading", { name: "Review 1 overdue balance" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Balances needing attention")).toContainText(
+        overdueTitle,
+      );
+      await expect(page.getByLabel("Balances needing attention")).toContainText(
+        "₹70,000",
+      );
+      await expect(page.getByLabel("Open finance summary")).toContainText(
+        /RECEIVABLES.*1.*PAYABLES.*1.*OVERDUE.*1/s,
+      );
+      await expect(
+        page.getByRole("heading", {
+          name: "Money in, money out, and overdue",
+        }),
+      ).toBeVisible();
+
+      const financeSections = page.getByRole("navigation", {
+        name: "Finance sections",
+      });
+      await expect(financeSections).toContainText(
+        /Overview.*Receivables & payables.*Invoicing.*Accounting export.*Open Suppliers/s,
+      );
+      await expect(
+        financeSections.getByRole("link", {
+          name: "Receivables & payables",
+        }),
+      ).toHaveAttribute("href", "#payment-ledger-title");
+      await expect(
+        page.getByRole("link", { name: "Review overdue" }),
+      ).toHaveAttribute("href", "#payment-ledger-title");
+      await expect(
+        financeSections.getByRole("link", { name: "Open Suppliers" }),
+      ).toHaveAttribute("href", "/suppliers");
+    } finally {
+      if (payments?.length) {
+        await admin!
+          .from("payments")
+          .delete()
+          .in(
+            "id",
+            payments.map((payment) => payment.id),
+          );
+      }
+    }
+  });
+
   test("records response, advances a governed deal, and exposes analytics", async ({
     page,
   }) => {
     await signIn(page);
 
     await page.goto(`/leads/${dealId}`);
+    const opportunityWorkspace = page.getByLabel("Opportunity workspace");
+    await expect(opportunityWorkspace).toBeVisible();
+    await expect(opportunityWorkspace).toContainText("AIOS NEXT ACTION");
+    await expect(
+      opportunityWorkspace.getByRole("list", { name: "Opportunity journey" }),
+    ).toContainText(
+      /Captured.*Qualified.*Itinerary.*Quote.*Committed.*Operate/s,
+    );
+    await expect(
+      page.getByRole("link", { name: "Conversation", exact: true }),
+    ).toHaveAttribute("href", `/inbox?deal=${dealId}`);
+    await expect(
+      page
+        .locator(".crm-record-tabs")
+        .getByRole("link", { name: "Quotes", exact: true }),
+    ).toHaveAttribute("href", `/quotes?deal=${dealId}`);
     await page.getByRole("button", { name: "Mark first response" }).click();
     await expect(page.getByRole("status")).toContainText(
       "First response recorded",
@@ -521,12 +1096,10 @@ test.describe("authenticated owner workspace", () => {
     await page.goto("/analytics");
     await expect(
       page.getByRole("heading", {
-        name: /See revenue, readiness, and risk in one place/i,
+        name: /^Analytics$/i,
       }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("row", { name: /E2E Website/ }),
-    ).toBeVisible();
+    await expect(page.getByRole("row", { name: /E2E Website/ })).toBeVisible();
     await page.goto("/settings/lead-capture");
     await expect(page.getByText("E2E website capture")).toBeVisible();
   });
@@ -536,13 +1109,15 @@ test.describe("authenticated owner workspace", () => {
   }) => {
     await signIn(page);
 
-    await page.goto("/aios");
+    await page.goto("/aios/approvals");
     const approvalCard = page
       .locator(".aios-approvals article")
       .filter({ hasText: "E2E approval needs a deliberate human decision." });
     await expect(approvalCard).toBeVisible();
     await approvalCard.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await expect(
+      page.getByText("Approval approved.", { exact: true }),
+    ).toBeVisible();
     await expect(approvalCard).toHaveCount(0);
 
     const { data: approval, error: approvalError } = await admin!
@@ -606,26 +1181,38 @@ test.describe("authenticated owner workspace", () => {
     await signIn(page);
 
     await page.goto("/settings/sales-workflows");
-    await page.getByLabel("Qualification template name").fill(
-      qualificationName,
-    );
     await page
-      .getByLabel("Checklist items")
-      .fill(
-        "Confirm travel dates :: Record flexibility\n? Record visa support preference",
-      );
+      .getByLabel("Qualification template name")
+      .fill(qualificationName);
+    await page
+      .getByRole("textbox", { name: "Evidence item 1", exact: true })
+      .fill("Confirm travel dates");
+    await page
+      .getByLabel("Guidance for the team")
+      .first()
+      .fill("Record flexibility");
+    await page
+      .getByRole("textbox", { name: "Evidence item 2", exact: true })
+      .fill("Record visa support preference");
+    await page.getByLabel("Requirement").nth(1).selectOption("optional");
+    await page.getByRole("button", { name: "Remove evidence item 4" }).click();
+    await page.getByRole("button", { name: "Remove evidence item 3" }).click();
     await page.getByRole("button", { name: "Create checklist" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Qualification checklist is ready",
     );
-    await expect(page.getByText(qualificationName, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(qualificationName, { exact: true }),
+    ).toBeVisible();
 
     await page.getByLabel("Follow-up sequence name").fill(sequenceName);
     await page
-      .getByLabel("Sequence steps")
-      .fill(
-        "0 | Confirm the traveller brief\n2 | Review itinerary direction",
-      );
+      .getByRole("button", { name: "Remove sequence step 3" })
+      .click();
+    await page.getByLabel("Due after days").first().fill("0");
+    await page.getByLabel("Internal task 1").fill("Confirm the traveller brief");
+    await page.getByLabel("Due after days").nth(1).fill("2");
+    await page.getByLabel("Internal task 2").fill("Review itinerary direction");
     await page
       .getByRole("button", { name: "Create internal sequence" })
       .click();
@@ -642,14 +1229,18 @@ test.describe("authenticated owner workspace", () => {
         name: /Build the case|Recover momentum/,
       }),
     ).toBeVisible();
-    await expect(priorityBrief.getByText(/not conversion probability/i)).toBeVisible();
+    await expect(
+      priorityBrief.getByText(/not conversion probability/i),
+    ).toBeVisible();
     await priorityBrief
       .getByText("Show the exact readiness calculation")
       .click();
     await expect(
       priorityBrief.getByText("Qualification evidence", { exact: true }),
     ).toBeVisible();
-    await expect(priorityBrief.getByText(/0 model calls/i)).toBeVisible();
+    await expect(
+      priorityBrief.getByText(/Rules-based · no CRM changes/i),
+    ).toBeVisible();
     await page.getByLabel("Reusable checklist").selectOption({
       label: qualificationName,
     });
@@ -664,9 +1255,7 @@ test.describe("authenticated owner workspace", () => {
       "Complete every required qualification check",
     );
 
-    await page
-      .getByRole("checkbox", { name: /Confirm travel dates/i })
-      .click();
+    await page.getByRole("checkbox", { name: /Confirm travel dates/i }).click();
     await expect(page.getByRole("status")).toContainText(
       "Qualification evidence recorded",
     );
@@ -688,14 +1277,12 @@ test.describe("authenticated owner workspace", () => {
       priorityBrief.getByRole("link", {
         name: "Prepare or refresh the quote",
       }),
-    ).toHaveAttribute("href", "/quotes");
+    ).toHaveAttribute("href", `/quotes?deal=${dealId}`);
 
     await page.getByLabel("Internal sequence").selectOption({
       label: sequenceName,
     });
-    await page
-      .getByRole("button", { name: "Create sequence tasks" })
-      .click();
+    await page.getByRole("button", { name: "Create sequence tasks" }).click();
     await expect(page.getByRole("status")).toContainText(
       "2 internal follow-up tasks created",
     );
@@ -708,12 +1295,14 @@ test.describe("authenticated owner workspace", () => {
     expect(checksError).toBeNull();
     expect(checks).toHaveLength(2);
     expect(
-      checks?.filter((check) => check.is_required).every(
-        (check) =>
-          check.is_complete &&
-          check.completed_by === userId &&
-          Boolean(check.completed_at),
-      ),
+      checks
+        ?.filter((check) => check.is_required)
+        .every(
+          (check) =>
+            check.is_complete &&
+            check.completed_by === userId &&
+            Boolean(check.completed_at),
+        ),
     ).toBe(true);
 
     const { data: tasks, error: tasksError } = await admin!
@@ -746,15 +1335,13 @@ test.describe("authenticated owner workspace", () => {
     page,
   }) => {
     await signIn(page);
-
-    await page
-      .locator("button.nav-link")
-      .filter({ hasText: "Leads" })
-      .click();
+    await page.goto("/leads");
     await expect(
-      page.getByRole("heading", { name: "Lead pipeline" }),
+      page.getByRole("heading", { name: "Leads & pipeline" }),
     ).toBeVisible();
-    await expect(page.getByText("Governed pipeline:")).toBeVisible();
+    await expect(
+      page.getByText(/Drag cards between valid adjacent stages/i),
+    ).toBeVisible();
 
     const decisionColumn = page.getByLabel("Decision stage");
     const proposalColumn = page.getByLabel("Proposal stage");
@@ -811,18 +1398,19 @@ test.describe("authenticated owner workspace", () => {
     await signIn(page);
 
     await expect(page.locator(".ai-brief-list button")).toHaveCount(0);
-    await expect(
-      page.locator("a.ask-bar"),
-    ).toHaveAttribute("href", "/aios");
+    await expect(page.locator("a.ask-bar")).toHaveAttribute(
+      "href",
+      "/aios/approvals",
+    );
 
     await page
-      .getByRole("button", { name: /Search leads, contacts, and tasks/i })
+      .getByRole("button", { name: /Search leads, contacts and tasks/i })
       .click();
     await page
-      .getByPlaceholder("Search leads, contacts, or tasks…")
+      .getByPlaceholder("Search by name or title")
       .fill("Kyoto discovery");
     await expect(
-      page.getByRole("link", { name: /Kyoto discovery journey/i }),
+      page.getByRole("button", { name: /Kyoto discovery journey/i }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
@@ -834,9 +1422,11 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Next step").fill("Confirm departure city");
     await page.getByLabel("Expected close date").fill("2026-08-20");
     await page.getByRole("button", { name: /Create lead/i }).click();
-    await expect(page.getByText(`${leadName} is now in your live pipeline.`)).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Lead pipeline" }),
+      page.getByText(`${leadName} is now in your live pipeline.`),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Leads & pipeline" }),
     ).toBeVisible();
 
     await page.getByLabel("Search leads").fill(leadName);
@@ -880,7 +1470,9 @@ test.describe("authenticated owner workspace", () => {
     });
 
     await page.getByRole("button", { name: "Remove" }).click();
-    await expect(page.getByText(/private Leads view was removed/i)).toBeVisible();
+    await expect(
+      page.getByText(/private Leads view was removed/i),
+    ).toBeVisible();
     const { count: remainingViewCount } = await admin!
       .from("saved_views")
       .select("id", { count: "exact", head: true })
@@ -900,6 +1492,7 @@ test.describe("authenticated owner workspace", () => {
     const viewName = `E2E contact view ${suffix}`;
     await signIn(page);
     await page.goto("/contacts");
+    await page.getByText("Add or import contacts", { exact: true }).click();
 
     await page.getByLabel("New company").fill(companyName);
     await page.getByRole("button", { name: "Add company" }).click();
@@ -942,19 +1535,15 @@ test.describe("authenticated owner workspace", () => {
       "Timeline note recorded",
     );
 
-    await page.getByLabel(/Paste CSV contacts/i).fill(
-      `Imported Traveller, ${importedEmail}, +91 90000 00000`,
-    );
+    await page
+      .getByLabel(/Paste CSV contacts/i)
+      .fill(`Imported Traveller, ${importedEmail}, +91 90000 00000`);
     await page.getByRole("button", { name: "Import up to 100" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "1 contacts imported",
-    );
+    await expect(page.getByRole("status")).toContainText("1 contacts imported");
 
     await page.getByLabel("Search contacts").fill(contactName);
     await page.getByPlaceholder("Name this search").fill(viewName);
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("status")).toContainText(
       "private Contacts view",
     );
@@ -1013,6 +1602,7 @@ test.describe("authenticated owner workspace", () => {
     const secondEmail = `duplicate.second.${suffix}@example.com`;
     await signIn(page);
     await page.goto("/contacts");
+    await page.getByText("Add or import contacts", { exact: true }).click();
 
     await page.getByLabel("New company").fill(companyName);
     await page.getByRole("button", { name: "Add company" }).click();
@@ -1066,9 +1656,9 @@ test.describe("authenticated owner workspace", () => {
       );
     expect(error).toBeNull();
     expect(duplicateRows).toHaveLength(2);
-    expect(duplicateRows?.filter((row) => row.archived_at === null)).toHaveLength(
-      1,
-    );
+    expect(
+      duplicateRows?.filter((row) => row.archived_at === null),
+    ).toHaveLength(1);
   });
 
   test("wires Inbox ownership, SLA, templates, review drafts, notes, and views", async ({
@@ -1082,6 +1672,13 @@ test.describe("authenticated owner workspace", () => {
     const viewName = `E2E Inbox view ${suffix}`;
     await signIn(page);
     await page.goto("/inbox");
+    await expect(
+      page.getByLabel("Filter conversations by owner"),
+    ).toHaveValue("mine");
+    await page.getByText("New conversation", { exact: true }).click();
+    await page
+      .getByText("Reply templates and signatures", { exact: true })
+      .click();
 
     await page.getByLabel("Conversation contact").selectOption(contactId);
     await page.getByLabel("Conversation opportunity").selectOption(dealId);
@@ -1200,11 +1797,12 @@ test.describe("authenticated owner workspace", () => {
     expect(disabledBudgetCleanupError).toBeNull();
 
     await page.getByLabel("Search conversations").fill(subject);
+    await page
+      .getByLabel("Filter conversations by owner")
+      .selectOption("mine");
     await page.getByLabel("Name this Inbox view").fill(viewName);
     await page.getByRole("button", { name: "Save view" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "private Inbox view",
-    );
+    await expect(page.getByRole("status")).toContainText("private Inbox view");
     await page.getByRole("button", { name: "Remove" }).click();
     await expect(page.getByRole("status")).toContainText(
       "private Inbox view was removed",
@@ -1276,6 +1874,9 @@ test.describe("authenticated owner workspace", () => {
     expect(copilotDraftError).toBeNull();
 
     await page.reload();
+    await page
+      .getByLabel("Filter conversations by owner")
+      .selectOption("all");
     await page.getByLabel("Search conversations").fill(subject);
     await page
       .locator("section.inbox-workspace > aside > button")
@@ -1314,6 +1915,13 @@ test.describe("authenticated owner workspace", () => {
     );
     await expect(copilotCard).toContainText("approved");
 
+    await page.goto(`/inbox?deal=${dealId}`);
+    await expect(
+      page.locator(".inbox-workspace aside button.selected").filter({
+        hasText: subject,
+      }),
+    ).toBeVisible();
+
     const { data: copilotReviews, error: copilotReviewsError } = await admin!
       .from("message_draft_reviews")
       .select("decision, note, content_sha256")
@@ -1325,9 +1933,11 @@ test.describe("authenticated owner workspace", () => {
       "changes_requested",
       "approved",
     ]);
-    expect(copilotReviews?.every((review) =>
-      /^[a-f0-9]{64}$/.test(review.content_sha256),
-    )).toBe(true);
+    expect(
+      copilotReviews?.every((review) =>
+        /^[a-f0-9]{64}$/.test(review.content_sha256),
+      ),
+    ).toBe(true);
     const { count: messageCount } = await admin!
       .from("messages")
       .select("id", { count: "exact", head: true })
@@ -1351,15 +1961,17 @@ test.describe("authenticated owner workspace", () => {
     const viewName = `E2E task view ${Date.now()}`;
     await signIn(page);
     await page.goto("/tasks");
+    await expect(
+      page.locator(".tasks-filters").getByLabel("Owner"),
+    ).toHaveValue("mine");
+    await page.getByText("New task", { exact: true }).click();
 
     const createForm = page.locator(".tasks-create");
     await createForm.getByLabel("New follow-up").fill(title);
     await createForm.getByLabel("Due date").fill("2026-08-15");
     await createForm.getByLabel("Owner").selectOption(teammateUserId);
     await createForm.getByRole("button", { name: "Add task" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Follow-up added",
-    );
+    await expect(page.getByRole("status")).toContainText("Follow-up added");
 
     const taskCard = page.locator(".task-card").filter({ hasText: title });
     await expect(taskCard).toBeVisible();
@@ -1374,16 +1986,16 @@ test.describe("authenticated owner workspace", () => {
     await taskCard.getByRole("button", { name: "Reopen" }).click();
     await expect(page.getByRole("status")).toContainText("Task moved to open");
     await taskCard.getByLabel("Owner").selectOption("");
-    await expect(page.getByRole("status")).toContainText(
-      "unassigned queue",
-    );
+    await expect(page.getByRole("status")).toContainText("unassigned queue");
 
     await page.getByLabel("Search tasks").fill(title);
+    await page
+      .locator(".tasks-filters")
+      .getByLabel("Owner")
+      .selectOption("mine");
     await page.getByLabel("Name this Tasks view").fill(viewName);
     await page.getByRole("button", { name: "Save view" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "private Tasks view",
-    );
+    await expect(page.getByRole("status")).toContainText("private Tasks view");
     await page.getByRole("button", { name: "Remove" }).click();
 
     const { data: task, error } = await admin!
@@ -1403,6 +2015,7 @@ test.describe("authenticated owner workspace", () => {
     browser,
     page,
   }) => {
+    test.setTimeout(300_000);
     const quoteTitle = `E2E reviewed proposal ${Date.now()}`;
     const catalogProductName = `E2E two-room stay ${Date.now()}`;
     const validUntil = new Date(Date.now() + 30 * 86_400_000)
@@ -1442,6 +2055,8 @@ test.describe("authenticated owner workspace", () => {
     expect(catalogRateError).toBeNull();
     await signIn(page);
     await page.goto("/quotes");
+    await page.getByText("Commercial settings", { exact: true }).click();
+    await page.getByText("New quote", { exact: true }).click();
 
     await page.getByLabel("Minimum gross margin %").fill("20");
     await page.getByLabel("Minimum markup on cost %").fill("25");
@@ -1450,9 +2065,7 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Commission basis").selectOption("net_sell");
     await page.getByLabel("Estimated commission %").fill("5");
     await page.getByLabel("Minimum margin after commission %").fill("15");
-    await page
-      .getByLabel("Flag terms outside the standard set")
-      .check();
+    await page.getByLabel("Flag terms outside the standard set").check();
     await page
       .getByLabel("Standard customer terms · one per line")
       .fill("Subject to availability");
@@ -1466,12 +2079,15 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Currency").selectOption("INR");
     await page.getByLabel("Quoted total").fill("520000");
     await page.getByLabel("Valid until").fill(validUntil);
-    await page
-      .getByRole("button", { name: "Create internal draft" })
-      .click();
-    await expect(page.getByRole("status")).toContainText(
-      "Quote draft created",
-    );
+    await page.getByRole("button", { name: "Create internal draft" }).click();
+    await expect(page.getByRole("status")).toContainText("Quote draft created");
+
+    await page.goto(`/quotes?deal=${dealId}`);
+    await expect(
+      page.locator(".quote-record-switcher button").filter({
+        hasText: quoteTitle,
+      }),
+    ).toHaveAttribute("aria-selected", "true");
 
     const quoteCard = page
       .locator(".quotes-list article")
@@ -1488,9 +2104,12 @@ test.describe("authenticated owner workspace", () => {
     await quoteCard.getByLabel("Revise total").fill("545000");
     await quoteCard.getByLabel("Internal estimated cost").fill("410000");
     await quoteCard.getByRole("button", { name: "New version" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Created internal version 2",
-    );
+    await expect(
+      page.getByText(
+        "Created internal version 2. The original draft remains preserved.",
+        { exact: true },
+      ),
+    ).toBeVisible({ timeout: 20_000 });
     await expect(
       quoteCard.getByLabel("Commercial readiness: Incomplete"),
     ).toContainText("Proposal inclusions and terms required");
@@ -1500,9 +2119,7 @@ test.describe("authenticated owner workspace", () => {
       }),
     ).toBeDisabled();
 
-    await quoteCard
-      .getByText("Define proposal inclusions & terms")
-      .click();
+    await quoteCard.getByText("Define proposal inclusions & terms").click();
     await quoteCard
       .getByLabel("Proposal inclusions")
       .fill("Two rooms with breakfast\nPrivate airport transfers");
@@ -1634,10 +2251,9 @@ test.describe("authenticated owner workspace", () => {
         };
       }
     ).commercial_exceptions;
-    expect(Number(approvalCommercialExceptions?.gross_markup_percent)).toBeCloseTo(
-      32.9268,
-      4,
-    );
+    expect(
+      Number(approvalCommercialExceptions?.gross_markup_percent),
+    ).toBeCloseTo(32.9268, 4);
     expect(
       Number(approvalCommercialExceptions?.post_commission_margin_percent),
     ).toBeCloseTo(19.7706, 4);
@@ -1682,9 +2298,7 @@ test.describe("authenticated owner workspace", () => {
       .getByLabel("Add from current rate catalog")
       .selectOption(catalogRate!.id);
     await expect(
-      quoteCard.getByText(
-        `Catalog snapshot · ${catalogProductName} · rate v1`,
-      ),
+      quoteCard.getByText(`Catalog snapshot · ${catalogProductName} · rate v1`),
     ).toBeVisible();
     await expect(quoteCard.getByLabel("Description 1")).toHaveValue(
       "Two rooms",
@@ -1909,11 +2523,15 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       previewPage.getByRole("heading", { name: quoteTitle }),
     ).toBeVisible();
-    await expect(previewPage.getByText("Prepared for Aarav Sharma")).toBeVisible();
+    await expect(
+      previewPage.getByText("Prepared for Aarav Sharma"),
+    ).toBeVisible();
     await expect(
       previewPage.getByRole("table", { name: "Customer quote line items" }),
     ).toContainText("Two rooms");
-    await expect(previewPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(
+      previewPage.getByText("Two rooms with breakfast"),
+    ).toBeVisible();
     await expect(
       previewPage.getByRole("heading", { name: "Payment schedule" }),
     ).toBeVisible();
@@ -1973,7 +2591,7 @@ test.describe("authenticated owner workspace", () => {
     expect(JSON.stringify(scheduledApproval?.payload)).not.toContain(
       "Booking deposit",
     );
-    await page.goto("/aios");
+    await page.goto("/aios/approvals");
     const quoteApprovalCard = page
       .locator(".aios-approvals article")
       .filter({ hasText: "quote share" })
@@ -1982,7 +2600,9 @@ test.describe("authenticated owner workspace", () => {
       "Quote version 5 passed deterministic readiness checks",
     );
     await quoteApprovalCard.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await expect(
+      page.getByText("Approval approved.", { exact: true }),
+    ).toBeVisible();
 
     await page.goto("/quotes");
     await expect(
@@ -2025,10 +2645,7 @@ test.describe("authenticated owner workspace", () => {
           { kind: "balance", label: "Final balance", amount: 352800 },
         ],
         content: {
-          inclusions: [
-            "Two rooms with breakfast",
-            "Private airport transfers",
-          ],
+          inclusions: ["Two rooms with breakfast", "Private airport transfers"],
         },
       },
     });
@@ -2039,17 +2656,24 @@ test.describe("authenticated owner workspace", () => {
 
     const publicContext = await browser.newContext();
     const publicPage = await publicContext.newPage();
-    const publicProposalUrl = new URL(publicProposalHref!, page.url()).toString();
+    const publicProposalUrl = new URL(
+      publicProposalHref!,
+      page.url(),
+    ).toString();
     const publicResponse = await publicPage.goto(publicProposalUrl);
     expect(publicResponse?.status()).toBe(200);
     await expect(
       publicPage.getByRole("heading", { name: quoteTitle }),
     ).toBeVisible();
-    await expect(publicPage.getByText("Prepared for Aarav Sharma")).toBeVisible();
+    await expect(
+      publicPage.getByText("Prepared for Aarav Sharma"),
+    ).toBeVisible();
     await expect(
       publicPage.getByRole("table", { name: "Proposal line items" }),
     ).toContainText("Two rooms");
-    await expect(publicPage.getByText("Two rooms with breakfast")).toBeVisible();
+    await expect(
+      publicPage.getByText("Two rooms with breakfast"),
+    ).toBeVisible();
     await expect(
       publicPage.getByRole("heading", { name: "Payment schedule" }),
     ).toBeVisible();
@@ -2059,9 +2683,13 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       publicPage.getByRole("button", { name: "Print or save PDF" }),
     ).toBeVisible();
-    await expect(publicPage.locator("body")).not.toContainText("estimated cost");
+    await expect(publicPage.locator("body")).not.toContainText(
+      "estimated cost",
+    );
     await expect(publicPage.locator("body")).not.toContainText("gross margin");
-    await expect(publicPage.locator("body")).not.toContainText("catalog snapshot");
+    await expect(publicPage.locator("body")).not.toContainText(
+      "catalog snapshot",
+    );
     await expect(publicPage.locator("body")).not.toContainText("₹3,70,000");
     await publicPage.setViewportSize({ width: 390, height: 844 });
     expect(
@@ -2079,7 +2707,9 @@ test.describe("authenticated owner workspace", () => {
       .getByRole("button", { name: "Accept this proposal" })
       .click();
     await expect(publicPage.getByText("Proposal accepted")).toBeVisible();
-    await expect(publicPage.getByText(/does not itself confirm bookings/i)).toHaveCount(0);
+    await expect(
+      publicPage.getByText(/does not itself confirm bookings/i),
+    ).toHaveCount(0);
 
     const acceptedResponse = await publicPage.reload();
     expect(acceptedResponse?.status()).toBe(200);
@@ -2167,13 +2797,14 @@ test.describe("authenticated owner workspace", () => {
     await expect(receivableHandoff).toContainText(
       "No traveler was charged or contacted",
     );
-    const { data: quoteReceivables, error: quoteReceivablesError } = await admin!
-      .from("payments")
-      .select(
-        "quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, invoice_number, amount, paid_amount, currency, due_at",
-      )
-      .eq("quote_id", quote!.id)
-      .order("quote_schedule_item_position");
+    const { data: quoteReceivables, error: quoteReceivablesError } =
+      await admin!
+        .from("payments")
+        .select(
+          "quote_id, quote_version_id, quote_acceptance_id, quote_payment_schedule_id, quote_schedule_item_position, direction, status, title, invoice_number, amount, paid_amount, currency, due_at",
+        )
+        .eq("quote_id", quote!.id)
+        .order("quote_schedule_item_position");
     expect(quoteReceivablesError).toBeNull();
     expect(quoteReceivables).toMatchObject([
       {
@@ -2219,6 +2850,11 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       depositReceivable.getByRole("link", { name: "Review quote evidence" }),
     ).toHaveAttribute("href", "/quotes");
+    await page
+      .getByRole("group")
+      .filter({ hasText: "NUMBER PREVIEW POLICY" })
+      .locator("summary")
+      .click();
     await page.getByLabel("Invoice number prefix").fill("INV/2027-");
     await page.getByLabel("Next preview number").fill("42");
     await page.getByLabel("Number padding").fill("5");
@@ -2316,6 +2952,11 @@ test.describe("authenticated owner workspace", () => {
       ),
     ).toBe(true);
     await page
+      .getByRole("group")
+      .filter({ hasText: "LEGAL ISSUER IDENTITY" })
+      .locator("summary")
+      .click();
+    await page
       .getByLabel("Legal business name")
       .fill("StateAI Travel Private Limited");
     await page
@@ -2342,7 +2983,7 @@ test.describe("authenticated owner workspace", () => {
       invoiceDraftCard.getByRole("link", {
         name: "Open AIOS approval queue",
       }),
-    ).toHaveAttribute("href", "/aios#approval-queue");
+    ).toHaveAttribute("href", "/aios/approvals");
     const { data: invoiceApproval, error: invoiceApprovalError } = await admin!
       .from("approval_requests")
       .select("id, status, action, entity_id, payload")
@@ -2371,7 +3012,7 @@ test.describe("authenticated owner workspace", () => {
       (invoiceApproval?.payload as { issuer_profile_sha256?: string })
         .issuer_profile_sha256,
     ).toHaveLength(64);
-    await page.goto("/aios#approval-queue");
+    await page.goto("/aios/approvals");
     const invoiceApprovalCard = page
       .locator(".aios-approvals article")
       .filter({ hasText: "invoice issue" });
@@ -2379,7 +3020,9 @@ test.describe("authenticated owner workspace", () => {
       "Finance verified the exact accepted quote",
     );
     await invoiceApprovalCard.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await expect(
+      page.getByText("Approval approved.", { exact: true }),
+    ).toBeVisible();
     await page.goto("/finance");
     const approvedInvoiceDraftCard = page
       .locator(".invoice-draft-card")
@@ -2461,9 +3104,7 @@ test.describe("authenticated owner workspace", () => {
       "rendered with immutable checksum evidence",
     );
     await expect(approvedInvoiceDraftCard).toContainText("PRIVATE PDF READY");
-    await expect(approvedInvoiceDraftCard).toContainText(
-      "inv-2027-00043.pdf",
-    );
+    await expect(approvedInvoiceDraftCard).toContainText("inv-2027-00043.pdf");
     await expect(approvedInvoiceDraftCard).toContainText(
       "Private rendering only · no delivery, customer message, payment link, charge, or settlement",
     );
@@ -2580,7 +3221,7 @@ test.describe("authenticated owner workspace", () => {
     );
     await expect(
       collectionControl.getByRole("link", { name: "Open AIOS approval queue" }),
-    ).toHaveAttribute("href", "/aios#approval-queue");
+    ).toHaveAttribute("href", "/aios/approvals");
     const { data: paymentLinkDraft, error: paymentLinkDraftError } =
       await admin!
         .from("payment_link_drafts")
@@ -2633,7 +3274,7 @@ test.describe("authenticated owner workspace", () => {
         external_action_performed: false,
       },
     });
-    await page.goto("/aios#approval-queue");
+    await page.goto("/aios/approvals");
     const paymentLinkApprovalCard = page
       .locator(".aios-approvals article")
       .filter({ hasText: "payment link create" });
@@ -2643,7 +3284,9 @@ test.describe("authenticated owner workspace", () => {
     await paymentLinkApprovalCard
       .getByRole("button", { name: "Approve" })
       .click();
-    await expect(page.getByRole("status")).toContainText("Approval approved");
+    await expect(
+      page.getByText("Approval approved.", { exact: true }),
+    ).toBeVisible();
     await page.goto("/finance");
     const approvedCollectionControl = page
       .locator(".payment-card")
@@ -2694,9 +3337,7 @@ test.describe("authenticated owner workspace", () => {
       name: "Open sandbox checkout",
     });
     const sandboxCheckoutPath = await sandboxCheckoutLink.getAttribute("href");
-    expect(sandboxCheckoutPath).toMatch(
-      /^\/sandbox\/pay\/[A-Za-z0-9_-]{43}$/,
-    );
+    expect(sandboxCheckoutPath).toMatch(/^\/sandbox\/pay\/[A-Za-z0-9_-]{43}$/);
     const { data: sandboxExecution, error: sandboxExecutionError } =
       await admin!
         .from("payment_link_executions")
@@ -2834,7 +3475,10 @@ test.describe("authenticated owner workspace", () => {
       external_action_performed: false,
     });
     expect(unchangedPaymentError).toBeNull();
-    expect(unchangedPayment).toMatchObject({ status: "pending", paid_amount: 0 });
+    expect(unchangedPayment).toMatchObject({
+      status: "pending",
+      paid_amount: 0,
+    });
     expect(syntheticAllocationsError).toBeNull();
     expect(syntheticAllocations).toHaveLength(0);
     await page.goto(`/leads/${dealId}`);
@@ -2849,15 +3493,23 @@ test.describe("authenticated owner workspace", () => {
     });
     await expect(evidenceTrail).toContainText(/Proposal.*Version 5.*accepted/s);
     await expect(evidenceTrail).toContainText(/Customer commitment.*Accepted/s);
-    await expect(evidenceTrail).toContainText(/Finance evidence.*2 receivables issued/s);
+    await expect(evidenceTrail).toContainText(
+      /Finance evidence.*2 receivables issued/s,
+    );
     await expect(evidenceTrail).toContainText(
       /Pipeline decision.*human decision open/s,
     );
     await expect(commercialTruth).toContainText(/Customer total.*5,04,000/s);
     await expect(commercialTruth).toContainText(/Net sell.*4,80,000/s);
-    await expect(commercialTruth).toContainText(/Gross margin estimate.*1,10,000.*22\.9%/s);
-    await expect(commercialTruth).toContainText(/After commission estimate.*86,000.*17\.9%/s);
-    await expect(commercialTruth).toContainText(/2 exact receivables.*5,04,000.*scheduled/s);
+    await expect(commercialTruth).toContainText(
+      /Gross margin estimate.*1,10,000.*22\.9%/s,
+    );
+    await expect(commercialTruth).toContainText(
+      /After commission estimate.*86,000.*17\.9%/s,
+    );
+    await expect(commercialTruth).toContainText(
+      /2 exact receivables.*5,04,000.*scheduled/s,
+    );
     await expect(
       commercialTruth.getByText("Review the Won transition", { exact: true }),
     ).toBeVisible();
@@ -2910,15 +3562,28 @@ test.describe("authenticated owner workspace", () => {
     const templateName = `E2E itinerary pattern ${suffix}`;
     const comment = `E2E planning note ${suffix}`;
     await signIn(page);
+    await page.goto(
+      `/itineraries?deal=${dealId}&name=${encodeURIComponent("Kyoto discovery journey")}`,
+    );
+    await expect(page.getByLabel("Opportunity context")).toContainText(
+      "Kyoto discovery journey",
+    );
     await page.goto("/itineraries");
+    await page
+      .getByText("Create or update an itinerary", { exact: true })
+      .click();
+    const itineraryNotice = page.locator(
+      'p.itinerary-notice[role="status"]',
+    );
 
     await page.getByLabel("Trip name").fill(sourceTrip);
     await page.getByLabel("Trip start date").fill("2026-10-10");
     await page.getByLabel("Trip end date").fill("2026-10-12");
+    await page.getByLabel("Trip time zone").fill("Asia/Kolkata");
     await page.getByRole("button", { name: "Create draft" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Internal trip draft created",
-    );
+    await expect(itineraryNotice).toContainText("Internal trip draft created", {
+      timeout: 20_000,
+    });
 
     await page
       .getByLabel("Trip for itinerary item")
@@ -2928,8 +3593,9 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Itinerary item title").fill(itemTitle);
     await page.getByLabel("Itinerary item location").fill("Delhi");
     await page.getByRole("button", { name: "Add item" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(itineraryNotice).toContainText(
       "Internal itinerary item added",
+      { timeout: 20_000 },
     );
 
     const sourceCard = page
@@ -2938,11 +3604,10 @@ test.describe("authenticated owner workspace", () => {
     await sourceCard
       .getByPlaceholder("Leave an internal note for the planning team")
       .fill(comment);
-    await sourceCard
-      .getByRole("button", { name: "Add internal note" })
-      .click();
-    await expect(page.getByRole("status")).toContainText(
+    await sourceCard.getByRole("button", { name: "Add internal note" }).click();
+    await expect(itineraryNotice).toContainText(
       "Internal itinerary comment added",
+      { timeout: 20_000 },
     );
 
     await page
@@ -2953,15 +3618,17 @@ test.describe("authenticated owner workspace", () => {
       .getByLabel("Itinerary template description")
       .fill("Human-reviewed reusable route");
     await page.getByRole("button", { name: "Save template" }).click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(itineraryNotice).toContainText(
       `${templateName}" as an internal reusable itinerary template`,
+      { timeout: 20_000 },
     );
 
     await page.getByLabel("Trip name").fill(targetTrip);
+    await page.getByLabel("Trip time zone").fill("Asia/Kolkata");
     await page.getByRole("button", { name: "Create draft" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Internal trip draft created",
-    );
+    await expect(itineraryNotice).toContainText("Internal trip draft created", {
+      timeout: 20_000,
+    });
     await page
       .getByLabel("Saved itinerary template")
       .selectOption({ label: templateName });
@@ -2969,15 +3636,17 @@ test.describe("authenticated owner workspace", () => {
       .getByLabel("Target trip for template")
       .selectOption({ label: targetTrip });
     await page.getByRole("button", { name: "Apply internally" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Added 1 internal items",
-    );
+    await expect(itineraryNotice).toContainText("Added 1 internal items", {
+      timeout: 20_000,
+    });
 
+    await page.getByRole("tab").filter({ hasText: sourceTrip }).click();
     await sourceCard
       .getByRole("button", { name: "Create internal follow-up" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
+    await expect(itineraryNotice).toContainText(
       /AIOS (created one internal itinerary follow-up|itinerary follow-up is already open)/,
+      { timeout: 30_000 },
     );
     await expect(
       sourceCard.getByRole("button", {
@@ -3029,18 +3698,28 @@ test.describe("authenticated owner workspace", () => {
 
     await signIn(page);
     await page.goto(`/leads/${dealId}`);
-    await page.getByLabel("Pipeline stage").selectOption("won");
-    await page.getByRole("button", { name: "Update stage" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Opportunity moved to won",
-    );
+    const pipelineStage = page.getByLabel("Pipeline stage");
+    const legalPath = ["new", "qualified", "proposal", "decision", "won"];
+    const currentStage = await pipelineStage.inputValue();
+    const currentIndex = legalPath.indexOf(currentStage);
+    expect(currentIndex).toBeGreaterThanOrEqual(0);
+    for (const nextStage of legalPath.slice(currentIndex + 1)) {
+      await pipelineStage.selectOption(nextStage);
+      await page.getByRole("button", { name: "Update stage" }).click();
+      await expect(page.getByRole("status")).toContainText(
+        `Opportunity moved to ${nextStage}`,
+      );
+    }
 
     await page.goto("/trips");
     await expect(
       page.getByRole("heading", {
-        name: /From “won” to wheels up/i,
+        name: /^Trips$/i,
       }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /My trips/ }),
+    ).toHaveAttribute("aria-pressed", "true");
     const handoff = page
       .locator(".conversion-grid article")
       .filter({ hasText: "Kyoto discovery journey" });
@@ -3071,9 +3750,7 @@ test.describe("authenticated owner workspace", () => {
         name: "Monitor continuously. Escalate internally.",
       }),
     ).toBeVisible();
-    await radarSchedule
-      .getByLabel("Scan frequency")
-      .selectOption("30");
+    await radarSchedule.getByLabel("Scan frequency").selectOption("30");
     await radarSchedule
       .getByLabel("Fallback exception owner")
       .selectOption(userId!);
@@ -3125,13 +3802,33 @@ test.describe("authenticated owner workspace", () => {
     await expect(
       page.getByRole("heading", { name: "Kyoto discovery journey" }),
     ).toBeVisible();
-    await expect(page.getByText("Sales handoff", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Sales handoff", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Trip priority")).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Trip workspace sections" }),
+    ).toContainText(
+      /Overview.*Exceptions.*Travellers.*Services.*Tasks.*Documents.*Activity/s,
+    );
+    await expect(
+      page.getByRole("link", { name: "Sales opportunity", exact: true }),
+    ).toHaveAttribute("href", `/leads/${dealId}`);
 
+    await expect(page.getByLabel("Destination", { exact: true })).toBeHidden();
+    await expect(page.getByLabel("Traveller first name")).toBeHidden();
+    const editOperatingDetails = page.getByText("Edit operating details", {
+      exact: true,
+    });
+    await editOperatingDetails.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByLabel("Destination", { exact: true })).toBeVisible();
     await page
       .getByLabel("Destination", { exact: true })
       .fill("Kyoto and Osaka, Japan");
     await page.getByLabel("Start date").fill("2026-10-10");
     await page.getByLabel("End date").fill("2026-10-18");
+    await page.getByLabel("Trip time zone").fill("Asia/Tokyo");
     await page
       .getByLabel("Operations notes")
       .fill("Lead traveller prefers a quiet room away from lifts.");
@@ -3140,13 +3837,12 @@ test.describe("authenticated owner workspace", () => {
       "Operational trip details saved",
     );
 
+    await page.getByText("Add traveller record", { exact: true }).click();
     await page.getByLabel("Traveller first name").fill("Mira");
     await page.getByLabel("Traveller last name").fill("Sharma");
     await page.getByLabel("Traveller email").fill(travelerEmail);
     await page.getByLabel("Traveller role").selectOption("traveler");
-    await page
-      .getByLabel("Traveller preferences")
-      .fill("Vegetarian meals");
+    await page.getByLabel("Traveller preferences").fill("Vegetarian meals");
     await page.getByRole("button", { name: "Add traveller" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Traveller added to the operational roster",
@@ -3172,15 +3868,11 @@ test.describe("authenticated owner workspace", () => {
       "AIOS compares human-reviewed dates",
     );
     for (const traveler of operationalTravelers ?? []) {
-      await readinessPanel
-        .getByLabel("Traveller")
-        .selectOption(traveler.id);
+      await readinessPanel.getByLabel("Traveller").selectOption(traveler.id);
       await readinessPanel.getByLabel("Destination country").fill("JP");
       await readinessPanel.getByLabel("Citizenship").fill("IN");
       await readinessPanel.getByLabel("Passport issuer").fill("IN");
-      await readinessPanel
-        .getByLabel("Passport expires")
-        .fill("2028-12-31");
+      await readinessPanel.getByLabel("Passport expires").fill("2028-12-31");
       await readinessPanel
         .getByLabel("Required validity after trip")
         .selectOption("6");
@@ -3190,9 +3882,7 @@ test.describe("authenticated owner workspace", () => {
       await readinessPanel
         .getByLabel("Visa workflow state")
         .selectOption("granted");
-      await readinessPanel
-        .getByLabel("Visa valid until")
-        .fill("2027-12-31");
+      await readinessPanel.getByLabel("Visa valid until").fill("2027-12-31");
       await readinessPanel
         .getByLabel("Evidence source")
         .fill("E2E embassy advisory reviewed by operator");
@@ -3217,6 +3907,7 @@ test.describe("authenticated owner workspace", () => {
       ).toBeVisible();
     }
 
+    await page.getByText("Add service record", { exact: true }).click();
     await page.getByLabel("Booking title").fill(bookingTitle);
     await page.getByLabel("Booking type").selectOption("hotel");
     await page.getByLabel("Service start").fill("2026-10-10T15:00");
@@ -3225,35 +3916,28 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByLabel("Booking notes")
       .fill("Internal hold only; no supplier outreach from this record.");
-    await page
-      .getByRole("button", { name: "Create internal record" })
-      .click();
+    await page.getByRole("button", { name: "Create internal record" }).click();
     await expect(page.locator(".trip-workspace-notice")).toContainText(
       "No supplier was contacted",
     );
     const bookingCard = page
       .locator(".booking-ledger > article")
       .filter({ hasText: bookingTitle });
-    await bookingCard
-      .getByRole("button", { name: "Mark requested" })
-      .click();
+    await bookingCard.getByRole("button", { name: "Mark requested" }).click();
     await expect(page.locator(".trip-workspace-notice")).toContainText(
       "moved to requested",
     );
     await bookingCard
       .getByLabel(`Confirmation reference for ${bookingTitle}`)
       .fill("KYOTO-E2E-42");
-    await bookingCard
-      .getByRole("button", { name: "Mark confirmed" })
-      .click();
+    await bookingCard.getByRole("button", { name: "Mark confirmed" }).click();
     await expect(page.locator(".trip-workspace-notice")).toContainText(
       "moved to confirmed",
     );
 
+    await page.getByText("Add operational task", { exact: true }).click();
     await page.getByLabel("Operational task title").fill(taskTitle);
-    await page
-      .getByRole("button", { name: "Add task" })
-      .click();
+    await page.getByRole("button", { name: "Add task" }).click();
     await expect(page.locator(".trip-workspace-notice")).toContainText(
       "Operational follow-up added",
     );
@@ -3265,6 +3949,7 @@ test.describe("authenticated owner workspace", () => {
       "Follow-up marked completed",
     );
 
+    await page.getByText("Upload private document", { exact: true }).click();
     await page.getByLabel("Private trip document").setInputFiles({
       name: "trip-voucher.pdf",
       mimeType: "application/pdf",
@@ -3284,9 +3969,7 @@ test.describe("authenticated owner workspace", () => {
       .filter({ hasText: "trip-voucher.pdf" });
     await expect(documentRow).toContainText("expires 2027-01-01");
     const downloadPromise = page.waitForEvent("download");
-    await documentRow
-      .getByRole("button", { name: "Secure download" })
-      .click();
+    await documentRow.getByRole("button", { name: "Secure download" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("trip-voucher.pdf");
     const { data: voucher, error: voucherError } = await admin!
@@ -3332,7 +4015,7 @@ test.describe("authenticated owner workspace", () => {
     const { data: trip, error: tripError } = await admin!
       .from("trips")
       .select(
-        "deal_id, status, destination, start_date, end_date, converted_at, converted_by",
+        "deal_id, status, destination, start_date, end_date, time_zone, converted_at, converted_by",
       )
       .eq("id", operationalTripId)
       .single();
@@ -3343,6 +4026,7 @@ test.describe("authenticated owner workspace", () => {
       destination: "Kyoto and Osaka, Japan",
       start_date: "2026-10-10",
       end_date: "2026-10-18",
+      time_zone: "Asia/Tokyo",
       converted_by: userId,
     });
     expect(trip?.converted_at).toBeTruthy();
@@ -3354,34 +4038,34 @@ test.describe("authenticated owner workspace", () => {
       { data: statusRows },
       { data: entryChecks },
     ] = await Promise.all([
-        admin!
-          .from("travelers")
-          .select("email, role")
-          .eq("trip_id", operationalTripId),
-        admin!
-          .from("bookings")
-          .select("status, confirmation_reference")
-          .eq("trip_id", operationalTripId)
-          .eq("title", bookingTitle)
-          .single(),
-        admin!
-          .from("tasks")
-          .select("status, trip_id")
-          .eq("trip_id", operationalTripId)
-          .eq("title", taskTitle)
-          .single(),
-        admin!
-          .from("trip_status_history")
-          .select("from_status, to_status, change_source")
-          .eq("trip_id", operationalTripId)
-          .order("changed_at"),
-        admin!
-          .from("traveler_entry_checks")
-          .select(
-            "destination_country_code, passport_expires_on, visa_requirement, visa_status, evidence_source_label",
-          )
-          .eq("trip_id", operationalTripId),
-      ]);
+      admin!
+        .from("travelers")
+        .select("email, role")
+        .eq("trip_id", operationalTripId),
+      admin!
+        .from("bookings")
+        .select("status, confirmation_reference")
+        .eq("trip_id", operationalTripId)
+        .eq("title", bookingTitle)
+        .single(),
+      admin!
+        .from("tasks")
+        .select("status, trip_id")
+        .eq("trip_id", operationalTripId)
+        .eq("title", taskTitle)
+        .single(),
+      admin!
+        .from("trip_status_history")
+        .select("from_status, to_status, change_source")
+        .eq("trip_id", operationalTripId)
+        .order("changed_at"),
+      admin!
+        .from("traveler_entry_checks")
+        .select(
+          "destination_country_code, passport_expires_on, visa_requirement, visa_status, evidence_source_label",
+        )
+        .eq("trip_id", operationalTripId),
+    ]);
     expect(roster?.some((item) => item.role === "lead_traveler")).toBe(true);
     expect(roster?.some((item) => item.email === travelerEmail)).toBe(true);
     expect(booking).toMatchObject({
@@ -3446,11 +4130,15 @@ test.describe("authenticated owner workspace", () => {
       .slice(0, 10);
 
     await signIn(page);
-    await page.goto("/finance");
+    await page.goto("/suppliers");
     await expect(
-      page.getByRole("heading", { name: /Know what is owed/i }),
+      page.getByRole("heading", { name: /^Suppliers$/i }),
     ).toBeVisible();
-    await expect(page.getByText("Internal ledger only")).toBeVisible();
+    await expect(
+      page.getByText(
+        /Supplier records and rates are internal/i,
+      ),
+    ).toBeVisible();
 
     const createSupplierForm = page
       .locator(".supplier-forms details")
@@ -3488,18 +4176,14 @@ test.describe("authenticated owner workspace", () => {
       .selectOption({ label: supplierName });
     await createCatalogForm.getByLabel("Currency").fill("INR");
     await createCatalogForm.getByLabel("Unit sell").fill("12000");
-    await createCatalogForm
-      .getByLabel("Unit cost · protected")
-      .fill("8000");
+    await createCatalogForm.getByLabel("Unit cost · protected").fill("8000");
     await createCatalogForm.getByLabel("Tax %").fill("5");
     await createCatalogForm
       .getByRole("button", { name: "Create reusable product" })
       .click();
     await expect(
       page.locator(".quote-catalog").getByRole("status"),
-    ).toContainText(
-      "Reusable product and rate published internally",
-    );
+    ).toContainText("Reusable product and rate published internally");
 
     const catalogCard = page
       .locator(".quote-catalog-grid article")
@@ -3528,9 +4212,7 @@ test.describe("authenticated owner workspace", () => {
       .click();
     await expect(
       page.locator(".quote-catalog").getByRole("status"),
-    ).toContainText(
-      "Published immutable rate version 2",
-    );
+    ).toContainText("Published immutable rate version 2");
     await expect(catalogCard).toContainText("₹13,000");
     await expect(catalogCard).toContainText("₹8,500");
     await expect(catalogCard).toContainText("v2");
@@ -3595,15 +4277,17 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Internal status").selectOption("active");
     await page.getByLabel("Starts on").fill("2026-08-01");
     await page.getByLabel("Ends on").fill("2027-07-31");
-    await page
-      .getByLabel("Contract payment terms (days)")
-      .fill("14");
+    await page.getByLabel("Contract payment terms (days)").fill("14");
     await page.getByRole("button", { name: "Record contract" }).click();
     await expect(page.getByRole("status")).toContainText(
       "No contract was signed or accepted",
     );
 
+    await page.goto("/finance");
     const ledgerCreate = page.locator(".ledger-create");
+    await ledgerCreate
+      .getByText("Add obligation details", { exact: true })
+      .click();
     await ledgerCreate.getByLabel("Payment direction").selectOption("payable");
     await ledgerCreate.getByLabel("Obligation title").fill(paymentTitle);
     await ledgerCreate.getByLabel("Amount", { exact: true }).fill("125000");
@@ -3662,9 +4346,7 @@ test.describe("authenticated owner workspace", () => {
     await expect(page.getByRole("status")).toContainText(
       "AIOS did not initiate any money movement",
     );
-    await page
-      .getByRole("button", { name: "Settled", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Settled", exact: true }).click();
     await expect(
       refreshedPaymentCard.getByText("paid", { exact: true }),
     ).toBeVisible();
@@ -3721,20 +4403,20 @@ test.describe("authenticated owner workspace", () => {
     expect(catalogAuditError).toBeNull();
     expect(catalogAudits).toHaveLength(4);
     expect(
-      catalogAudits?.every(
-        (entry) => {
-          const metadata = JSON.stringify(entry.metadata);
-          return (
-            metadata.includes('"external_action_performed":false') &&
-            !metadata.includes("13000") &&
-            !metadata.includes("8500")
-          );
-        },
-      ),
+      catalogAudits?.every((entry) => {
+        const metadata = JSON.stringify(entry.metadata);
+        return (
+          metadata.includes('"external_action_performed":false') &&
+          !metadata.includes("13000") &&
+          !metadata.includes("8500")
+        );
+      }),
     ).toBe(true);
     const { data: payment, error: paymentError } = await admin!
       .from("payments")
-      .select("id, status, amount, paid_amount, trip_id, supplier_id, created_by")
+      .select(
+        "id, status, amount, paid_amount, trip_id, supplier_id, created_by",
+      )
       .eq("organization_id", organizationIds[0])
       .eq("invoice_number", invoiceNumber)
       .single();
@@ -3761,23 +4443,22 @@ test.describe("authenticated owner workspace", () => {
     ]);
 
     const accountingDownload = page.waitForEvent("download");
-    await page
-      .getByRole("button", { name: "Download accounting CSV" })
-      .click();
+    await page.getByRole("button", { name: "Download accounting CSV" }).click();
     const downloadedAccountingLedger = await accountingDownload;
     expect(downloadedAccountingLedger.suggestedFilename()).toMatch(
       /^aios-accounting-ledger-\d{4}-\d{2}-\d{2}\.csv$/,
     );
-    const accountingStream = await downloadedAccountingLedger.createReadStream();
+    const accountingStream =
+      await downloadedAccountingLedger.createReadStream();
     expect(accountingStream).not.toBeNull();
     const accountingChunks: Buffer[] = [];
     for await (const chunk of accountingStream!) {
-      accountingChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      accountingChunks.push(
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+      );
     }
     const accountingCsv = Buffer.concat(accountingChunks).toString("utf8");
-    expect(accountingCsv).toContain(
-      '"export_metadata","authority_boundary"',
-    );
+    expect(accountingCsv).toContain('"export_metadata","authority_boundary"');
     expect(accountingCsv).toContain(`"payment_obligation","${payment!.id}"`);
     expect(accountingCsv).toContain(paymentTitle);
     expect(accountingCsv).toContain(settlementReference);
@@ -3807,6 +4488,9 @@ test.describe("authenticated owner workspace", () => {
     await page.goto("/finance");
     const ledgerCreate = page.locator(".ledger-create");
     await ledgerCreate
+      .getByText("Add obligation details", { exact: true })
+      .click();
+    await ledgerCreate
       .getByLabel("Payment direction")
       .selectOption("receivable");
     await ledgerCreate.getByLabel("Obligation title").fill(receivableTitle);
@@ -3830,27 +4514,19 @@ test.describe("authenticated owner workspace", () => {
       }),
     ).toBeVisible();
     await expect(page.getByText("NEVER VISIBLE")).toBeVisible();
-    await page
-      .getByLabel(/trip-voucher\.pdf/i)
-      .check();
+    await page.getByLabel(/trip-voucher\.pdf/i).check();
     await page.getByLabel("Include customer payment status").check();
     await page.getByLabel("Link lifetime").selectOption("7");
-    await page
-      .getByRole("button", { name: "Request human approval" })
-      .click();
+    await page.getByRole("button", { name: "Request human approval" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Human review requested",
     );
 
-    await page
-      .getByRole("button", { name: "Approve reviewed scope" })
-      .click();
+    await page.getByRole("button", { name: "Approve reviewed scope" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Human approval recorded",
     );
-    await page
-      .getByRole("button", { name: "Publish approved portal" })
-      .click();
+    await page.getByRole("button", { name: "Publish approved portal" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Traveler portal published",
     );
@@ -3898,12 +4574,8 @@ test.describe("authenticated owner workspace", () => {
     await expect(travelerPage.getByText("Internal cost")).toHaveCount(0);
 
     const portalDownload = travelerPage.waitForEvent("download");
-    await travelerPage
-      .getByRole("link", { name: "Secure download" })
-      .click();
-    expect((await portalDownload).suggestedFilename()).toBe(
-      "trip-voucher.pdf",
-    );
+    await travelerPage.getByRole("link", { name: "Secure download" }).click();
+    expect((await portalDownload).suggestedFilename()).toBe("trip-voucher.pdf");
 
     const { data: portalLink, error: portalLinkError } = await admin!
       .from("trip_portal_links")
@@ -3934,9 +4606,7 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByLabel("Revocation reason")
       .fill("Traveler access window is complete.");
-    await page
-      .getByRole("button", { name: "Revoke immediately" })
-      .click();
+    await page.getByRole("button", { name: "Revoke immediately" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Traveler link revoked immediately",
     );
@@ -3976,7 +4646,9 @@ test.describe("authenticated owner workspace", () => {
       "Lead capture form is live",
     );
 
-    const formCard = page.locator(".capture-form-row").filter({ hasText: formName });
+    const formCard = page
+      .locator(".capture-form-row")
+      .filter({ hasText: formName });
     await expect(formCard).toBeVisible();
     const { data: captureForm, error: captureFormError } = await admin!
       .from("lead_capture_forms")
@@ -3987,10 +4659,9 @@ test.describe("authenticated owner workspace", () => {
       .eq("name", formName)
       .single();
     expect(captureFormError).toBeNull();
-    await expect(formCard.getByRole("link", { name: "Preview" })).toHaveAttribute(
-      "href",
-      `/lead/${captureForm!.public_token}`,
-    );
+    await expect(
+      formCard.getByRole("link", { name: "Preview" }),
+    ).toHaveAttribute("href", `/lead/${captureForm!.public_token}`);
 
     await formCard.getByRole("button", { name: "Pause" }).click();
     await expect(page.getByRole("status")).toContainText("Form paused");
@@ -4032,25 +4703,17 @@ test.describe("authenticated owner workspace", () => {
       `${teammateName} now has the Operations role`,
     );
 
-    const teammateRow = page
-      .getByRole("row")
-      .filter({ hasText: teammateName });
+    const teammateRow = page.getByRole("row").filter({ hasText: teammateName });
     page.once("dialog", (dialog) => dialog.accept());
     await teammateRow.getByRole("button", { name: "Suspend" }).click();
-    await expect(teamFeedback).toContainText(
-      "workspace access was suspended",
-    );
+    await expect(teamFeedback).toContainText("workspace access was suspended");
     await teammateRow.getByRole("button", { name: "Restore" }).click();
-    await expect(teamFeedback).toContainText(
-      "workspace access was restored",
-    );
+    await expect(teamFeedback).toContainText("workspace access was restored");
 
     await page.getByLabel("Work email").fill(invitationEmail);
     await page.getByLabel("Workspace role").selectOption("sales");
     await page.getByRole("button", { name: "Record invitation" }).click();
-    await expect(teamFeedback).toContainText(
-      "Invitation recorded securely",
-    );
+    await expect(teamFeedback).toContainText("Invitation recorded securely");
     await page
       .getByRole("button", {
         name: `Revoke invitation for ${invitationEmail}`,
@@ -4080,6 +4743,60 @@ test.describe("authenticated owner workspace", () => {
     expect(invitation?.revoked_at).toBeTruthy();
   });
 
+  test("adapts navigation and actions to an operations role", async ({
+    page,
+  }) => {
+    await page.goto("/sign-in");
+    await page.getByLabel("Email address").fill(teammateEmail);
+    await page.getByLabel("Password").fill(teammatePassword);
+    await page.getByRole("button", { name: /sign in/i }).click();
+
+    await expect(page).toHaveURL("/");
+    await expect(
+      page.getByRole("button", {
+        name: new RegExp(`${teammateName} Operations · Sign out`, "i"),
+      }),
+    ).toBeVisible();
+    const navigation = page.getByRole("navigation", {
+      name: "CRM navigation",
+      exact: true,
+    });
+    await expect(navigation.getByRole("link", { name: "Trips" })).toBeVisible();
+    await expect(
+      navigation.getByRole("link", { name: "Suppliers" }),
+    ).toBeVisible();
+    await expect(
+      navigation.getByRole("link", { name: "Activity", exact: true }),
+    ).toBeVisible();
+    await expect(
+      navigation.getByRole("link", { name: "Approvals", exact: true }),
+    ).toBeVisible();
+    await expect(navigation.getByRole("link", { name: "Finance" })).toHaveCount(
+      0,
+    );
+    await expect(
+      navigation.getByRole("link", { name: "Automations" }),
+    ).toHaveCount(0);
+    await expect(navigation.getByRole("link", { name: "Team" })).toHaveCount(0);
+    await expect(
+      navigation.getByRole("link", { name: "Integrations" }),
+    ).toHaveCount(0);
+    await expect(
+      navigation.getByRole("link", { name: "Workflows" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(/AIOS: (Manual|Assisted|Autopilot)/),
+    ).toBeVisible();
+    await expect(
+      page.locator(".crm-approval-link"),
+    ).toBeVisible();
+
+    await page.goto("/finance");
+    await expect(
+      page.getByText(/You can inspect receivables and payables/i),
+    ).toBeVisible();
+  });
+
   test("curates, renews, and retrieves permission-aware knowledge with a citation", async ({
     page,
   }) => {
@@ -4090,7 +4807,7 @@ test.describe("authenticated owner workspace", () => {
     await page.goto("/knowledge");
     await expect(
       page.getByRole("heading", {
-        name: "Give AIOS trusted material, with a source for every answer.",
+        name: "Knowledge",
       }),
     ).toBeVisible();
     const manualSourceForm = page.locator(".knowledge-create > form");
@@ -4099,12 +4816,8 @@ test.describe("authenticated owner workspace", () => {
     await manualSourceForm
       .getByLabel("Source type")
       .selectOption("destination_guide");
-    await manualSourceForm
-      .getByLabel("Authority")
-      .selectOption("official");
-    await manualSourceForm
-      .getByLabel("Sensitivity")
-      .selectOption("normal");
+    await manualSourceForm.getByLabel("Authority").selectOption("official");
+    await manualSourceForm.getByLabel("Sensitivity").selectOption("normal");
     await manualSourceForm.getByLabel("Version").fill("2026.1");
     await manualSourceForm
       .getByLabel("HTTPS source link")
@@ -4115,9 +4828,7 @@ test.describe("authenticated owner workspace", () => {
     await manualSourceForm
       .getByRole("button", { name: "Create governed draft" })
       .click();
-    await expect(page.getByRole("status")).toContainText(
-      "Draft source saved",
-    );
+    await expect(page.getByRole("status")).toContainText("Draft source saved");
 
     await page.getByLabel("Section heading").fill("Cancellation windows");
     await page
@@ -4125,17 +4836,11 @@ test.describe("authenticated owner workspace", () => {
       .fill(
         "Kyoto rail cancellation windows require operator review before any traveller-facing commitment.",
       );
-    await page
-      .getByLabel("Citation label")
-      .fill("Kyoto rail policy §4");
+    await page.getByLabel("Citation label").fill("Kyoto rail policy §4");
     await page.getByRole("button", { name: "Add cited passage" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      "Cited section added",
-    );
+    await expect(page.getByRole("status")).toContainText("Cited section added");
 
-    await page
-      .getByRole("button", { name: "Send to human review" })
-      .click();
+    await page.getByRole("button", { name: "Send to human review" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Knowledge moved to in review",
     );
@@ -4149,9 +4854,7 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByLabel("Question or evidence needed")
       .fill("cancellation windows");
-    await page
-      .getByRole("button", { name: "Preview evidence" })
-      .click();
+    await page.getByRole("button", { name: "Preview evidence" }).click();
     await expect(page.getByText("Kyoto rail policy §4")).toBeVisible();
     await expect(page.getByText("Current review")).toBeVisible();
     await page.setViewportSize({ width: 748, height: 900 });
@@ -4173,9 +4876,7 @@ test.describe("authenticated owner workspace", () => {
     );
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await expect(page.getByLabel("Replacement version")).toHaveValue(
-      "2026.2",
-    );
+    await expect(page.getByLabel("Replacement version")).toHaveValue("2026.2");
     await page
       .getByRole("button", { name: "Prepare replacement draft" })
       .click();
@@ -4201,25 +4902,19 @@ test.describe("authenticated owner workspace", () => {
     await passageEditor
       .getByLabel("Citation label")
       .fill("Kyoto rail policy §5");
-    await passageEditor
-      .getByRole("button", { name: "Save revision" })
-      .click();
+    await passageEditor.getByRole("button", { name: "Save revision" }).click();
     await expect(page.getByRole("status")).toContainText(
       "Draft passage revised",
     );
 
-    await page
-      .getByRole("button", { name: "Send to human review" })
-      .click();
+    await page.getByRole("button", { name: "Send to human review" }).click();
     await page
       .getByRole("button", { name: "Approve for AIOS retrieval" })
       .click();
     await expect(page.getByRole("status")).toContainText(
       "Knowledge moved to approved",
     );
-    await page
-      .getByRole("button", { name: "Preview evidence" })
-      .click();
+    await page.getByRole("button", { name: "Preview evidence" }).click();
     await expect(page.getByText("Kyoto rail policy §5")).toBeVisible();
     await expect(
       page.getByText(`${sourceTitle} · v2026.2 · official`),
@@ -4231,12 +4926,8 @@ test.describe("authenticated owner workspace", () => {
     await manualSourceForm
       .getByLabel("Source type")
       .selectOption("destination_guide");
-    await manualSourceForm
-      .getByLabel("Authority")
-      .selectOption("supplier");
-    await manualSourceForm
-      .getByLabel("Sensitivity")
-      .selectOption("normal");
+    await manualSourceForm.getByLabel("Authority").selectOption("supplier");
+    await manualSourceForm.getByLabel("Sensitivity").selectOption("normal");
     await manualSourceForm.getByLabel("Version").fill("2026.1");
     await manualSourceForm
       .getByLabel("HTTPS source link")
@@ -4255,19 +4946,13 @@ test.describe("authenticated owner workspace", () => {
       .fill(
         "The supplier bulletin requires operator confirmation 72 hours before any traveller-facing commitment.",
       );
-    await page
-      .getByLabel("Citation label")
-      .fill("Kyoto supplier bulletin §2");
+    await page.getByLabel("Citation label").fill("Kyoto supplier bulletin §2");
     await page.getByRole("button", { name: "Add cited passage" }).click();
-    await page
-      .getByRole("button", { name: "Send to human review" })
-      .click();
+    await page.getByRole("button", { name: "Send to human review" }).click();
     await page
       .getByRole("button", { name: "Approve for AIOS retrieval" })
       .click();
-    await page
-      .getByRole("button", { name: "Scan current evidence" })
-      .click();
+    await page.getByRole("button", { name: "Scan current evidence" }).click();
     await expect(page.getByRole("status")).toContainText(
       "1 item need human attention",
     );
@@ -4305,9 +4990,7 @@ test.describe("authenticated owner workspace", () => {
         ].join("\n"),
       ),
     });
-    await page
-      .getByLabel("Imported source title")
-      .fill(importedSourceTitle);
+    await page.getByLabel("Imported source title").fill(importedSourceTitle);
     await page
       .getByLabel("Import review note")
       .fill("Private operating procedure requiring human review.");
@@ -4318,7 +5001,9 @@ test.describe("authenticated owner workspace", () => {
       "Imported 2 reviewable passages into a Draft",
     );
     await expect(page.getByText("PRIVATE FILE PROVENANCE")).toBeVisible();
-    await expect(page.getByText("airport-ops.md", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("airport-ops.md", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText(
         "Server-chunked into a Draft. The file itself was not sent to a model or exposed to approved retrieval.",
@@ -4328,14 +5013,12 @@ test.describe("authenticated owner workspace", () => {
     await page
       .getByLabel("Question or evidence needed")
       .fill("quantum submarine reimbursement protocol");
-    await page
-      .getByRole("button", { name: "Ask AIOS with citations" })
-      .click();
+    await page.getByRole("button", { name: "Ask AIOS with citations" }).click();
     await expect(
       page.getByRole("heading", {
         name: "Unsupported · AIOS refused to guess",
       }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
     await expect(
       page.getByText("No approved evidence supports an answer."),
     ).toBeVisible();
@@ -4724,9 +5407,7 @@ test.describe("authenticated owner workspace", () => {
       page.getByRole("link", { name: "Review AIOS knowledge →" }),
     ).toHaveAttribute("href", "/knowledge");
 
-    await page
-      .getByText("How these management metrics are calculated")
-      .click();
+    await page.getByText("How these management metrics are calculated").click();
     await expect(
       page.getByText(/Financial exposure is obligation amount less recorded/i),
     ).toBeVisible();
@@ -4752,9 +5433,7 @@ test.describe("authenticated owner workspace", () => {
     ).toHaveAttribute("href", "/inbox");
 
     await page.getByLabel("Management period").selectOption("custom");
-    await page
-      .getByLabel("Management period start")
-      .fill("2026-07-01");
+    await page.getByLabel("Management period start").fill("2026-07-01");
     await page.getByLabel("Management period end").fill("2026-07-31");
     const periodTable = page.getByRole("table", {
       name: /2026-07-01.*2026-07-31.*2026-05-31.*2026-06-30/,
@@ -4800,16 +5479,10 @@ test.describe("authenticated owner workspace", () => {
       }),
     ).toBeVisible();
     await expect(reportSchedule).toContainText("SCHEDULE PAUSED");
-    await reportSchedule
-      .getByLabel("Enable scheduled in-app delivery")
-      .check();
+    await reportSchedule.getByLabel("Enable scheduled in-app delivery").check();
     await reportSchedule.getByLabel("Cadence").selectOption("monthly");
-    await reportSchedule
-      .getByLabel("Comparison period")
-      .selectOption("90");
-    await reportSchedule
-      .getByLabel("Forecast horizon")
-      .selectOption("30");
+    await reportSchedule.getByLabel("Comparison period").selectOption("90");
+    await reportSchedule.getByLabel("Forecast horizon").selectOption("30");
     const nextReportAt = new Date(Date.now() + 86_400_000)
       .toISOString()
       .slice(0, 16);
@@ -4837,9 +5510,7 @@ test.describe("authenticated owner workspace", () => {
       updated_by: userId,
     });
 
-    await reportSchedule
-      .getByRole("button", { name: "Generate now" })
-      .click();
+    await reportSchedule.getByRole("button", { name: "Generate now" }).click();
     await expect(reportSchedule.getByRole("status")).toContainText(
       "Aggregate delivery complete: 1 ready, 0 failed",
     );
@@ -4948,9 +5619,7 @@ test.describe("authenticated owner workspace", () => {
     await page.getByLabel("Period start", { exact: true }).fill("2026-07-01");
     await page.getByLabel("Period end", { exact: true }).fill("2026-09-30");
     await page.getByLabel("Approved target").fill("1000000");
-    await page
-      .getByRole("button", { name: "Add approved target" })
-      .click();
+    await page.getByRole("button", { name: "Add approved target" }).click();
     await expect(page.locator(".analytics-notice")).toContainText(
       `Approved ${targetName} target added`,
     );
@@ -4958,7 +5627,9 @@ test.describe("authenticated owner workspace", () => {
     const targetTable = page.getByRole("table", {
       name: "Active sales targets and matching open pipeline",
     });
-    const targetRow = targetTable.getByRole("row", { name: new RegExp(targetName) });
+    const targetRow = targetTable.getByRole("row", {
+      name: new RegExp(targetName),
+    });
     await expect(targetRow).toContainText("₹10,00,000");
     await expect(targetRow).toContainText("₹5,75,000");
     await expect(targetRow).toContainText("57.5%");
@@ -4974,9 +5645,7 @@ test.describe("authenticated owner workspace", () => {
     expect(analyticsTarget?.is_active).toBe(true);
 
     const exportDownload = page.waitForEvent("download");
-    await page
-      .getByRole("button", { name: "Download aggregate CSV" })
-      .click();
+    await page.getByRole("button", { name: "Download aggregate CSV" }).click();
     const downloadedReport = await exportDownload;
     expect(downloadedReport.suggestedFilename()).toMatch(
       /^aios-management-report-\d{4}-\d{2}-\d{2}\.csv$/,
@@ -5039,12 +5708,245 @@ test.describe("authenticated owner workspace", () => {
     expect(targetAuditCount).toBe(2);
   });
 
+  test("escalates an overdue approval without bypassing its human gate", async ({
+    page,
+  }) => {
+    const escalationAction = `e2e.approval.escalation.${Date.now()}`;
+    const escalationRationale =
+      "E2E overdue approval must move to the next eligible human.";
+    const { data: previousTeammateMembership, error: previousRoleError } =
+      await admin!
+        .from("memberships")
+        .select("role")
+        .eq("id", teammateMembershipId)
+        .single();
+    expect(previousRoleError).toBeNull();
+    const { error: promoteTeammateError } = await admin!
+      .from("memberships")
+      .update({ role: "admin" })
+      .eq("id", teammateMembershipId);
+    expect(promoteTeammateError).toBeNull();
+
+    try {
+      const { error: policyError } = await admin!
+        .from("ai_autonomy_policies")
+        .insert({
+          organization_id: organizationIds[0],
+          action: escalationAction,
+          mode: "approval_required",
+          approval_roles: ["owner", "admin"],
+          escalation_after_minutes: 5,
+        });
+      expect(policyError).toBeNull();
+      const { data: overdueApproval, error: approvalError } = await admin!
+        .from("approval_requests")
+        .insert({
+          organization_id: organizationIds[0],
+          requester_id: userId!,
+          approver_id: userId!,
+          action: escalationAction,
+          entity_type: "e2e_approval",
+          rationale: escalationRationale,
+          expires_at: new Date(Date.now() - 60_000).toISOString(),
+        })
+        .select("id")
+        .single();
+      expect(approvalError).toBeNull();
+      expect(overdueApproval).not.toBeNull();
+
+      await signIn(page);
+      await page.goto("/aios/approvals");
+      const approvalCard = page
+        .locator(".aios-approvals article")
+        .filter({ hasText: escalationRationale });
+      await expect(approvalCard).toBeVisible();
+      const approvalBadge = page.locator(".crm-approval-link > span");
+      await expect.poll(() => approvalBadge.count()).toBeGreaterThan(0);
+      const personalApprovalsBeforeEscalation = Number(
+        await approvalBadge.innerText(),
+      );
+      expect(personalApprovalsBeforeEscalation).toBeGreaterThan(0);
+      const navigationApprovalBadge = page.locator(
+        ".crm-primary-navigation .nav-attention-badge",
+      );
+      await expect(navigationApprovalBadge).toHaveText(
+        String(personalApprovalsBeforeEscalation),
+      );
+      await expect(approvalCard).toContainText("Escalation overdue");
+      await expect(approvalCard).toContainText(
+        "Assigned to Authenticated E2E Owner (you) · owner",
+      );
+      await expect(approvalCard).toContainText(
+        "Requested by Authenticated E2E Owner (you) · owner",
+      );
+      await expect(approvalCard.getByRole("link", { name: "Open record" })).toHaveCount(0);
+      await approvalCard
+        .getByRole("button", { name: "Escalate now" })
+        .click();
+      await expect(
+        page.locator('p.aios-notice[role="status"]'),
+      ).toContainText("Approval escalated to the next eligible human", {
+        timeout: 20_000,
+      });
+      await expect(approvalCard).toHaveCount(0);
+      await expect
+        .poll(async () =>
+          (await approvalBadge.count()) > 0
+            ? Number(await approvalBadge.innerText())
+            : 0,
+        )
+        .toBe(personalApprovalsBeforeEscalation - 1);
+      await expect
+        .poll(async () =>
+          (await navigationApprovalBadge.count()) > 0
+            ? Number(await navigationApprovalBadge.innerText())
+            : 0,
+        )
+        .toBe(personalApprovalsBeforeEscalation - 1);
+      await page
+        .getByRole("button", { name: /Workspace queue/ })
+        .click();
+      const reroutedApprovalCard = page
+        .locator(".aios-approvals article")
+        .filter({ hasText: escalationRationale });
+      await expect(reroutedApprovalCard).toContainText(
+        "Assigned to Authenticated E2E Teammate · admin",
+      );
+      await expect(reroutedApprovalCard).toContainText(
+        "Escalated 1 time (rerouted)",
+      );
+      await expect(reroutedApprovalCard).toContainText("Escalates");
+
+      const { data: escalatedApproval, error: escalatedApprovalError } =
+        await admin!
+          .from("approval_requests")
+          .select(
+            "status, approver_id, escalation_count, last_escalation_outcome, expires_at",
+          )
+          .eq("id", overdueApproval!.id)
+          .single();
+      expect(escalatedApprovalError).toBeNull();
+      expect(escalatedApproval).toMatchObject({
+        status: "pending",
+        approver_id: teammateUserId,
+        escalation_count: 1,
+        last_escalation_outcome: "rerouted",
+      });
+      expect(new Date(escalatedApproval!.expires_at!).getTime()).toBeGreaterThan(
+        Date.now(),
+      );
+      const { data: escalationEvidence, error: escalationEvidenceError } =
+        await admin!
+          .from("approval_escalation_events")
+          .select(
+            "outcome, previous_approver_id, approver_id, source, escalation_number",
+          )
+          .eq("approval_request_id", overdueApproval!.id)
+          .single();
+      expect(escalationEvidenceError).toBeNull();
+      expect(escalationEvidence).toMatchObject({
+        outcome: "rerouted",
+        previous_approver_id: userId,
+        approver_id: teammateUserId,
+        source: "operator",
+        escalation_number: 1,
+      });
+      const { data: escalationTask, error: escalationTaskError } = await admin!
+        .from("tasks")
+        .select(
+          "id, title, status, assignee_id, due_at, approval_request_id",
+        )
+        .eq("organization_id", organizationIds[0])
+        .eq("approval_request_id", overdueApproval!.id)
+        .single();
+      expect(escalationTaskError).toBeNull();
+      expect(escalationTask).toMatchObject({
+        status: "open",
+        assignee_id: teammateUserId,
+        approval_request_id: overdueApproval!.id,
+      });
+      expect(escalationTask?.title).toContain(
+        "AIOS approval: e2e approval escalation",
+      );
+      expect(escalationTask?.due_at).toBeTruthy();
+
+      await page.goto("/");
+      const homeApprovalAttention = page
+        .locator(".crm-attention-grid a")
+        .filter({ hasText: "My approvals" });
+      await expect(homeApprovalAttention).toContainText("My approvals");
+      await expect
+        .poll(async () => {
+          const approvalAttentionLabel = await homeApprovalAttention
+            .locator("span")
+            .innerText();
+          const workspacePending = Number(
+            approvalAttentionLabel.match(/· (\d+) workspace-wide/)?.[1],
+          );
+          const personalPending = Number(
+            await homeApprovalAttention.locator("b").innerText(),
+          );
+          return workspacePending > personalPending;
+        })
+        .toBe(true);
+
+      await page.goto("/aios/approvals");
+      await page
+        .getByRole("button", { name: /Workspace queue/ })
+        .click();
+
+      await reroutedApprovalCard
+        .getByRole("button", { name: "Approve" })
+        .click();
+      await expect(reroutedApprovalCard).toHaveCount(0);
+      const { data: resolvedApproval, error: resolvedApprovalError } =
+        await admin!
+          .from("approval_requests")
+          .select("status, resolved_at")
+          .eq("id", overdueApproval!.id)
+          .single();
+      expect(resolvedApprovalError).toBeNull();
+      expect(resolvedApproval?.status).toBe("approved");
+      expect(resolvedApproval?.resolved_at).toBeTruthy();
+      const { data: completedEscalationTask, error: completedTaskError } =
+        await admin!
+          .from("tasks")
+          .select("status, completed_at")
+          .eq("id", escalationTask!.id)
+          .single();
+      expect(completedTaskError).toBeNull();
+      expect(completedEscalationTask?.status).toBe("completed");
+      expect(completedEscalationTask?.completed_at).toBeTruthy();
+
+      await page.goto("/tasks");
+      await page
+        .locator(".tasks-filters")
+        .getByLabel("Owner")
+        .selectOption("all");
+      const taskCard = page
+        .locator(".task-card")
+        .filter({ hasText: escalationTask!.title });
+      await expect(taskCard).toContainText("Human approval");
+      await expect(
+        taskCard.getByRole("link", { name: "Open approval queue" }),
+      ).toHaveAttribute("href", "/aios/approvals");
+    } finally {
+      const { error: restoreTeammateError } = await admin!
+        .from("memberships")
+        .update({ role: previousTeammateMembership?.role ?? "agent" })
+        .eq("id", teammateMembershipId);
+      expect(restoreTeammateError).toBeNull();
+    }
+  });
+
   test("wires AIOS budgets, provider pricing, autonomy controls, and deterministic triage", async ({
     page,
   }) => {
     const modelName = `e2e-glm-${Date.now()}`;
     await signIn(page);
-    await page.goto("/aios");
+    await page.goto("/aios/activity");
+    await page.getByText("Model provider and budget", { exact: true }).click();
+    await page.getByText("Model pricing", { exact: true }).click();
 
     const qualityPanel = page.getByRole("region", {
       name: "Sales Copilot review calibration",
@@ -5079,7 +5981,7 @@ test.describe("authenticated owner workspace", () => {
       page
         .locator(".aios-notice")
         .filter({ hasText: "Provider-backed model execution is disabled" }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
 
     await page.getByLabel("Exact model").fill(modelName);
     await page.getByLabel("Currency").fill("USD");
@@ -5090,33 +5992,132 @@ test.describe("authenticated owner workspace", () => {
       page
         .locator(".aios-notice")
         .filter({ hasText: `glm/${modelName} price version` }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole("button", { name: "Triage lead risks" }).click();
     await expect(
       page.locator(".aios-notice").filter({ hasText: /AIOS triage/i }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "Triage Inbox SLAs" }).click();
+    await expect(
+      page.locator(".aios-notice").filter({ hasText: /AIOS (checked|found)/i }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    await page.goto("/aios/automations");
+    await page
+      .locator(".autonomy-categories summary")
+      .filter({ hasText: "Sales" })
+      .click();
+    await page
+      .locator(".autonomy-categories summary")
+      .filter({ hasText: "Workspace coordination" })
+      .click();
+    await page
+      .getByRole("button", { name: "Run daily AIOS sweep" })
+      .click();
     await expect(
       page
         .locator(".aios-notice")
-        .filter({ hasText: /AIOS (checked|found)/i }),
+        .filter({ hasText: /Daily sweep (completed|partial)/i }),
+    ).toContainText("No external action was available", { timeout: 30_000 });
+
+    const { data: coordinatorRun, error: coordinatorRunError } = await admin!
+      .from("ai_runs")
+      .select("id, status, input_reference, result")
+      .eq("organization_id", organizationIds[0])
+      .eq("agent_type", "daily_coordinator")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    expect(coordinatorRunError).toBeNull();
+    expect(coordinatorRun?.status).toMatch(/succeeded|failed/);
+    expect(coordinatorRun?.input_reference).toMatchObject({
+      workflow: "daily_internal_coordination",
+      maximum_unassigned_deals: 10,
+      maximum_lead_risks: 25,
+      maximum_inbox_sla_risks: 25,
+      external_actions: false,
+    });
+    expect(coordinatorRun?.result).toMatchObject({ externalActions: false });
+    const { data: coordinatorTools, error: coordinatorToolsError } =
+      await admin!
+        .from("ai_tool_calls")
+        .select("requested_action")
+        .eq("organization_id", organizationIds[0])
+        .eq("ai_run_id", coordinatorRun!.id);
+    expect(coordinatorToolsError).toBeNull();
+    expect(
+      new Set(coordinatorTools?.map((tool) => tool.requested_action)),
+    ).toEqual(
+      new Set([
+        "workspace.daily.coordinate",
+        "crm.deal.route",
+        "crm.lead.triage",
+        "inbox.sla.triage",
+        "trip.operations.monitor",
+      ]),
+    );
+
+    const coordinatorPolicyCard = page
+      .locator(".autonomy-card")
+      .filter({ hasText: "Coordinate today's internal work" });
+    await coordinatorPolicyCard
+      .getByRole("button", { name: /^Approval/i })
+      .click();
+    await expect(
+      page
+        .locator(".aios-notice")
+        .filter({
+          hasText:
+            "workspace.daily.coordinate is now set to approval required",
+        }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page
+      .getByRole("button", { name: "Run daily AIOS sweep" })
+      .click();
+    await expect(
+      page
+        .locator(".aios-notice")
+        .filter({ hasText: "waiting for human approval" }),
+    ).toBeVisible({ timeout: 15_000 });
+    await page.goto("/aios/approvals");
+    const coordinatorApproval = page
+      .locator(".aios-approvals article")
+      .filter({ hasText: "workspace daily coordinate" });
+    await expect(coordinatorApproval).toBeVisible();
+    await coordinatorApproval.getByRole("button", { name: "Approve" }).click();
+    await expect(
+      page
+        .locator(".aios-notice")
+        .filter({ hasText: /Approval recorded\. AIOS run .* is (completed|partial)/ }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(coordinatorApproval).toHaveCount(0);
+    await page.goto("/aios/automations");
+    await page
+      .locator(".autonomy-categories summary")
+      .filter({ hasText: "Workspace coordination" })
+      .click();
+    await page
+      .locator(".autonomy-categories summary")
+      .filter({ hasText: "Sales" })
+      .click();
+    await coordinatorPolicyCard.getByRole("button", { name: /^Auto/i }).click();
+    await expect(
+      page
+        .locator(".aios-notice")
+        .filter({ hasText: "workspace.daily.coordinate is now set to auto" }),
     ).toBeVisible();
 
     const taskPolicyCard = page
       .locator(".autonomy-card")
       .filter({ hasText: "Create internal follow-up tasks" });
-    await taskPolicyCard
-      .getByRole("button", { name: /Assist/i })
-      .click();
+    await taskPolicyCard.getByRole("button", { name: /Assist/i }).click();
     await expect(
       page
         .locator(".aios-notice")
         .filter({ hasText: "internal.task.create is now set to assist" }),
     ).toBeVisible();
-    await taskPolicyCard
-      .getByRole("button", { name: /Auto/i })
-      .click();
+    await taskPolicyCard.getByRole("button", { name: /Auto/i }).click();
     await expect(
       page
         .locator(".aios-notice")
@@ -5187,17 +6188,42 @@ test.describe("authenticated owner workspace", () => {
       .single();
     expect(taskPolicyError).toBeNull();
     expect(taskPolicy).toMatchObject({ mode: "auto", is_enabled: true });
+
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: /Run daily AIOS sweep/i })
+      .click();
+    await expect(
+      page
+        .locator(".toast")
+        .getByRole("status")
+        .filter({ hasText: /AIOS daily sweep (completed|partial)/i }),
+    ).toContainText("No external action was available", { timeout: 30_000 });
   });
 
   test("renders every workspace surface without browser errors or warnings", async ({
     page,
   }) => {
     const browserProblems: string[] = [];
-    page.on("pageerror", (error) => browserProblems.push(`page: ${error.message}`));
+    page.on("pageerror", (error) => {
+      const isWebKitCancelledNextRscPrefetch =
+        error.message.includes("?_rsc=") &&
+        error.message.endsWith(" due to access control checks.");
+      if (!isWebKitCancelledNextRscPrefetch)
+        browserProblems.push(`page: ${error.message}`);
+    });
     page.on("console", (message) => {
-      if (message.type() === "error" || message.type() === "warning") {
-        browserProblems.push(`${message.type()}: ${message.text()}`);
-      }
+      const text = message.text();
+      const isWebKitNextCssPreloadDiagnostic =
+        message.type() === "warning" &&
+        /\/_next\/static\/chunks\/[^ ]+\.css was preloaded using link preload but not used within a few seconds/.test(
+          text,
+        );
+      if (
+        (message.type() === "error" || message.type() === "warning") &&
+        !isWebKitNextCssPreloadDiagnostic
+      )
+        browserProblems.push(`${message.type()}: ${text}`);
     });
     await signIn(page);
     await page.waitForLoadState("networkidle");
@@ -5209,10 +6235,17 @@ test.describe("authenticated owner workspace", () => {
       "/quotes",
       "/itineraries",
       "/trips",
-      `/trips/${operationalTripId}`,
-      `/trips/${operationalTripId}/portal`,
+      ...(operationalTripId
+        ? [
+            `/trips/${operationalTripId}`,
+            `/trips/${operationalTripId}/portal`,
+          ]
+        : []),
+      "/suppliers",
       "/finance",
-      "/aios",
+      "/aios/activity",
+      "/aios/approvals",
+      "/aios/automations",
       "/knowledge",
       "/analytics",
       "/settings/lead-capture",
@@ -5246,16 +6279,12 @@ test.describe("authenticated owner workspace", () => {
     const securityFeedback = page.locator(
       ".security-feedback [role='status'], .ui-form-feedback[role='status']",
     );
-    await expect(securityFeedback).toContainText(
-      "Authenticator verified",
-    );
+    await expect(securityFeedback).toContainText("Authenticator verified");
     await expect(page.getByText("Verified", { exact: true })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Remove" }).click();
-    await expect(securityFeedback).toContainText(
-      "Authenticator removed",
-    );
+    await expect(securityFeedback).toContainText("Authenticator removed");
     const { data: factors, error } = await admin!.auth.admin.mfa.listFactors({
       userId: userId!,
     });

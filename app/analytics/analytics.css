@@ -1,11 +1,9 @@
 .analytics-page {
   min-height: 100vh;
   padding: 24px clamp(18px, 4vw, 64px) 70px;
-  color: #10292b;
-  background:
-    linear-gradient(115deg, rgba(232, 255, 173, 0.35), transparent 28%),
-    #f5f6f1;
-  font-family: Arial, Helvetica, sans-serif;
+  color: #292635;
+  background: #f6f7fb;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 .analytics-hero {
@@ -14,7 +12,7 @@
   justify-content: space-between;
   gap: 32px;
   max-width: 1500px;
-  margin: 60px auto 34px;
+  margin: 28px auto 26px;
 }
 
 .analytics-hero p,
@@ -30,8 +28,8 @@
 .analytics-hero h1 {
   max-width: 920px;
   margin: 0 0 16px;
-  font: 500 clamp(3rem, 5.8vw, 6.1rem)/0.95 Georgia, "Times New Roman", serif;
-  letter-spacing: -0.065em;
+  font: 720 clamp(2.25rem, 4vw, 3.8rem)/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.055em;
 }
 
 .analytics-hero > div > span {
@@ -1543,7 +1541,29 @@
   text-align: center;
 }
 
-@media (max-width: 1160px) {
+.analytics-hero,
+.analytics-notice,
+.management-section,
+.metric-glossary,
+.sales-section-heading,
+.management-period-section,
+.anomaly-desk,
+.report-schedule,
+.commercial-intelligence,
+.trip-economics,
+.growth-intelligence,
+.analytics-controls,
+.analytics-kpis,
+.analytics-grid {
+  width: 100%;
+  max-width: 1180px;
+}
+
+.analytics-page :is(section, article, form, div) {
+  min-width: 0;
+}
+
+@media (max-width: 1360px) {
   .management-grid {
     grid-template-columns: repeat(2, 1fr);
   }

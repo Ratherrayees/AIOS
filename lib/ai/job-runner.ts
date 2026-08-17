@@ -8,7 +8,7 @@ import {
 } from "./input-safety";
 import {
   AiosProviderNotConfiguredError,
-  getAiosProviderStatus,
+  getAiosProviderStatusForOrganization,
   runConversationReplyDraft,
   runItineraryDraft,
   runKnowledgeAnswer,
@@ -154,7 +154,10 @@ async function processRunnableJob(
   const parsedPayload = modelJobPayloadSchema.safeParse(job.payload);
   const budget = await loadOrganizationModelBudget(job.organization_id);
   const budgetBlock = modelBudgetBlockReason(budget);
-  const selectedStatus = getAiosProviderStatus(budget.selectedModelProvider);
+  const selectedStatus = await getAiosProviderStatusForOrganization(
+    job.organization_id,
+    budget.selectedModelProvider,
+  );
   if (
     budgetBlock?.code === "AI_MODEL_EXECUTION_DISABLED" ||
     budgetBlock?.code === "AI_DAILY_RUN_LIMIT" ||
@@ -283,6 +286,8 @@ async function processRunnableJob(
         inspected.source,
         payload.provider,
         payloadFallback,
+        job.organization_id,
+        budget.allowedModelProviders,
       );
       await settleModelJob({
         jobId: job.id,
@@ -384,6 +389,8 @@ async function processRunnableJob(
         },
         payload.provider,
         payloadFallback,
+        job.organization_id,
+        budget.allowedModelProviders,
       );
       await settleModelJob({
         jobId: job.id,
@@ -465,6 +472,8 @@ async function processRunnableJob(
         payload.channel,
         payload.provider,
         payloadFallback,
+        job.organization_id,
+        budget.allowedModelProviders,
       );
       const draft = await persistCopilotDraft({
         organizationId: job.organization_id,
@@ -580,6 +589,8 @@ async function processRunnableJob(
       inspected.source,
       payload.provider,
       payloadFallback,
+      job.organization_id,
+      budget.allowedModelProviders,
     );
     await settleModelJob({
       jobId: job.id,

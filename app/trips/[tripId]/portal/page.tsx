@@ -351,7 +351,7 @@ export default function TravelerPortalManagementPage() {
         links={[
           { href: `/trips/${trip.id}`, label: "Trip workspace" },
           { href: "/trips", label: "Trip Operations" },
-          { href: "/aios", label: "AIOS approvals" },
+          { href: "/aios/approvals", label: "AIOS approvals" },
         ]}
       />
 

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ProductHelp } from "../components/ui/product-help";
+import { ApplicationShell } from "../components/ui/application-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,8 +16,7 @@ export default function RootLayout({
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
-        {children}
-        <ProductHelp />
+        <ApplicationShell>{children}</ApplicationShell>
       </body>
     </html>
   );

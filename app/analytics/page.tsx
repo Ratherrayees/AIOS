@@ -13,6 +13,7 @@ import { saveAnalyticsTarget } from "../actions/analytics";
 import { createSavedView, deleteSavedView } from "../actions/crm";
 import { LoadingState } from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { AnalyticsReportSchedule } from "../../components/ui/analytics-report-schedule";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import {
@@ -143,7 +144,7 @@ function cohortWindowLabel(window: {
 }
 
 function managementPeriodHref(key: string) {
-  if (key === "won-opportunities") return "/?view=leads";
+  if (key === "won-opportunities") return "/leads";
   if (key === "accepted-quotes") return "/quotes";
   if (key === "completed-trips" || key === "detected-exceptions")
     return "/trips";
@@ -787,26 +788,16 @@ export default function AnalyticsPage() {
     <main className="analytics-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
         links={[
-          { href: "/", label: "Pipeline" },
+          { href: "/leads", label: "Pipeline" },
           { href: "/settings/lead-capture", label: "Lead Capture" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
         ]}
       />
-      <section className="analytics-hero">
-        <div>
-          <p>MANAGEMENT INTELLIGENCE</p>
-          <h1>See revenue, readiness, and risk in one place.</h1>
-          <span>
-            A tenant-safe view of sales momentum, live trip operations,
-            supplier readiness, financial exposure, and AIOS knowledge health.
-          </span>
-        </div>
-        <div className="analytics-signal">
-          <small>ACTIVE TRIPS</small>
-          <b>{management?.operations.activeTrips ?? "—"}</b>
-          <span>LIVE WORKSPACE</span>
-        </div>
-      </section>
+      <OperationalPageHeader
+        section="Intelligence"
+        title="Analytics"
+        meta={`${management?.operations.activeTrips ?? 0} active trips · currencies kept separate`}
+      />
       {notice && (
         <p className="analytics-notice" role="status">
           {notice}
@@ -1346,7 +1337,7 @@ export default function AnalyticsPage() {
                         {portfolio.quality.openDeals}
                       </b>
                       <p>missing one or more management fields</p>
-                      <Link href="/?view=leads">Review lead pipeline →</Link>
+                      <Link href="/leads">Review lead pipeline →</Link>
                     </div>
                     <div>
                       <span>OWNERSHIP</span>
@@ -1637,7 +1628,7 @@ export default function AnalyticsPage() {
                     Overdue close dates{" "}
                     <b>{growth.forecast.overdueCloseDates}</b>
                   </span>
-                  <Link href="/?view=leads">Inspect forecast records →</Link>
+                  <Link href="/leads">Inspect forecast records →</Link>
                 </footer>
                 {targetCoverage.length ? (
                   <div className="coverage-boundary configured">

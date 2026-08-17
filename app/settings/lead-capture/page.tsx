@@ -7,7 +7,8 @@ import {
   updateLeadCaptureFormStatus,
 } from "../../actions/crm";
 import { LoadingState } from "../../../components/ui/empty-state";
-import { FeatureHeader } from "../../../components/ui/feature-header";
+import { SettingsNavigation } from "../../../components/ui/settings-navigation";
+import { OperationalPageHeader } from "../../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
 import "./lead-capture-settings.css";
@@ -157,27 +158,12 @@ export default function LeadCaptureSettingsPage() {
 
   return (
     <main className="capture-settings" id="main-content" tabIndex={-1}>
-      <FeatureHeader
-        links={[
-          { href: "/", label: "Pipeline" },
-          { href: "/analytics", label: "Analytics" },
-          { href: "/aios", label: "AIOS Control" },
-        ]}
+      <SettingsNavigation />
+      <OperationalPageHeader
+        section="Administration"
+        title="Lead capture"
+        meta={`${forms.filter((form) => form.is_active).length} live forms · ${forms.length} total`}
       />
-      <section className="capture-settings-hero">
-        <div>
-          <p>GOVERNED ACQUISITION</p>
-          <h1>Lead capture that enters the operating system.</h1>
-          <span>
-            Every valid submission becomes a deduplicated contact, opportunity,
-            source signal, and response deadline.
-          </span>
-        </div>
-        <div className="capture-settings-orbit" aria-hidden="true">
-          <b>{forms.filter((form) => form.is_active).length}</b>
-          <span>LIVE FORMS</span>
-        </div>
-      </section>
       {notice && (
         <p className="capture-settings-notice" role="status">
           {notice}

@@ -1,6 +1,6 @@
 # Database backup and recovery runbook
 
-The automated local database recovery gate passed on 1 August 2026. A hosted staging restore, Storage-object recovery, and provider point-in-time recovery exercise remain release gates.
+The automated local database recovery gate most recently passed on 10 August 2026. A hosted staging restore, Storage-object recovery, and provider point-in-time recovery exercise remain release gates.
 
 ## Automated local recovery gate
 
@@ -12,7 +12,7 @@ npm run test:restore
 
 The verifier creates a PostgreSQL custom-format backup inside the local database container, calculates its SHA-256 digest, restores it into a randomly named disposable database, and compares source and restored structural evidence. It then force-drops only the validated `aios_restore_drill_<random>` database and removes only its matching temporary dump, including on failure.
 
-The latest 8 August checkpoint restored 80 application tables with RLS, 188 policies, 434 indexes, 87 public functions, all 90 migrations through `20260801280000`, and representative organization, membership, and audit row counts. Source and restored evidence matched exactly. Backup plus restore completed in 4.7 seconds on the local workstation, and post-run inspection found no temporary database or dump. The verified dump SHA-256 was `4998176e9b2b0d8dd0ba11339f7d6dd9d1042cf7ad920789d1f76fcfccfa981e`.
+The latest checkpoint first replayed the disposable database from zero with no schema-lint findings, then restored 81 application tables with RLS, 189 policies, 443 indexes, 92 public functions, all 96 migrations through `20260810170000`, and representative organization, membership, and audit row counts. Source and restored evidence matched exactly. Backup plus restore completed in 7.6 seconds on the local workstation, and post-run cleanup removed the validated temporary database and dump. The verified dump SHA-256 was `26a414d9648423fdb0664720d6adcea859086c58cc08621356dbdb289160c413`.
 
 This proves the logical PostgreSQL backup is restorable in the matching Supabase PostgreSQL image. It does not prove hosted recovery time, managed point-in-time recovery, Auth/provider configuration, secrets, or Storage object bytes.
 

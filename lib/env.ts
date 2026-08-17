@@ -27,7 +27,10 @@ const resendWebhookEnvSchema = z.object({
 export type ResendWebhookEnv = z.infer<typeof resendWebhookEnvSchema>;
 
 export const MODEL_PROVIDERS = [
+  "groq",
   "glm",
+  "nvidia",
+  "openrouter",
   "openai",
   "gemini",
   "anthropic",
@@ -38,7 +41,7 @@ export type ModelProvider = z.infer<typeof modelProviderSchema>;
 
 export function parseModelProvider(
   value: unknown,
-  fallback: ModelProvider = "glm",
+  fallback: ModelProvider = "groq",
 ) {
   const parsed = modelProviderSchema.safeParse(value);
   return parsed.success ? parsed.data : fallback;
@@ -63,7 +66,20 @@ export function parseModelProviders(
 }
 
 const aiosModelEnvSchema = z.object({
-  AIOS_MODEL_PROVIDER: modelProviderSchema.default("glm"),
+  AIOS_MODEL_PROVIDER: modelProviderSchema.default("groq"),
+  AIOS_MODEL_PROVIDER_PRIORITY: z.string().trim().optional(),
+  GROQ_API_KEY: z.string().trim().min(1).optional(),
+  GROQ_API_BASE: z.url().default("https://api.groq.com/openai/v1"),
+  GROQ_MODEL: z.string().trim().min(1).max(120).default("llama-3.3-70b-versatile"),
+  ZHIPU_API_KEY: z.string().trim().min(1).optional(),
+  ZHIPU_API_BASE: z.url().default("https://open.bigmodel.cn/api/paas/v4"),
+  ZHIPU_MODEL: z.string().trim().min(1).max(120).default("glm-4-flash"),
+  NVIDIA_API_KEY: z.string().trim().min(1).optional(),
+  NVIDIA_API_BASE: z.url().default("https://integrate.api.nvidia.com/v1"),
+  NVIDIA_MODEL: z.string().trim().min(1).max(120).default("meta/llama-3.3-70b-instruct"),
+  OPENROUTER_API_KEY: z.string().trim().min(1).optional(),
+  OPENROUTER_API_BASE: z.url().default("https://openrouter.ai/api/v1"),
+  OPENROUTER_MODEL: z.string().trim().min(1).max(120).default("openrouter/free"),
   AIOS_GLM_API_KEY: z.string().trim().min(1).optional(),
   AIOS_GLM_BASE_URL: z.url().optional(),
   AIOS_GLM_MODEL: z.string().trim().min(1).max(120).default("glm-4.7-flash"),
@@ -84,7 +100,12 @@ const aiosWorkerEnvSchema = z.object({
   AIOS_WORKER_SECRET: z.string().min(32).max(512),
 });
 
+const inboundEmailWorkerEnvSchema = z.object({
+  EMAIL_INBOUND_WORKER_SECRET: z.string().min(32).max(512),
+});
+
 export type AiosWorkerEnv = z.infer<typeof aiosWorkerEnvSchema>;
+export type InboundEmailWorkerEnv = z.infer<typeof inboundEmailWorkerEnvSchema>;
 
 /** Allows local UI and static builds to run before deployment credentials exist. */
 export function hasSupabaseEnv() {
@@ -138,7 +159,20 @@ export function getResendWebhookEnv(): ResendWebhookEnv {
 /** Model credentials remain server-only. An absent key leaves AIOS fail-closed. */
 export function getAiosModelEnv(): AiosModelEnv {
   return aiosModelEnvSchema.parse({
-    AIOS_MODEL_PROVIDER: process.env.AIOS_MODEL_PROVIDER || "glm",
+    AIOS_MODEL_PROVIDER: process.env.AIOS_MODEL_PROVIDER || "groq",
+    AIOS_MODEL_PROVIDER_PRIORITY: process.env.AIOS_MODEL_PROVIDER_PRIORITY || undefined,
+    GROQ_API_KEY: process.env.GROQ_API_KEY || undefined,
+    GROQ_API_BASE: process.env.GROQ_API_BASE || undefined,
+    GROQ_MODEL: process.env.GROQ_MODEL || undefined,
+    ZHIPU_API_KEY: process.env.ZHIPU_API_KEY || undefined,
+    ZHIPU_API_BASE: process.env.ZHIPU_API_BASE || undefined,
+    ZHIPU_MODEL: process.env.ZHIPU_MODEL || undefined,
+    NVIDIA_API_KEY: process.env.NVIDIA_API_KEY || undefined,
+    NVIDIA_API_BASE: process.env.NVIDIA_API_BASE || undefined,
+    NVIDIA_MODEL: process.env.NVIDIA_MODEL || undefined,
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || undefined,
+    OPENROUTER_API_BASE: process.env.OPENROUTER_API_BASE || undefined,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || undefined,
     AIOS_GLM_API_KEY: process.env.AIOS_GLM_API_KEY || undefined,
     AIOS_GLM_BASE_URL: process.env.AIOS_GLM_BASE_URL || undefined,
     AIOS_GLM_MODEL: process.env.AIOS_GLM_MODEL || "glm-4.7-flash",
@@ -154,6 +188,23 @@ export function getAiosModelEnv(): AiosModelEnv {
   });
 }
 
+export function getAiosModelProviderPriority(): ModelProvider[] {
+  const configured = process.env.AIOS_MODEL_PROVIDER_PRIORITY
+    ?.split(",")
+    .map((provider) => provider.trim())
+    .filter(Boolean);
+  return parseModelProviders(configured, [
+    "groq",
+    "glm",
+    "nvidia",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "qwen",
+  ]);
+}
+
 export function hasAiosWorkerEnv() {
   return Boolean(process.env.AIOS_WORKER_SECRET);
 }
@@ -162,5 +213,16 @@ export function hasAiosWorkerEnv() {
 export function getAiosWorkerEnv(): AiosWorkerEnv {
   return aiosWorkerEnvSchema.parse({
     AIOS_WORKER_SECRET: process.env.AIOS_WORKER_SECRET,
+  });
+}
+
+export function hasInboundEmailWorkerEnv() {
+  return Boolean(process.env.EMAIL_INBOUND_WORKER_SECRET);
+}
+
+/** Server-to-server credential for bounded tenant IMAP polling. */
+export function getInboundEmailWorkerEnv(): InboundEmailWorkerEnv {
+  return inboundEmailWorkerEnvSchema.parse({
+    EMAIL_INBOUND_WORKER_SECRET: process.env.EMAIL_INBOUND_WORKER_SECRET,
   });
 }

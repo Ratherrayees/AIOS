@@ -26,11 +26,19 @@ import {
   prepareConversationReplyDraft,
   reviewConversationReplyDraft,
 } from "../actions/sales-copilot";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import { requestEmailDraftDelivery } from "../actions/email";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { SavedViewControls } from "../../components/ui/saved-view-controls";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
+import type { WorkspaceRole } from "../../lib/workspace/active-workspace";
 import type { Json } from "../../types/database";
 import "./inbox.css";
 
@@ -40,6 +48,14 @@ type Contact = {
   last_name: string | null;
   email: string | null;
 };
+const inboxWriteRoles = new Set<WorkspaceRole>([
+  "owner",
+  "admin",
+  "sales",
+  "trip_designer",
+  "operations",
+  "agent",
+]);
 type Deal = { id: string; title: string; stage: string };
 type Conversation = {
   id: string;
@@ -94,6 +110,15 @@ type MessageDraftReview = {
   decision: "approved" | "changes_requested" | "rejected";
   note: string | null;
   reviewed_at: string;
+};
+type EmailDelivery = {
+  id: string;
+  message_draft_id: string;
+  approval_request_id: string;
+  status: "pending_approval" | "sending" | "sent" | "failed" | "cancelled";
+  provider: "resend" | "custom_smtp" | null;
+  provider_message_id: string | null;
+  created_at: string;
 };
 type CopilotInsight = {
   summary: string;
@@ -194,6 +219,8 @@ function name(contact: Contact | undefined) {
 
 export default function InboxPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [role, setRole] = useState<WorkspaceRole | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -208,7 +235,7 @@ export default function InboxPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ConversationStatus>("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("mine");
   const [slaFilter, setSlaFilter] =
     useState<ConversationSlaFilter>("all");
   const [draftTemplateId, setDraftTemplateId] = useState("");
@@ -224,33 +251,48 @@ export default function InboxPage() {
   const [copilotInsight, setCopilotInsight] =
     useState<CopilotInsight | null>(null);
   const [draftReviews, setDraftReviews] = useState<MessageDraftReview[]>([]);
+  const [emailDeliveries, setEmailDeliveries] = useState<EmailDelivery[]>([]);
   const [reviewingDraftId, setReviewingDraftId] = useState("");
   const [draftReviewNote, setDraftReviewNote] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [filterTimestamp, setFilterTimestamp] = useState(0);
   const [pending, startTransition] = useTransition();
+  const canWrite = role ? inboxWriteRoles.has(role) : false;
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user)
+        throw userError ?? new Error("The signed-in profile is unavailable.");
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
       setOrganizationId(membership.organization_id);
+      setRole(membership.role);
+      setCurrentUserId(user.id);
       const [
-        { data: contactRows },
-        { data: dealRows },
-        { data: memberRows },
-        { data: conversationRows },
-        { data: messageRows },
-        { data: templateRows },
-        { data: draftRows },
-        { data: draftReviewRows },
-        { data: savedViewRows },
+        { data: contactRows, error: contactError },
+        { data: dealRows, error: dealError },
+        { data: memberRows, error: memberError },
+        { data: conversationRows, error: conversationError },
+        { data: messageRows, error: messageError },
+        { data: templateRows, error: templateError },
+        { data: draftRows, error: draftError },
+        { data: draftReviewRows, error: draftReviewError },
+        { data: emailDeliveryRows, error: emailDeliveryError },
+        { data: savedViewRows, error: savedViewError },
       ] = await Promise.all([
         supabase
           .from("contacts")
@@ -312,12 +354,33 @@ export default function InboxPage() {
           .order("reviewed_at", { ascending: false })
           .limit(200),
         supabase
+          .from("email_message_deliveries")
+          .select(
+            "id, message_draft_id, approval_request_id, status, provider, provider_message_id, created_at",
+          )
+          .eq("organization_id", membership.organization_id)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
           .from("saved_views")
           .select("id, name, filters, created_at")
           .eq("organization_id", membership.organization_id)
           .eq("feature", "inbox")
           .order("updated_at", { ascending: false }),
       ]);
+      const loadFailure =
+        contactError ??
+        dealError ??
+        memberError ??
+        conversationError ??
+        messageError ??
+        templateError ??
+        draftError ??
+        draftReviewError ??
+        emailDeliveryError ??
+        savedViewError;
+      if (loadFailure) throw loadFailure;
+
       const nextConversations: Conversation[] = (conversationRows || []).map(
         (conversation) => ({
           ...conversation,
@@ -325,12 +388,14 @@ export default function InboxPage() {
         }),
       );
       const memberIds = (memberRows || []).map((member) => member.user_id);
-      const { data: profileRows } = memberIds.length
+      const profileResult = memberIds.length
         ? await supabase
             .from("profiles")
             .select("id, full_name")
             .in("id", memberIds)
-        : { data: [] };
+        : { data: [], error: null };
+      if (profileResult.error) throw profileResult.error;
+      const profileRows = profileResult.data;
       const names = new Map(
         (profileRows || []).map((profile) => [profile.id, profile.full_name]),
       );
@@ -360,16 +425,30 @@ export default function InboxPage() {
         })),
       );
       setDraftReviews(draftReviewRows || []);
+      setEmailDeliveries((emailDeliveryRows || []) as EmailDelivery[]);
       setSavedViews(savedViewRows || []);
       setFilterTimestamp(Date.now());
-      setSelectedId(nextConversations[0]?.id || null);
+      const focusedDealId = new URLSearchParams(window.location.search).get(
+        "deal",
+      );
+      const focusedConversation = nextConversations.find(
+        (conversation) => conversation.deal_id === focusedDealId,
+      );
+      if (focusedConversation) setAssigneeFilter("all");
+      setSelectedId(
+        focusedConversation?.id ||
+          nextConversations.find(
+            (conversation) => conversation.assignee_id === user.id,
+          )?.id ||
+          null,
+      );
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load the communication hub.");
+      setLoadError("The communication workspace could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   const contactById = useMemo(
     () => new Map(contacts.map((contact) => [contact.id, contact])),
@@ -398,16 +477,27 @@ export default function InboxPage() {
     }
     return reviews;
   }, [draftReviews]);
+  const latestDeliveryByDraft = useMemo(() => {
+    const deliveries = new Map<string, EmailDelivery>();
+    for (const delivery of emailDeliveries) {
+      if (!deliveries.has(delivery.message_draft_id)) {
+        deliveries.set(delivery.message_draft_id, delivery);
+      }
+    }
+    return deliveries;
+  }, [emailDeliveries]);
   const visibleConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return conversations.filter((conversation) => {
       if (statusFilter !== "all" && conversation.status !== statusFilter)
         return false;
       if (
-        assigneeFilter === "unassigned"
-          ? conversation.assignee_id !== null
-          : assigneeFilter !== "all" &&
-            conversation.assignee_id !== assigneeFilter
+        assigneeFilter === "mine"
+          ? conversation.assignee_id !== currentUserId
+          : assigneeFilter === "unassigned"
+            ? conversation.assignee_id !== null
+            : assigneeFilter !== "all" &&
+              conversation.assignee_id !== assigneeFilter
       )
         return false;
       if (slaFilter === "overdue") {
@@ -444,6 +534,7 @@ export default function InboxPage() {
     assigneeFilter,
     contactById,
     conversations,
+    currentUserId,
     dealById,
     query,
     filterTimestamp,
@@ -550,6 +641,8 @@ export default function InboxPage() {
         };
         setConversations((current) => [next, ...current]);
         setSelectedId(next.id);
+        setAssigneeFilter(next.assignee_id || "unassigned");
+        setSelectedSavedViewId("");
         setDraftTemplateId("");
         setEditingDraftId("");
         setDraftChannel("email");
@@ -895,6 +988,32 @@ export default function InboxPage() {
     });
   }
 
+  function requestDraftDelivery(draft: MessageDraft) {
+    if (!organizationId || pending) return;
+    startTransition(async () => {
+      try {
+        const result = await requestEmailDraftDelivery({
+          organizationId,
+          draftId: draft.id,
+        });
+        setEmailDeliveries((current) => [
+          result.delivery as EmailDelivery,
+          ...current.filter((item) => item.id !== result.delivery.id),
+        ]);
+        setNotice(
+          "Send approval requested. The email will be delivered automatically only after an authorized human approves this exact revision.",
+        );
+        window.dispatchEvent(new Event("aios:approvals-changed"));
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "The email delivery approval could not be requested.",
+        );
+      }
+    });
+  }
+
   function submitDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId || !selected || pending || !draftBody.trim()) return;
@@ -1021,25 +1140,47 @@ export default function InboxPage() {
   const overdueCount = conversations.filter((conversation) =>
     isConversationOverdue(conversation, filterTimestamp),
   ).length;
+  const openCount = conversations.filter(
+    (conversation) => conversation.status !== "closed",
+  ).length;
+  const myOpenCount = conversations.filter(
+    (conversation) =>
+      conversation.assignee_id === currentUserId &&
+      conversation.status !== "closed",
+  ).length;
+  const myOverdueCount = conversations.filter(
+    (conversation) =>
+      conversation.assignee_id === currentUserId &&
+      isConversationOverdue(conversation, filterTimestamp),
+  ).length;
 
   return (
     <main className="inbox-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
         links={[{ href: "/", label: "Back to command center" }]}
       />
-      <section className="inbox-hero">
-        <p>COMMUNICATION HUB</p>
-        <h1>Keep every relationship conversation in one place.</h1>
-        <span>
-          Start internal conversation records now. Inbound email and approved
-          outbound delivery activate after Resend is connected.
-        </span>
-      </section>
+      <OperationalPageHeader
+        section="Today"
+        title="Inbox"
+        meta={`${myOpenCount} my open · ${myOverdueCount} my overdue · ${openCount} workspace open · ${overdueCount} workspace overdue`}
+      />
       {notice && (
         <p className="inbox-notice" role="status">
           {notice}
         </p>
       )}
+      {loadError ? (
+        <ErrorState
+          title="Inbox is unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : (
+      <>
+      {canWrite ? (
+        <details className="crm-action-drawer">
+          <summary>New conversation</summary>
+          <div className="crm-action-drawer-body">
       <section className="inbox-new">
         <form onSubmit={submitConversation}>
           <select
@@ -1077,6 +1218,11 @@ export default function InboxPage() {
           </button>
         </form>
       </section>
+          </div>
+        </details>
+      ) : role ? (
+        <PermissionNotice description="You can read conversations and their linked CRM context. Reply drafting, ownership, SLA changes, templates, and internal notes require an operating role." />
+      ) : null}
       <section className="inbox-sla-summary" aria-label="Inbox SLA summary">
         <div>
           <small>OVERDUE</small>
@@ -1109,10 +1255,6 @@ export default function InboxPage() {
           </b>
           <span>manager or critical tier</span>
         </div>
-        <p>
-          AIOS may surface internal SLA risks. It cannot send a reply or change
-          a customer commitment without the external-action approval gate.
-        </p>
       </section>
       <section className="inbox-saved-views">
         <SavedViewControls
@@ -1125,6 +1267,10 @@ export default function InboxPage() {
           onRemove={removeSavedView}
         />
       </section>
+      {canWrite ? (
+        <details className="crm-action-drawer">
+          <summary>Reply templates and signatures</summary>
+          <div className="crm-action-drawer-body">
       <section className="inbox-template-library">
         <div>
           <p>REPLY LIBRARY</p>
@@ -1146,7 +1292,7 @@ export default function InboxPage() {
                   </span>
                   <button
                     type="button"
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onClick={() => retireTemplate(template.id)}
                   >
                     Retire
@@ -1194,6 +1340,9 @@ export default function InboxPage() {
           </button>
         </form>
       </section>
+          </div>
+        </details>
+      ) : null}
       <section className="inbox-workspace">
         <aside>
           <header>
@@ -1235,6 +1384,7 @@ export default function InboxPage() {
               }}
               aria-label="Filter conversations by owner"
             >
+              <option value="mine">My conversations</option>
               <option value="all">Every owner</option>
               <option value="unassigned">Shared inbox</option>
               {members.map((member) => (
@@ -1345,7 +1495,7 @@ export default function InboxPage() {
                   Workflow status
                   <select
                     value={selected.status}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onChange={(event) =>
                       changeStatus(event.target.value as Conversation["status"])
                     }
@@ -1360,7 +1510,7 @@ export default function InboxPage() {
                   Owner
                   <select
                     value={selected.assignee_id || ""}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onChange={(event) =>
                       changeAssignee(String(event.target.value) || null)
                     }
@@ -1412,7 +1562,7 @@ export default function InboxPage() {
                     )}
                   />
                 </label>
-                <button type="submit" disabled={pending}>
+                <button type="submit" disabled={pending || !canWrite}>
                   Save SLA
                 </button>
               </form>
@@ -1431,7 +1581,9 @@ export default function InboxPage() {
                     <button
                       type="button"
                       onClick={runSalesCopilot}
-                      disabled={pending || selectedMessages.length === 0}
+                      disabled={
+                        pending || !canWrite || selectedMessages.length === 0
+                      }
                     >
                       Ask Sales Copilot
                     </button>
@@ -1557,14 +1709,14 @@ export default function InboxPage() {
                     </select>
                   </label>
                   <div className="draft-actions">
-                    <button disabled={pending || !draftBody.trim()}>
+                    <button disabled={pending || !canWrite || !draftBody.trim()}>
                       {editingDraftId ? "Save revision" : "Save internal draft"}
                     </button>
                     {editingDraftId && (
                       <button
                         type="button"
                         className="secondary"
-                        disabled={pending}
+                        disabled={pending || !canWrite}
                         onClick={cancelDraftEdit}
                       >
                         Cancel
@@ -1579,6 +1731,7 @@ export default function InboxPage() {
                   >
                     {selectedDrafts.map((draft) => {
                       const latestReview = latestReviewByDraft.get(draft.id);
+                      const latestDelivery = latestDeliveryByDraft.get(draft.id);
                       const currentReview =
                         latestReview?.draft_updated_at === draft.updated_at
                           ? latestReview
@@ -1601,9 +1754,31 @@ export default function InboxPage() {
                                     : "review needed"}
                               </em>
                             ) : null}
+                            {draft.channel === "email" &&
+                            draft.recipient &&
+                            draft.subject &&
+                            (!draft.ai_run_id || currentReview?.decision === "approved") ? (
+                              latestDelivery ? (
+                                <em className={`delivery-${latestDelivery.status}`}>
+                                  {latestDelivery.status === "pending_approval"
+                                    ? "send approval pending"
+                                    : latestDelivery.status === "sent"
+                                      ? `sent via ${latestDelivery.provider}`
+                                      : latestDelivery.status.replaceAll("_", " ")}
+                                </em>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={pending || !canWrite}
+                                  onClick={() => requestDraftDelivery(draft)}
+                                >
+                                  Request send approval
+                                </button>
+                              )
+                            ) : null}
                             <button
                               type="button"
-                              disabled={pending}
+                              disabled={pending || !canWrite}
                               onClick={() => editDraft(draft)}
                             >
                               Edit
@@ -1611,7 +1786,9 @@ export default function InboxPage() {
                             {draft.ai_run_id ? (
                               <button
                                 type="button"
-                                disabled={pending || Boolean(currentReview)}
+                                disabled={
+                                  pending || !canWrite || Boolean(currentReview)
+                                }
                                 onClick={() => {
                                   setReviewingDraftId(
                                     reviewingDraftId === draft.id
@@ -1668,7 +1845,7 @@ export default function InboxPage() {
                             <div>
                               <button
                                 type="button"
-                                disabled={pending}
+                                disabled={pending || !canWrite}
                                 onClick={() =>
                                   reviewCopilotDraft(draft, "approved")
                                 }
@@ -1734,9 +1911,9 @@ export default function InboxPage() {
                 <input
                   name="body"
                   placeholder="Write an internal note—this will not email anyone"
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                 />
-                <button disabled={pending}>Record note</button>
+                <button disabled={pending || !canWrite}>Record note</button>
               </form>
             </>
           ) : (
@@ -1744,6 +1921,8 @@ export default function InboxPage() {
           )}
         </section>
       </section>
+      </>
+      )}
     </main>
   );
 }

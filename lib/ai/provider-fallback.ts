@@ -46,28 +46,32 @@ export function validFallbackProvider(input: {
 
 export async function executeProviderRoute<T>(input: {
   primary: ModelProvider;
-  fallback: ModelProvider | null;
+  fallback?: ModelProvider | null;
+  fallbacks?: readonly ModelProvider[];
   execute: (provider: ModelProvider) => Promise<T>;
   isTransientFailure: (error: unknown) => boolean;
 }) {
-  if (input.fallback === input.primary) {
-    throw new Error("The fallback provider must differ from the primary.");
-  }
+  const fallbacks = input.fallbacks ?? (input.fallback ? [input.fallback] : []);
+  if (fallbacks.includes(input.primary))
+    throw new Error("Fallback providers must differ from the primary.");
+  if (new Set(fallbacks).size !== fallbacks.length)
+    throw new Error("Fallback providers must be unique.");
 
   const attemptedProviders: ModelProvider[] = [input.primary];
-  try {
-    return {
-      value: await input.execute(input.primary),
-      attemptedProviders,
-      fallbackUsed: false,
-    };
-  } catch (error) {
-    if (!input.fallback || !input.isTransientFailure(error)) throw error;
-    attemptedProviders.push(input.fallback);
-    return {
-      value: await input.execute(input.fallback),
-      attemptedProviders,
-      fallbackUsed: true,
-    };
+  const route = [input.primary, ...fallbacks];
+  for (let index = 0; index < route.length; index += 1) {
+    const provider = route[index];
+    try {
+      return {
+        value: await input.execute(provider),
+        attemptedProviders,
+        fallbackUsed: index > 0,
+      };
+    } catch (error) {
+      if (index === route.length - 1 || !input.isTransientFailure(error))
+        throw error;
+      attemptedProviders.push(route[index + 1]);
+    }
   }
+  throw new Error("AIOS provider routing exhausted without a result.");
 }

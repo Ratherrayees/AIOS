@@ -41,11 +41,15 @@ const protectedTables = [
   "conversations",
   "messages",
   "approval_requests",
+  "approval_escalation_events",
   "ai_runs",
   "ai_jobs",
   "ai_tool_calls",
   "audit_events",
   "email_webhook_events",
+  "email_inbound_events",
+  "email_ingestion_checkpoints",
+  "email_message_deliveries",
   "ai_autonomy_policies",
   "ai_budget_policies",
   "ai_model_prices",
@@ -73,6 +77,22 @@ const protectedTables = [
   "itinerary_template_items",
   "itinerary_comments",
   "organization_invitations",
+  "organization_integrations",
+  "platform_admins",
+  "platform_operator_invitations",
+  "platform_integrations",
+  "platform_audit_events",
+  "organization_lifecycle",
+  "organization_lifecycle_events",
+  "identity_security_controls",
+  "identity_security_events",
+  "platform_plans",
+  "platform_plan_prices",
+  "platform_entitlement_definitions",
+  "platform_plan_entitlements",
+  "organization_subscriptions",
+  "organization_subscription_events",
+  "organization_entitlement_snapshots",
   "saved_views",
   "analytics_targets",
   "message_templates",
@@ -157,6 +177,17 @@ async function verify() {
     data: anonymousMfaResult,
     error: anonymousMfaError,
   } = await anonymous.rpc("meets_mfa_requirement");
+  const { error: anonymousApprovalEscalationError } = await anonymous.rpc(
+    "escalate_approval_request",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_approval_id: "22222222-2222-4222-8222-222222222222",
+    },
+  );
+  const { error: anonymousApprovalEscalationWorkerError } =
+    await anonymous.rpc("escalate_overdue_approval_requests", {
+      target_limit: 1,
+    });
   const { error: anonymousLeadCaptureError } = await anonymous.rpc(
     "capture_public_lead",
     {
@@ -787,7 +818,263 @@ async function verify() {
       target_quote_id: "22222222-2222-4222-8222-222222222222",
     },
   );
+  const { error: anonymousItineraryReorderError } = await anonymous.rpc(
+    "reorder_itinerary_item",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_trip_id: "22222222-2222-4222-8222-222222222222",
+      target_itinerary_item_id: "33333333-3333-4333-8333-333333333333",
+      target_direction: "up",
+    },
+  );
+  const { error: anonymousLifecycleMutationError } = await anonymous.rpc(
+    "set_organization_lifecycle_service",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_status: "suspended",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous lifecycle mutation",
+      expected_version: 1,
+    },
+  );
+  const { error: anonymousAgencyProvisioningError } = await anonymous.rpc(
+    "provision_organization_service",
+    {
+      organization_name: "Blocked agency",
+      organization_slug: "blocked-agency",
+      owner_email: "blocked@example.invalid",
+      invitation_token_hash: "0".repeat(64),
+      actor_id: "11111111-1111-4111-8111-111111111111",
+      provision_reason: "Blocked anonymous provisioning attempt",
+    },
+  );
+  const { error: anonymousInvitationResendError } = await anonymous.rpc(
+    "resend_organization_invitation_service",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_invitation_id: "22222222-2222-4222-8222-222222222222",
+      replacement_token_hash: "1".repeat(64),
+      actor_id: "33333333-3333-4333-8333-333333333333",
+      resend_reason: "Blocked anonymous invitation resend",
+    },
+  );
+  const { error: anonymousCurrentSecurityError } = await anonymous.rpc(
+    "get_current_identity_security_control",
+  );
+  const { error: anonymousIdentityStatusError } = await anonymous.rpc(
+    "set_identity_security_status_service",
+    {
+      target_user_id: "11111111-1111-4111-8111-111111111111",
+      target_status: "suspended",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous identity mutation",
+      expected_version: 1,
+    },
+  );
+  const { error: anonymousPlatformAccessError } = await anonymous.rpc(
+    "set_platform_access_service",
+    {
+      target_user_id: "11111111-1111-4111-8111-111111111111",
+      target_role: "platform_admin",
+      target_status: "active",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous platform access mutation",
+      expected_version: null,
+    },
+  );
+  const { error: anonymousPlatformInvitationCreateError } = await anonymous.rpc(
+    "create_platform_operator_invitation_service",
+    {
+      invitation_email: "blocked@example.invalid",
+      target_role: "platform_admin",
+      invitation_token_hash: "0".repeat(64),
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      invitation_reason: "Blocked anonymous operator invitation",
+      invitation_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  );
+  const { error: anonymousPlatformInvitationAcceptanceError } =
+    await anonymous.rpc("accept_platform_operator_invitation", {
+      invitation_token_hash: "0".repeat(64),
+    });
+  const { error: anonymousSessionRevocationError } = await anonymous.rpc(
+    "revoke_identity_sessions_service",
+    {
+      target_user_id: "11111111-1111-4111-8111-111111111111",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous session revocation",
+      expected_version: 1,
+    },
+  );
+  const { error: anonymousPasswordResetRequirementError } = await anonymous.rpc(
+    "require_identity_password_reset_service",
+    {
+      target_user_id: "11111111-1111-4111-8111-111111111111",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous password reset",
+      expected_version: 1,
+    },
+  );
+  const { error: anonymousPasswordResetCompletionError } = await anonymous.rpc(
+    "complete_required_password_reset_service",
+    { target_user_id: "11111111-1111-4111-8111-111111111111" },
+  );
+  const { error: anonymousBillingSummaryError } = await anonymous.rpc(
+    "get_current_billing_summary",
+    { target_organization_id: "11111111-1111-4111-8111-111111111111" },
+  );
+  const { error: anonymousPlanCreationError } = await anonymous.rpc(
+    "create_platform_plan_service",
+    {
+      target_plan_code: "blocked",
+      target_name: "Blocked",
+      target_description: "Blocked anonymous plan creation",
+      target_currency: "INR",
+      target_interval: "month",
+      target_amount_minor: 0,
+      target_user_limit: 1,
+      target_monthly_ai_runs: 0,
+      target_storage_gb: 0,
+      target_assisted_ai: false,
+      target_autopilot_ai: false,
+      target_email_automation: false,
+      target_whatsapp_automation: false,
+      target_analytics_exports: false,
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      creation_reason: "Blocked anonymous plan creation",
+    },
+  );
+  const { error: anonymousPlanStatusError } = await anonymous.rpc(
+    "set_platform_plan_status_service",
+    {
+      target_plan_id: "11111111-1111-4111-8111-111111111111",
+      target_status: "active",
+      actor_id: "22222222-2222-4222-8222-222222222222",
+      change_reason: "Blocked anonymous plan activation",
+    },
+  );
+  const { error: anonymousSubscriptionMutationError } = await anonymous.rpc(
+    "set_organization_subscription_service",
+    {
+      target_organization_id: "11111111-1111-4111-8111-111111111111",
+      target_plan_id: "22222222-2222-4222-8222-222222222222",
+      target_status: "active",
+      target_trial_ends_at: null,
+      target_period_start: null,
+      target_period_end: null,
+      target_grace_ends_at: null,
+      target_cancel_at_period_end: false,
+      actor_id: "33333333-3333-4333-8333-333333333333",
+      change_reason: "Blocked anonymous subscription mutation",
+      expected_version: null,
+    },
+  );
+  const { error: anonymousUsageSnapshotError } = await anonymous.rpc(
+    "get_platform_usage_snapshot_service",
+    {
+      actor_id: "11111111-1111-4111-8111-111111111111",
+      target_since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+    },
+  );
   const rpcChecks = [
+    {
+      function: "create_platform_operator_invitation_service",
+      anonymousExecutionBlocked: Boolean(anonymousPlatformInvitationCreateError),
+      anonymousErrorCode: anonymousPlatformInvitationCreateError?.code ?? null,
+    },
+    {
+      function: "accept_platform_operator_invitation",
+      anonymousExecutionBlocked: Boolean(anonymousPlatformInvitationAcceptanceError),
+      anonymousErrorCode: anonymousPlatformInvitationAcceptanceError?.code ?? null,
+    },
+    {
+      function: "set_platform_access_service",
+      anonymousExecutionBlocked: Boolean(anonymousPlatformAccessError),
+      anonymousErrorCode: anonymousPlatformAccessError?.code ?? null,
+    },
+    {
+      function: "get_platform_usage_snapshot_service",
+      anonymousExecutionBlocked: Boolean(anonymousUsageSnapshotError),
+      anonymousErrorCode: anonymousUsageSnapshotError?.code ?? null,
+    },
+    {
+      function: "get_current_billing_summary",
+      anonymousExecutionBlocked: Boolean(anonymousBillingSummaryError),
+      anonymousErrorCode: anonymousBillingSummaryError?.code ?? null,
+    },
+    {
+      function: "create_platform_plan_service",
+      anonymousExecutionBlocked: Boolean(anonymousPlanCreationError),
+      anonymousErrorCode: anonymousPlanCreationError?.code ?? null,
+    },
+    {
+      function: "set_platform_plan_status_service",
+      anonymousExecutionBlocked: Boolean(anonymousPlanStatusError),
+      anonymousErrorCode: anonymousPlanStatusError?.code ?? null,
+    },
+    {
+      function: "set_organization_subscription_service",
+      anonymousExecutionBlocked: Boolean(anonymousSubscriptionMutationError),
+      anonymousErrorCode: anonymousSubscriptionMutationError?.code ?? null,
+    },
+    {
+      function: "resend_organization_invitation_service",
+      anonymousExecutionBlocked: Boolean(anonymousInvitationResendError),
+      anonymousErrorCode: anonymousInvitationResendError?.code ?? null,
+    },
+    {
+      function: "provision_organization_service",
+      anonymousExecutionBlocked: Boolean(anonymousAgencyProvisioningError),
+      anonymousErrorCode: anonymousAgencyProvisioningError?.code ?? null,
+    },
+    {
+      function: "set_organization_lifecycle_service",
+      anonymousExecutionBlocked: Boolean(anonymousLifecycleMutationError),
+      anonymousErrorCode: anonymousLifecycleMutationError?.code ?? null,
+    },
+    {
+      function: "get_current_identity_security_control",
+      anonymousExecutionBlocked: Boolean(anonymousCurrentSecurityError),
+      anonymousErrorCode: anonymousCurrentSecurityError?.code ?? null,
+    },
+    {
+      function: "set_identity_security_status_service",
+      anonymousExecutionBlocked: Boolean(anonymousIdentityStatusError),
+      anonymousErrorCode: anonymousIdentityStatusError?.code ?? null,
+    },
+    {
+      function: "revoke_identity_sessions_service",
+      anonymousExecutionBlocked: Boolean(anonymousSessionRevocationError),
+      anonymousErrorCode: anonymousSessionRevocationError?.code ?? null,
+    },
+    {
+      function: "require_identity_password_reset_service",
+      anonymousExecutionBlocked: Boolean(anonymousPasswordResetRequirementError),
+      anonymousErrorCode: anonymousPasswordResetRequirementError?.code ?? null,
+    },
+    {
+      function: "complete_required_password_reset_service",
+      anonymousExecutionBlocked: Boolean(anonymousPasswordResetCompletionError),
+      anonymousErrorCode: anonymousPasswordResetCompletionError?.code ?? null,
+    },
+    {
+      function: "escalate_approval_request",
+      anonymousExecutionBlocked: Boolean(anonymousApprovalEscalationError),
+      anonymousErrorCode: anonymousApprovalEscalationError?.code ?? null,
+    },
+    {
+      function: "escalate_overdue_approval_requests",
+      anonymousExecutionBlocked: Boolean(
+        anonymousApprovalEscalationWorkerError,
+      ),
+      anonymousErrorCode:
+        anonymousApprovalEscalationWorkerError?.code ?? null,
+    },
+    {
+      function: "reorder_itinerary_item",
+      anonymousExecutionBlocked: Boolean(anonymousItineraryReorderError),
+      anonymousErrorCode: anonymousItineraryReorderError?.code ?? null,
+    },
     {
       function: "create_quote_catalog_product",
       anonymousExecutionBlocked: Boolean(anonymousCatalogProductError),

@@ -74,6 +74,7 @@ import {
   travelerEntryCheckInputSchema,
   wonDealConversionSchema,
   itineraryItemInputSchema,
+  itineraryItemReorderSchema,
   itineraryTemplateApplyInputSchema,
   itineraryTemplateFromTripInputSchema,
   itineraryCommentInputSchema,
@@ -158,6 +159,7 @@ import {
   type TravelerEntryCheckInput,
   type WonDealConversionInput,
   type ItineraryItemInput,
+  type ItineraryItemReorderInput,
   type ItineraryTemplateApplyInput,
   type ItineraryTemplateFromTripInput,
   type ItineraryCommentInput,
@@ -2334,6 +2336,7 @@ export async function createTripDraft(input: TripDraftInput) {
       status: "draft",
       start_date: data.startDate ?? null,
       end_date: data.endDate ?? null,
+      time_zone: data.timeZone,
       currency: data.currency,
     })
     .select()
@@ -2380,6 +2383,7 @@ export async function updateTripOperations(input: TripOperationsUpdateInput) {
     .update({
       name: data.name,
       destination: data.destination,
+      time_zone: data.timeZone,
       start_date: data.startDate,
       end_date: data.endDate,
       currency: data.currency,
@@ -2412,6 +2416,7 @@ export async function updateTripOperations(input: TripOperationsUpdateInput) {
       body: `Trip operations updated: ${trip.name}`,
       metadata: {
         destination: trip.destination,
+        time_zone: trip.time_zone,
         start_date: trip.start_date,
         end_date: trip.end_date,
       },
@@ -3748,6 +3753,9 @@ export async function addItineraryItem(input: ItineraryItemInput) {
       target_title: data.title,
       target_location_name: data.locationName ?? null,
       target_notes: data.notes ?? null,
+      target_starts_at_local: data.startsAtLocal ?? null,
+      target_ends_at_local: data.endsAtLocal ?? null,
+      target_time_zone: data.timeZone ?? null,
     })
     .single();
   if (error || !result)
@@ -3768,6 +3776,42 @@ export async function addItineraryItem(input: ItineraryItemInput) {
     metadata: { event: "itinerary.item_created", trip_id: data.tripId, day: item.day_number },
   });
   return item;
+}
+
+/** Moves one item within its day while the shared trip lock serializes editors. */
+export async function reorderItineraryItem(input: ItineraryItemReorderInput) {
+  const data = itineraryItemReorderSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, [
+    "owner",
+    "admin",
+    "sales",
+    "trip_designer",
+    "operations",
+  ]);
+  const supabase = await createSupabaseServerClient();
+  const { data: reorderedItems, error } = await supabase.rpc(
+    "reorder_itinerary_item",
+    {
+      target_organization_id: data.organizationId,
+      target_trip_id: data.tripId,
+      target_itinerary_item_id: data.itineraryItemId,
+      target_direction: data.direction,
+    },
+  );
+  if (error || !reorderedItems)
+    throw error ?? new Error("The itinerary item could not be moved.");
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.updated",
+    entityType: "itinerary_item",
+    entityId: data.itineraryItemId,
+    metadata: {
+      event: "itinerary.item_reordered",
+      trip_id: data.tripId,
+      direction: data.direction,
+    },
+  });
+  return reorderedItems;
 }
 
 /** Saves an internal trip pattern as a tenant-scoped reusable template. */

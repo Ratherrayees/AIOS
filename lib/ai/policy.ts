@@ -1,6 +1,7 @@
 import { actionRequiresApproval, type ApprovalAction } from "../security";
 
 export const AUTONOMOUS_INTERNAL_ACTIONS = [
+  "workspace.daily.coordinate",
   "internal.task.create",
   "internal.note.create",
   "internal.summary.create",
@@ -11,6 +12,7 @@ export const AUTONOMOUS_INTERNAL_ACTIONS = [
   "crm.lead.triage",
   "inbox.sla.triage",
   "trip.operations.monitor",
+  "crm.deal.route",
 ] as const;
 
 export type AutonomousInternalAction =

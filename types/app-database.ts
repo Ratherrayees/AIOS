@@ -23,16 +23,25 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
       | "create_quote_draft"
       | "publish_quote_catalog_rate"
       | "settle_ai_job"
+      | "set_organization_subscription_service"
+      | "set_platform_access_service"
       | "transition_deal_stage"
     > & {
       append_itinerary_item: WithArgs<
         "append_itinerary_item",
         Omit<
           GeneratedFunctions["append_itinerary_item"]["Args"],
-          "target_location_name" | "target_notes"
+          | "target_ends_at_local"
+          | "target_location_name"
+          | "target_notes"
+          | "target_starts_at_local"
+          | "target_time_zone"
         > & {
+          target_ends_at_local: string | null;
           target_location_name: string | null;
           target_notes: string | null;
+          target_starts_at_local: string | null;
+          target_time_zone: string | null;
         }
       >;
       create_quote_draft: WithArgs<
@@ -97,6 +106,32 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
           "target_error_code"
         > & {
           target_error_code: string | null;
+        }
+      >;
+      set_organization_subscription_service: WithArgs<
+        "set_organization_subscription_service",
+        Omit<
+          GeneratedFunctions["set_organization_subscription_service"]["Args"],
+          | "expected_version"
+          | "target_grace_ends_at"
+          | "target_period_end"
+          | "target_period_start"
+          | "target_trial_ends_at"
+        > & {
+          expected_version: number | null;
+          target_grace_ends_at: string | null;
+          target_period_end: string | null;
+          target_period_start: string | null;
+          target_trial_ends_at: string | null;
+        }
+      >;
+      set_platform_access_service: WithArgs<
+        "set_platform_access_service",
+        Omit<
+          GeneratedFunctions["set_platform_access_service"]["Args"],
+          "expected_version"
+        > & {
+          expected_version: number | null;
         }
       >;
       transition_deal_stage: WithArgs<

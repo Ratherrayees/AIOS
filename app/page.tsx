@@ -9,6 +9,7 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 import {
   createContact,
@@ -17,15 +18,13 @@ import {
   deleteSavedView,
   updateDealStage,
 } from "./actions/crm";
-import { signOut } from "./sign-out/actions";
+import { runDailyAiosCoordinator } from "./actions/agents";
+import { summarizeApprovalAttention } from "../lib/ai/approval-access";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
-import {
-  loadWorkspaceContext,
-  saveActiveWorkspace,
-} from "../lib/supabase/workspace-context";
-import type { WorkspaceChoice } from "../lib/workspace/active-workspace";
+import { loadWorkspaceContext } from "../lib/supabase/workspace-context";
 import type { Database, Json } from "../types/database";
 import { assessLeadHealth } from "../lib/crm/lead-health";
+import { summarizeDailyWorkAttention } from "../lib/crm/work-attention";
 import {
   allowedPipelineTransitions,
   isAllowedPipelineTransition,
@@ -39,12 +38,9 @@ import {
   type DataTableColumn,
 } from "../components/ui/data-table";
 import { ModalBoundary } from "../components/ui/modal-boundary";
+import { OperationalPageHeader } from "../components/ui/operational-page-header";
 import { SavedViewControls } from "../components/ui/saved-view-controls";
 import { SetupChecklist } from "../components/ui/setup-checklist";
-import {
-  JourneyRail,
-  WorkspaceGuide,
-} from "../components/ui/workspace-guide";
 import "./dashboard.css";
 import "./search.css";
 import "./leads-filters.css";
@@ -73,13 +69,6 @@ type Lead = {
   followUpDueAt: string | null;
   slaEscalationLevel: number;
   accent: string;
-};
-type SearchResult = {
-  id: string;
-  title: string;
-  detail: string;
-  kind: "Lead" | "Contact" | "Task";
-  href: string;
 };
 type Member = { id: string; name: string };
 type SavedView = {
@@ -123,26 +112,6 @@ function leadFiltersFromSavedView(savedView: SavedView | undefined) {
 }
 
 const accents = ["violet", "pink", "blue", "lime", "orange"];
-
-function displayInitials(name: string) {
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return initials || "TO";
-}
-
-function displayRole(role: WorkspaceChoice["role"] | null) {
-  if (!role) return "Team member";
-  return role
-    .split("_")
-    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-    .join(" ");
-}
 
 function formatAmount(amount: number | null, currency = "INR") {
   if (amount === null) return "TBC";
@@ -420,17 +389,14 @@ function KanbanColumn({
 }
 
 export default function Home() {
-  const [active, setActive] = useState<View>("Command center");
+  const pathname = usePathname();
+  const router = useRouter();
+  const active: View = pathname === "/leads" ? "Leads" : "Command center";
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Your travel workspace");
-  const [userName, setUserName] = useState("Travel operator");
-  const [userRole, setUserRole] = useState<WorkspaceChoice["role"] | null>(
-    null,
-  );
-  const [availableWorkspaces, setAvailableWorkspaces] = useState<
-    WorkspaceChoice[]
-  >([]);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceRole, setWorkspaceRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
@@ -443,20 +409,50 @@ export default function Home() {
     useState<LeadAttentionFilter>("all");
   const [openTaskCount, setOpenTaskCount] = useState(0);
   const [overdueTaskCount, setOverdueTaskCount] = useState(0);
+  const [workspaceOverdueTaskCount, setWorkspaceOverdueTaskCount] = useState(0);
+  const [attentionSummary, setAttentionSummary] = useState({
+    myOverdueInbox: 0,
+    workspaceOverdueInbox: 0,
+    myPendingApprovals: 0,
+    workspacePendingApprovals: 0,
+    myActiveTrips: 0,
+    workspaceActiveTrips: 0,
+    overduePayments: 0,
+    aiCompletedToday: 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [leadOpen, setLeadOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [toast, setToast] = useState("");
   const [isCreating, startCreating] = useTransition();
+  const [isCoordinating, startCoordinating] = useTransition();
   const [isMoving, startMoving] = useTransition();
   const [movingLeadId, setMovingLeadId] = useState<string | null>(null);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [activeDropStage, setActiveDropStage] =
     useState<PipelineStage | null>(null);
+
+  function showTimedToast(message: string) {
+    setToast(message);
+    window.setTimeout(
+      () => setToast((current) => (current === message ? "" : current)),
+      3400,
+    );
+  }
+
+  useEffect(() => {
+    const flash = window.sessionStorage.getItem("aios.crm.flash");
+    if (!flash) return;
+    window.sessionStorage.removeItem("aios.crm.flash");
+    const showTimer = window.setTimeout(() => setToast(flash), 0);
+    const hideTimer = window.setTimeout(
+      () => setToast((current) => (current === flash ? "" : current)),
+      3400,
+    );
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const loadWorkspace = async () => {
@@ -470,20 +466,37 @@ export default function Home() {
 
       setOrganizationId(context.active.organization_id);
       setWorkspaceName(context.active.name);
-      setUserRole(context.active.role);
-      setAvailableWorkspaces(context.workspaces);
+      setWorkspaceRole(context.active.role);
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
       if (userError || !user)
         throw userError ?? new Error("The signed-in profile is unavailable.");
+      const { data: signedInProfile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+      setUserName(
+        signedInProfile?.full_name?.trim() ||
+          user.email?.split("@")[0] ||
+          "Travel operator",
+      );
+      setCurrentUserId(user.id);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
       const [
         { data: deals },
         { data: tasks },
         { data: memberRows },
         { data: savedViewRows },
-        { data: signedInProfile },
+        { data: conversationRows },
+        { data: approvalRows },
+        { data: approvalPolicyRows },
+        { data: tripRows },
+        { data: paymentRows },
+        { data: aiRunRows },
       ] = await Promise.all([
         supabase
           .from("deals")
@@ -493,7 +506,7 @@ export default function Home() {
           .order("created_at", { ascending: false }),
         supabase
           .from("tasks")
-          .select("status, due_at")
+          .select("status, due_at, assignee_id")
           .eq("organization_id", context.active.organization_id),
         supabase
           .from("memberships")
@@ -508,16 +521,33 @@ export default function Home() {
           .eq("feature", "leads")
           .order("updated_at", { ascending: false }),
         supabase
-          .from("profiles")
-          .select("full_name")
-          .eq("id", user.id)
-          .maybeSingle(),
+          .from("conversations")
+          .select("status, response_due_at, assignee_id")
+          .eq("organization_id", context.active.organization_id),
+        supabase
+          .from("approval_requests")
+          .select("action, approver_id")
+          .eq("organization_id", context.active.organization_id)
+          .eq("status", "pending"),
+        supabase
+          .from("ai_autonomy_policies")
+          .select("action, approval_roles")
+          .eq("organization_id", context.active.organization_id),
+        supabase
+          .from("trips")
+          .select("status, owner_id")
+          .eq("organization_id", context.active.organization_id),
+        supabase
+          .from("payments")
+          .select("status")
+          .eq("organization_id", context.active.organization_id),
+        supabase
+          .from("ai_runs")
+          .select("status")
+          .eq("organization_id", context.active.organization_id)
+          .eq("status", "succeeded")
+          .gte("created_at", todayStart.toISOString()),
       ]);
-      setUserName(
-        signedInProfile?.full_name?.trim() ||
-          user.email?.split("@")[0] ||
-          "Travel operator",
-      );
       const memberIds = (memberRows || []).map((member) => member.user_id);
       const { data: profileRows } = memberIds.length
         ? await supabase
@@ -540,15 +570,39 @@ export default function Home() {
           .filter((deal) => deal.stage !== "won" && deal.stage !== "lost")
           .map(leadFromDeal),
       );
-      const activeTasks = (tasks || []).filter(
-        (task) => task.status === "open" || task.status === "in_progress",
-      );
-      setOpenTaskCount(activeTasks.length);
-      setOverdueTaskCount(
-        activeTasks.filter(
-          (task) => task.due_at && new Date(task.due_at).getTime() < Date.now(),
+      const now = Date.now();
+      const workAttention = summarizeDailyWorkAttention({
+        userId: user.id,
+        now,
+        tasks: tasks || [],
+        conversations: conversationRows || [],
+        trips: tripRows || [],
+      });
+      setOpenTaskCount(workAttention.tasks.workspaceActive);
+      setOverdueTaskCount(workAttention.tasks.mineOverdue);
+      setWorkspaceOverdueTaskCount(workAttention.tasks.workspaceOverdue);
+      const approvalAttention = summarizeApprovalAttention(approvalRows || [], {
+        role: context.active.role,
+        userId: user.id,
+        approvalRolesByAction: Object.fromEntries(
+          (approvalPolicyRows || []).map((policy) => [
+            policy.action,
+            policy.approval_roles,
+          ]),
+        ),
+      });
+      setAttentionSummary({
+        myOverdueInbox: workAttention.inbox.mineOverdue,
+        workspaceOverdueInbox: workAttention.inbox.workspaceOverdue,
+        myPendingApprovals: approvalAttention.mine,
+        workspacePendingApprovals: approvalAttention.workspace,
+        myActiveTrips: workAttention.trips.mineActive,
+        workspaceActiveTrips: workAttention.trips.workspaceActive,
+        overduePayments: (paymentRows || []).filter(
+          (payment) => payment.status === "overdue",
         ).length,
-      );
+        aiCompletedToday: (aiRunRows || []).length,
+      });
       setIsLoading(false);
     };
     void loadWorkspace().catch(() => {
@@ -556,115 +610,6 @@ export default function Home() {
       setIsLoading(false);
     });
   }, []);
-
-  useEffect(() => {
-    const syncViewFromUrl = () => {
-      const requestedView = new URLSearchParams(window.location.search).get(
-        "view",
-      );
-      setActive(requestedView === "leads" ? "Leads" : "Command center");
-    };
-    syncViewFromUrl();
-    window.addEventListener("popstate", syncViewFromUrl);
-    return () => window.removeEventListener("popstate", syncViewFromUrl);
-  }, []);
-
-  function changeWorkspace(nextOrganizationId: string) {
-    if (nextOrganizationId === organizationId) {
-      setWorkspaceMenuOpen(false);
-      return;
-    }
-    if (!availableWorkspaces.length) return;
-
-    try {
-      saveActiveWorkspace(nextOrganizationId, availableWorkspaces);
-      setWorkspaceMenuOpen(false);
-      window.location.reload();
-    } catch (error) {
-      setToast(
-        error instanceof Error
-          ? error.message
-          : "AIOS could not switch workspaces.",
-      );
-    }
-  }
-
-  useEffect(() => {
-    const openCommandPalette = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener("keydown", openCommandPalette);
-    return () => window.removeEventListener("keydown", openCommandPalette);
-  }, []);
-
-  useEffect(() => {
-    if (!searchOpen || !organizationId) return;
-    const query = searchTerm.trim();
-    if (query.length < 2) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        setIsSearching(true);
-        const pattern = `%${query.replace(/[\\%_(),.]/g, " ")}%`;
-        const supabase = createSupabaseBrowserClient();
-        const [{ data: dealRows }, { data: contactRows }, { data: taskRows }] =
-          await Promise.all([
-            supabase
-              .from("deals")
-              .select("id, title, destination")
-              .eq("organization_id", organizationId)
-              .ilike("title", pattern)
-              .limit(5),
-            supabase
-              .from("contacts")
-              .select("id, first_name, last_name, email")
-              .eq("organization_id", organizationId)
-              .ilike("first_name", pattern)
-              .limit(5),
-            supabase
-              .from("tasks")
-              .select("id, title, status")
-              .eq("organization_id", organizationId)
-              .ilike("title", pattern)
-              .limit(5),
-          ]);
-        if (cancelled) return;
-        setSearchResults([
-          ...(dealRows || []).map((deal) => ({
-            id: deal.id,
-            title: deal.title,
-            detail: deal.destination || "Travel opportunity",
-            kind: "Lead" as const,
-            href: `/leads/${deal.id}`,
-          })),
-          ...(contactRows || []).map((contact) => ({
-            id: contact.id,
-            title: [contact.first_name, contact.last_name]
-              .filter(Boolean)
-              .join(" "),
-            detail: contact.email || "CRM contact",
-            kind: "Contact" as const,
-            href: "/contacts",
-          })),
-          ...(taskRows || []).map((task) => ({
-            id: task.id,
-            title: task.title,
-            detail: task.status.replace("_", " "),
-            kind: "Task" as const,
-            href: "/tasks",
-          })),
-        ]);
-        setIsSearching(false);
-      })();
-    }, 180);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [organizationId, searchOpen, searchTerm]);
 
   const grouped = useMemo(
     () => ({
@@ -728,8 +673,7 @@ export default function Home() {
     0,
   );
   const pipelineValue = leads.reduce((sum, lead) => sum + lead.amount, 0);
-  const userInitials = displayInitials(userName);
-  const userFirstName = userName.trim().split(/\s+/)[0] || "there";
+  const userFirstName = userName?.trim().split(/\s+/)[0] || "there";
   const pipelineCurrencies = [...new Set(leads.map((lead) => lead.currency))];
   const pipelineCurrency =
     pipelineCurrencies.length === 1 ? pipelineCurrencies[0] : null;
@@ -763,6 +707,70 @@ export default function Home() {
       return;
     }
     setLeadOpen(true);
+  }
+
+  function runDailyCoordinator() {
+    if (!organizationId || isCoordinating) return;
+    startCoordinating(async () => {
+      try {
+        const result = await runDailyAiosCoordinator({ organizationId });
+        showTimedToast(
+          result.status === "completed" || result.status === "partial"
+            ? `AIOS daily sweep ${result.status}: ${result.totals.changed} internal update${result.totals.changed === 1 ? "" : "s"}, ${result.totals.approvals} approval${result.totals.approvals === 1 ? "" : "s"}. No external action was available.`
+            : result.status === "approval_required"
+              ? "The AIOS daily sweep is waiting in Approvals. No child workflow has run."
+              : `The AIOS daily sweep is ${result.status}. No external action was performed.`,
+        );
+        const supabase = createSupabaseBrowserClient();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const [approvalRows, approvalPolicyRows, completedRunCount] =
+          await Promise.all([
+          supabase
+            .from("approval_requests")
+            .select("action, approver_id")
+            .eq("organization_id", organizationId)
+            .eq("status", "pending"),
+          supabase
+            .from("ai_autonomy_policies")
+            .select("action, approval_roles")
+            .eq("organization_id", organizationId),
+          supabase
+            .from("ai_runs")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId)
+            .eq("status", "succeeded")
+            .gte("created_at", todayStart.toISOString()),
+          ]);
+        const approvalAttention = summarizeApprovalAttention(
+          approvalRows.data || [],
+          {
+            role: workspaceRole,
+            userId: currentUserId,
+            approvalRolesByAction: Object.fromEntries(
+              (approvalPolicyRows.data || []).map((policy) => [
+                policy.action,
+                policy.approval_roles,
+              ]),
+            ),
+          },
+        );
+        setAttentionSummary((current) => ({
+          ...current,
+          myPendingApprovals: approvalAttention.mine,
+          workspacePendingApprovals: approvalAttention.workspace,
+          aiCompletedToday:
+              completedRunCount.count ?? current.aiCompletedToday,
+        }));
+        window.dispatchEvent(new Event("aios:approvals-changed"));
+      } catch (error) {
+        showTimedToast(
+          error instanceof Error
+            ? error.message
+            : "AIOS could not run the daily internal sweep.",
+        );
+      }
+    });
   }
 
   function selectLeadSavedView(savedViewId: string) {
@@ -876,23 +884,24 @@ export default function Home() {
           expectedCloseAt: expectedCloseAt || null,
         });
         setLeads((current) => [leadFromDeal(deal), ...current]);
-        setActive("Leads");
+        window.sessionStorage.setItem(
+          "aios.crm.flash",
+          `${name} is now in your live pipeline.`,
+        );
+        router.push("/leads");
         setLeadOpen(false);
-        setToast(`${name} is now in your live pipeline.`);
       } catch {
-        setToast("AIOS could not create that lead. Please try again.");
+        showTimedToast("AIOS could not create that lead. Please try again.");
       }
-      window.setTimeout(() => setToast(""), 3400);
     });
   }
 
   function moveLeadToStage(lead: Lead, stage: PipelineStage) {
     if (!organizationId || movingLeadId) return;
     if (!isAllowedPipelineTransition(lead.databaseStage, stage)) {
-      setToast(
+      showTimedToast(
         `${PIPELINE_STAGE_LABELS[stage]} is not a legal adjacent move from ${lead.stage}.`,
       );
-      window.setTimeout(() => setToast(""), 3400);
       return;
     }
     setMovingLeadId(lead.id);
@@ -904,7 +913,7 @@ export default function Home() {
           stage,
         });
         if (!result.ok) {
-          setToast(result.message);
+          showTimedToast(result.message);
           return;
         }
         const updated = result.deal;
@@ -913,12 +922,13 @@ export default function Home() {
             item.id === lead.id ? leadFromDeal(updated, index) : item,
           ),
         );
-        setToast(`${lead.name} moved to ${PIPELINE_STAGE_LABELS[stage]}.`);
+        showTimedToast(
+          `${lead.name} moved to ${PIPELINE_STAGE_LABELS[stage]}.`,
+        );
       } catch {
-        setToast("AIOS could not update that stage. Please try again.");
+        showTimedToast("AIOS could not update that stage. Please try again.");
       } finally {
         setMovingLeadId(null);
-        window.setTimeout(() => setToast(""), 3400);
       }
     });
   }
@@ -961,181 +971,27 @@ export default function Home() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="logo">
-          <span className="logo-mark">A</span>
-          <span>AIOS</span>
-        </div>
-        <div
-          className="workspace-control"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setWorkspaceMenuOpen(false);
-          }}
-        >
-          <button
-            className="workspace-switcher"
-            type="button"
-            aria-expanded={workspaceMenuOpen}
-            aria-haspopup="menu"
-            onClick={() => setWorkspaceMenuOpen((current) => !current)}
-          >
-            <span className="workspace-glyph">◆</span>
-            <span>
-              <small>WORKSPACE</small>
-              <b>{workspaceName}</b>
-            </span>
-            <i aria-hidden="true">{workspaceMenuOpen ? "⌃" : "⌄"}</i>
-          </button>
-          {workspaceMenuOpen && (
-            <div className="workspace-menu" role="menu">
-              {availableWorkspaces.map((workspace) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={workspace.organization_id === organizationId}
-                  key={workspace.organization_id}
-                  onClick={() => changeWorkspace(workspace.organization_id)}
-                >
-                  <span>{workspace.name}</span>
-                  <small>{workspace.role.replace("_", " ")}</small>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <nav aria-label="CRM navigation">
-          <p className="nav-heading">TODAY</p>
-          <button
-            className={`nav-link ${active === "Command center" ? "selected" : ""}`}
-            type="button"
-            onClick={() => setActive("Command center")}
-          >
-            <span className="nav-glyph">◫</span>
-            <span>Command center</span>
-          </button>
-          <a className="nav-link" href="/inbox">
-            <span className="nav-glyph">◌</span>
-            <span>Inbox</span>
-          </a>
-          <a className="nav-link" href="/tasks">
-            <span className="nav-glyph">✓</span>
-            <span>Tasks</span>
-          </a>
-          <p className="nav-heading">SALES</p>
-          <button
-            className={`nav-link ${active === "Leads" ? "selected" : ""}`}
-            type="button"
-            onClick={() => setActive("Leads")}
-          >
-            <span className="nav-glyph">◉</span>
-            <span>Leads</span>
-            <b>{leads.length}</b>
-          </button>
-          <a className="nav-link" href="/contacts">
-            <span className="nav-glyph">◎</span>
-            <span>Contacts</span>
-          </a>
-          <a className="nav-link" href="/quotes">
-            <span className="nav-glyph">Q</span>
-            <span>Quotes</span>
-          </a>
-          <a className="nav-link" href="/itineraries">
-            <span className="nav-glyph">I</span>
-            <span>Itinerary Studio</span>
-          </a>
-          <p className="nav-heading">OPERATIONS</p>
-          <Link className="nav-link" href="/trips">
-            <span className="nav-glyph">O</span>
-            <span>Trip Operations</span>
-          </Link>
-          <Link className="nav-link" href="/finance">
-            <span className="nav-glyph">₹</span>
-            <span>Suppliers &amp; Finance</span>
-          </Link>
-          <p className="nav-heading">INTELLIGENCE</p>
-          <a className="nav-link" href="/aios">
-            <span className="nav-glyph">✦</span>
-            <span>AIOS Control</span>
-          </a>
-          <a className="nav-link" href="/knowledge">
-            <span className="nav-glyph">K</span>
-            <span>Knowledge</span>
-          </a>
-          <a className="nav-link" href="/analytics">
-            <span className="nav-glyph">↗</span>
-            <span>Analytics</span>
-          </a>
-          <p className="nav-heading">ADMINISTRATION</p>
-          <a className="nav-link" href="/settings/lead-capture">
-            <span className="nav-glyph">+</span>
-            <span>Lead capture</span>
-          </a>
-          <a className="nav-link" href="/settings/sales-workflows">
-            <span className="nav-glyph">W</span>
-            <span>Sales workflows</span>
-          </a>
-          <a className="nav-link" href="/settings/team">
-            <span className="nav-glyph">T</span>
-            <span>Team access</span>
-          </a>
-          <a className="nav-link" href="/settings/security">
-            <span className="nav-glyph">2</span>
-            <span>Account security</span>
-          </a>
-        </nav>
-        <div className="sidebar-footer">
-          <div className="secure">
-            <i>✓</i> Tenant-secured workspace
-          </div>
-          <form action={signOut}>
-            <button className="profile" type="submit" title="Sign out">
-              <Avatar initials={userInitials} accent="rayees" />
-              <span>
-                <b>{userName}</b>
-                <small>{displayRole(userRole)} · Sign out</small>
-              </span>
-            </button>
-          </form>
-        </div>
-      </aside>
-      <section className="workspace-main" id="main-content" tabIndex={-1}>
-        <header className="header">
-          <button
-            className="global-search"
-            type="button"
-            onClick={() => setSearchOpen(true)}
-          >
-            <span>⌕</span>
-            <span>Search leads, contacts, and tasks…</span>
-            <kbd>⌘ K</kbd>
-          </button>
-          <div className="header-actions">
-            <span style={{ color: "#777588", fontSize: 11 }}>Live CRM</span>
-            <Avatar initials={userInitials} accent="rayees" />
-          </div>
-        </header>
-        <div className="page-wrap">
+    <main className="page-wrap" id="main-content" tabIndex={-1}>
           {active === "Command center" ? (
             <>
               <section className="page-intro">
                 <div>
-                  <p className="date">AIOS COMMAND CENTER</p>
-                  <h1>
-                    Welcome back, {userFirstName}. Start with what needs
-                    attention.
-                  </h1>
+                  <p className="date">TODAY</p>
+                  <h1>Good morning, {userFirstName}.</h1>
                   <p>
-                    One operating view for sales, delivery, AIOS and human
-                    approvals in {workspaceName}.
+                    {workspaceOverdueTaskCount +
+                      attentionSummary.workspaceOverdueInbox +
+                      attentionSummary.overduePayments +
+                      attentionSummary.workspacePendingApprovals}{" "}
+                    items need attention in {workspaceName}.
                   </p>
                 </div>
                 <div className="intro-actions">
                   <Link
                     className="secondary-button"
-                    href="/aios#lead-intake"
+                    href="/aios/approvals"
                   >
-                    ✦ Open AIOS workspace
+                    Review approvals
                   </Link>
                   <button
                     className="primary-button"
@@ -1146,18 +1002,45 @@ export default function Home() {
                   </button>
                 </div>
               </section>
-              <section className="dashboard-journey" aria-labelledby="journey-title">
-                <div>
-                  <p>YOUR OPERATING MODEL</p>
-                  <h2 id="journey-title">Follow the customer, not the software.</h2>
+              {leads.length === 0 ? <SetupChecklist hasLead={false} /> : null}
+              <section className="crm-attention-grid" aria-label="Needs attention">
+                <Link href="/tasks">
                   <span>
-                    Contacts describe people. Leads track a possible sale.
-                    Won leads become trips for delivery.
+                    My overdue tasks · {workspaceOverdueTaskCount} workspace-wide
                   </span>
-                </div>
-                <JourneyRail compact />
+                  <b>{overdueTaskCount}</b>
+                  <small>Open task queue →</small>
+                </Link>
+                <Link href="/inbox">
+                  <span>
+                    My overdue replies · {attentionSummary.workspaceOverdueInbox}{" "}
+                    workspace-wide
+                  </span>
+                  <b>{attentionSummary.myOverdueInbox}</b>
+                  <small>Open Inbox →</small>
+                </Link>
+                <Link href="/aios/approvals">
+                  <span>
+                    My approvals · {attentionSummary.workspacePendingApprovals}{" "}
+                    workspace-wide
+                  </span>
+                  <b>{attentionSummary.myPendingApprovals}</b>
+                  <small>Review decisions →</small>
+                </Link>
+                <Link href="/trips">
+                  <span>
+                    My active trips · {attentionSummary.workspaceActiveTrips}{" "}
+                    workspace-wide
+                  </span>
+                  <b>{attentionSummary.myActiveTrips}</b>
+                  <small>Open operations →</small>
+                </Link>
+                <Link href="/finance">
+                  <span>Payments overdue</span>
+                  <b>{attentionSummary.overduePayments}</b>
+                  <small>Open Finance →</small>
+                </Link>
               </section>
-              <SetupChecklist hasLead={leads.length > 0} />
               <section className="metric-grid">
                 <Metric
                   label="Pipeline value"
@@ -1198,7 +1081,7 @@ export default function Home() {
                 />
                 <Metric
                   label="Overdue follow-ups"
-                  value={String(overdueTaskCount)}
+                  value={String(workspaceOverdueTaskCount)}
                   note={
                     openTaskCount
                       ? `${openTaskCount} active tasks in queue`
@@ -1218,7 +1101,7 @@ export default function Home() {
                     <button
                       className="text-button"
                       type="button"
-                      onClick={() => setActive("Leads")}
+                      onClick={() => router.push("/leads")}
                     >
                       Open pipeline →
                     </button>
@@ -1242,101 +1125,108 @@ export default function Home() {
                         <b>{leads.length}</b> opportunities ready to work
                       </p>
                     </div>
-                    <div className="chart">
-                      <div className="chart-labels">
-                        <span>Decision</span>
-                        <span>Proposal</span>
-                        <span>Qualified</span>
-                      </div>
-                      <svg
-                        viewBox="0 0 440 144"
-                        role="img"
-                        aria-label="Pipeline stage mix"
-                      >
-                        <defs>
-                          <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                            <stop stopColor="#7759f5" stopOpacity=".22" />
-                            <stop
-                              offset="1"
-                              stopColor="#7759f5"
-                              stopOpacity="0"
-                            />
-                          </linearGradient>
-                        </defs>
-                        <path
-                          d="M3 118 C60 108,90 80,145 93 S230 42,290 65 S375 25,438 18 V144 H3Z"
-                          fill="url(#area)"
-                        />
-                        <path
-                          d="M3 118 C60 108,90 80,145 93 S230 42,290 65 S375 25,438 18"
-                          fill="none"
-                          stroke="#7657ed"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="months">
-                        <span>New</span>
-                        <span>Qualified</span>
-                        <span>Proposal</span>
-                        <span>Decision</span>
-                      </div>
+                    <div
+                      className="pipeline-stage-summary"
+                      aria-label="Pipeline stage summary"
+                    >
+                      {(
+                        [
+                          ["New", grouped.new],
+                          ["Qualified", grouped.qualified],
+                          ["Proposal", grouped.proposal],
+                          ["Decision", grouped.decision],
+                        ] as const
+                      ).map(([stage, stageLeads]) => (
+                        <Link key={stage} href="/leads">
+                          <span>{stage}</span>
+                          <b>{stageLeads.length}</b>
+                          <small>
+                            {pipelineCurrency
+                              ? formatAmount(
+                                  stageLeads.reduce(
+                                    (sum, lead) => sum + lead.amount,
+                                    0,
+                                  ) || null,
+                                  pipelineCurrency,
+                                )
+                              : `${Math.round(
+                                  (stageLeads.length /
+                                    Math.max(leads.length, 1)) *
+                                    100,
+                                )}% of pipeline`}
+                          </small>
+                        </Link>
+                      ))}
                     </div>
-                  </div>
-                  <div className="revenue-legend">
-                    <span>
-                      <i className="purple-dot" />
-                      New <b>{grouped.new.length}</b>
-                    </span>
-                    <span>
-                      <i className="blue-dot" />
-                      Proposal <b>{grouped.proposal.length}</b>
-                    </span>
-                    <span>
-                      <i className="gray-dot" />
-                      Decision <b>{grouped.decision.length}</b>
-                    </span>
                   </div>
                 </article>
                 <article className="panel ai-brief">
                   <div className="ai-card-head">
                     <span className="ai-star">✦</span>
                     <span>
-                      <p className="eyebrow">AIOS CONTROL</p>
-                      <h2>Human authority stays in control</h2>
+                      <p className="eyebrow">AIOS TODAY</p>
+                      <h2>Work completed and waiting</h2>
                     </span>
                   </div>
                   <div className="ai-brief-list">
                     <div className="ai-brief-row">
                       <b>01</b>
                       <span>
-                        <strong>Lead pipeline is live</strong>
+                        <strong>{attentionSummary.aiCompletedToday} AI actions completed</strong>
                         <small>
-                          Governed forms turn attributed requests into response
-                          deadlines and deduplicated opportunities.
+                          Summaries, analysis, and approved internal work today.
                         </small>
                       </span>
                     </div>
                     <div className="ai-brief-row">
                       <b>02</b>
                       <span>
-                        <strong>Tenant boundaries are enforced</strong>
-                        <small>RLS scopes each deal to its workspace.</small>
+                        <strong>
+                          {attentionSummary.myPendingApprovals} approval
+                          {attentionSummary.myPendingApprovals === 1 ? "" : "s"}{" "}
+                          need your decision
+                        </strong>
+                        <small>
+                          {attentionSummary.workspacePendingApprovals === 0
+                            ? "No approval gate is waiting in this workspace."
+                            : attentionSummary.myPendingApprovals === 0
+                              ? `${attentionSummary.workspacePendingApprovals} pending workspace-wide; none are assigned to you.`
+                              : `${attentionSummary.workspacePendingApprovals} pending across the workspace.`}
+                        </small>
                       </span>
                     </div>
                     <div className="ai-brief-row">
                       <b>03</b>
                       <span>
-                        <strong>Autonomy is configurable</strong>
+                        <strong>
+                          {attentionSummary.myOverdueInbox} conversation
+                          {attentionSummary.myOverdueInbox === 1 ? "" : "s"}{" "}
+                          need your reply
+                        </strong>
                         <small>
-                          Review drafts, approvals, and safe agent policies in
-                          AIOS Control.
+                          {attentionSummary.workspaceOverdueInbox === 0
+                            ? "The workspace response queue is current."
+                            : `${attentionSummary.workspaceOverdueInbox} overdue across the workspace.`}
                         </small>
                       </span>
                     </div>
                   </div>
-                  <a className="ask-bar" href="/aios">
-                    ✦ Open AIOS Control <i>policies &amp; approvals →</i>
+                  <button
+                    className="ask-bar aios-sweep-action"
+                    type="button"
+                    onClick={runDailyCoordinator}
+                    disabled={
+                      isCoordinating ||
+                      !["owner", "admin", "operations"].includes(
+                        workspaceRole || "",
+                      )
+                    }
+                  >
+                    ✦ {isCoordinating ? "Coordinating work…" : "Run daily AIOS sweep"}
+                    <i>internal work only</i>
+                  </button>
+                  <a className="ask-bar" href="/aios/approvals">
+                    ✦ Review AI work <i>activity &amp; approvals →</i>
                   </a>
                 </article>
               </section>
@@ -1350,7 +1240,7 @@ export default function Home() {
                     <button
                       className="text-button"
                       type="button"
-                      onClick={() => setActive("Leads")}
+                      onClick={() => router.push("/leads")}
                     >
                       View pipeline →
                     </button>
@@ -1417,14 +1307,12 @@ export default function Home() {
             </>
           ) : (
             <section className="module-page">
-              <section className="module-header">
-                <div>
-                  <p className="date">SALES WORKSPACE</p>
-                  <h1>Lead pipeline</h1>
-                  <span>
-                    Live, organization-scoped opportunities—not mock data.
-                  </span>
-                </div>
+              <OperationalPageHeader
+                contained
+                section="Sales"
+                title="Leads & pipeline"
+                meta={`${filteredLeads.length} active opportunities`}
+                actions={
                 <button
                   className="primary-button"
                   type="button"
@@ -1432,20 +1320,7 @@ export default function Home() {
                 >
                   + New lead
                 </button>
-              </section>
-              <WorkspaceGuide
-                eyebrow="SALES · PIPELINE"
-                title="Move each enquiry toward a clear decision."
-                purpose="The pipeline shows one commercial opportunity at its current evidence-backed stage."
-                nextAction="Open the highest-risk lead, record missing evidence and choose the next legal stage."
-                aiosRole="AIOS can detect stalled work and create safe internal follow-ups under your policy."
-                activeStage="qualify"
-                capabilities={[
-                  { label: "Live CRM", tone: "live" },
-                  { label: "Governed movement", tone: "guided" },
-                  { label: "External effects gated", tone: "approval" },
-                ]}
-                action={{ href: "/settings/sales-workflows", label: "Review qualification rules" }}
+                }
               />
               <div className="pipeline-summary">
                 <span>
@@ -1547,9 +1422,8 @@ export default function Home() {
                 />
               </section>
               <p className="pipeline-guidance">
-                <b>Governed pipeline:</b> drag cards only between highlighted
-                adjacent stages, or use each card&apos;s Move stage selector.
-                Every move is revalidated by the server and database.
+                Drag cards between valid adjacent stages, or use Move stage.
+                Every change is validated before it is saved.
               </p>
               <div className="kanban">
                 <KanbanColumn
@@ -1615,86 +1489,6 @@ export default function Home() {
               </div>
             </section>
           )}
-        </div>
-      </section>
-      <nav className="mobile-nav" aria-label="Mobile CRM navigation">
-        <Link aria-current="page" href="/">
-          <span aria-hidden="true">H</span>
-          Today
-        </Link>
-        <Link href="/?view=leads">
-          <span aria-hidden="true">L</span>
-          Leads
-        </Link>
-        <Link href="/inbox">
-          <span aria-hidden="true">I</span>
-          Inbox
-        </Link>
-        <Link href="/trips">
-          <span aria-hidden="true">O</span>
-          Trips
-        </Link>
-        <button
-          type="button"
-          aria-expanded={mobileMenuOpen}
-          aria-controls="mobile-more-menu"
-          onClick={() => setMobileMenuOpen((current) => !current)}
-        >
-          <span aria-hidden="true">•••</span>
-          More
-        </button>
-      </nav>
-      {mobileMenuOpen ? (
-        <div
-          className="mobile-more-menu"
-          id="mobile-more-menu"
-          role="dialog"
-          aria-label="All workspace areas"
-        >
-          <header>
-            <div>
-              <b>All workspace areas</b>
-              <span>Choose the job you need to do.</span>
-            </div>
-            <button
-              type="button"
-              aria-label="Close workspace navigation"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              ×
-            </button>
-          </header>
-          <section>
-            <div>
-              <small>TODAY</small>
-              <Link href="/tasks">Tasks</Link>
-            </div>
-            <div>
-              <small>SALES</small>
-              <Link href="/contacts">Contacts</Link>
-              <Link href="/quotes">Quotes</Link>
-              <Link href="/itineraries">Itineraries</Link>
-            </div>
-            <div>
-              <small>OPERATIONS</small>
-              <Link href="/finance">Suppliers &amp; Finance</Link>
-            </div>
-            <div>
-              <small>INTELLIGENCE</small>
-              <Link href="/aios">AIOS Control</Link>
-              <Link href="/knowledge">Knowledge</Link>
-              <Link href="/analytics">Analytics</Link>
-            </div>
-            <div>
-              <small>ADMINISTRATION</small>
-              <Link href="/settings/lead-capture">Lead capture</Link>
-              <Link href="/settings/sales-workflows">Sales workflows</Link>
-              <Link href="/settings/team">Team access</Link>
-              <Link href="/settings/security">Security</Link>
-            </div>
-          </section>
-        </div>
-      ) : null}
       {toast && (
         <div className="toast"><StatusNotice>{toast}</StatusNotice></div>
       )}
@@ -1705,95 +1499,7 @@ export default function Home() {
           onSubmit={submitLead}
         />
       )}
-      {searchOpen && (
-        <SearchPalette
-          term={searchTerm}
-          results={searchResults}
-          searching={isSearching}
-          onTermChange={(value) => {
-            setSearchTerm(value);
-            if (value.trim().length < 2) setIsSearching(false);
-          }}
-          onClose={() => {
-            setSearchOpen(false);
-            setSearchTerm("");
-            setSearchResults([]);
-          }}
-        />
-      )}
     </main>
-  );
-}
-
-function SearchPalette({
-  term,
-  results,
-  searching,
-  onTermChange,
-  onClose,
-}: {
-  term: string;
-  results: SearchResult[];
-  searching: boolean;
-  onTermChange: (value: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <ModalBoundary className="search-layer" onClose={onClose}>
-      <section
-        className="search-palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search your workspace"
-        tabIndex={-1}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <span>⌕</span>
-          <input
-            autoFocus
-            value={term}
-            onChange={(event) => onTermChange(event.target.value)}
-            placeholder="Search leads, contacts, or tasks…"
-          />
-          <kbd>ESC</kbd>
-        </header>
-        <div className="search-results">
-          {term.trim().length < 2 ? (
-            <p>Type at least two characters to search this workspace.</p>
-          ) : searching ? (
-            <p>Searching tenant-scoped CRM records…</p>
-          ) : results.length === 0 ? (
-            <p>No matching leads, contacts, or tasks.</p>
-          ) : (
-            results.map((result) => (
-              <a
-                href={result.href}
-                key={`${result.kind}-${result.id}`}
-                onClick={onClose}
-              >
-                <i>
-                  {result.kind === "Lead"
-                    ? "◉"
-                    : result.kind === "Contact"
-                      ? "◎"
-                      : "✓"}
-                </i>
-                <span>
-                  <b>{result.title}</b>
-                  <small>{result.detail}</small>
-                </span>
-                <em>{result.kind}</em>
-              </a>
-            ))
-          )}
-        </div>
-        <footer>
-          <span>Results stay inside your active workspace.</span>
-          <span>↵ Open</span>
-        </footer>
-      </section>
-    </ModalBoundary>
   );
 }
 

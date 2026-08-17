@@ -2,7 +2,12 @@ import "server-only";
 
 import OpenAI from "openai";
 
-import { getAiosModelEnv, type ModelProvider } from "../env";
+import {
+  getAiosModelEnv,
+  getAiosModelProviderPriority,
+  type ModelProvider,
+} from "../env";
+import { loadEnabledTenantIntegration } from "../integrations/tenant-config";
 import {
   type KnowledgeAnswerEvidence,
   parseGroundedKnowledgeAnswer,
@@ -218,22 +223,77 @@ type StructuredProviderRequest = {
   outputLabel: string;
 };
 
-function selectedProvider(providerOverride?: ModelProvider) {
+type ProviderSelection = {
+  provider: ModelProvider;
+  configured: boolean;
+  model: string;
+  apiKey?: string;
+  baseURL?: string;
+  projectId?: string;
+  source: "deployment" | "tenant";
+};
+
+function selectedProvider(providerOverride?: ModelProvider): ProviderSelection {
   const env = getAiosModelEnv();
-  const configuration: Record<ModelProvider, { configured: boolean; model: string }> = {
-    glm: { configured: Boolean(env.AIOS_GLM_API_KEY && env.AIOS_GLM_BASE_URL), model: env.AIOS_GLM_MODEL },
-    openai: { configured: Boolean(env.OPENAI_API_KEY), model: env.AIOS_OPENAI_MODEL },
-    gemini: { configured: Boolean(env.GEMINI_API_KEY), model: env.AIOS_GEMINI_MODEL },
-    anthropic: { configured: Boolean(env.ANTHROPIC_API_KEY), model: env.AIOS_ANTHROPIC_MODEL },
-    qwen: { configured: Boolean(env.QWEN_API_KEY && env.AIOS_QWEN_BASE_URL), model: env.AIOS_QWEN_MODEL },
+  const configuration: Record<ModelProvider, Omit<ProviderSelection, "provider">> = {
+    groq: { configured: Boolean(env.GROQ_API_KEY), model: env.GROQ_MODEL, apiKey: env.GROQ_API_KEY, baseURL: env.GROQ_API_BASE, source: "deployment" },
+    glm: { configured: Boolean(env.ZHIPU_API_KEY || env.AIOS_GLM_API_KEY), model: env.ZHIPU_API_KEY ? env.ZHIPU_MODEL : env.AIOS_GLM_MODEL, apiKey: env.ZHIPU_API_KEY || env.AIOS_GLM_API_KEY, baseURL: env.ZHIPU_API_KEY ? env.ZHIPU_API_BASE : env.AIOS_GLM_BASE_URL, source: "deployment" },
+    nvidia: { configured: Boolean(env.NVIDIA_API_KEY), model: env.NVIDIA_MODEL, apiKey: env.NVIDIA_API_KEY, baseURL: env.NVIDIA_API_BASE, source: "deployment" },
+    openrouter: { configured: Boolean(env.OPENROUTER_API_KEY), model: env.OPENROUTER_MODEL, apiKey: env.OPENROUTER_API_KEY, baseURL: env.OPENROUTER_API_BASE, source: "deployment" },
+    openai: { configured: Boolean(env.OPENAI_API_KEY), model: env.AIOS_OPENAI_MODEL, apiKey: env.OPENAI_API_KEY, source: "deployment" },
+    gemini: { configured: Boolean(env.GEMINI_API_KEY), model: env.AIOS_GEMINI_MODEL, apiKey: env.GEMINI_API_KEY, source: "deployment" },
+    anthropic: { configured: Boolean(env.ANTHROPIC_API_KEY), model: env.AIOS_ANTHROPIC_MODEL, apiKey: env.ANTHROPIC_API_KEY, source: "deployment" },
+    qwen: { configured: Boolean(env.QWEN_API_KEY && env.AIOS_QWEN_BASE_URL), model: env.AIOS_QWEN_MODEL, apiKey: env.QWEN_API_KEY, baseURL: env.AIOS_QWEN_BASE_URL, source: "deployment" },
   };
   const provider = providerOverride ?? env.AIOS_MODEL_PROVIDER;
-  return { env, provider, ...configuration[provider] };
+  return { provider, ...configuration[provider] };
 }
 
 export function getAiosProviderStatus(providerOverride?: ModelProvider) {
   const selection = selectedProvider(providerOverride);
-  return { provider: selection.provider, configured: selection.configured, model: selection.model };
+  return { provider: selection.provider, configured: selection.configured, model: selection.model, source: selection.source };
+}
+
+async function selectedProviderForOrganization(
+  provider: ModelProvider,
+  organizationId?: string,
+): Promise<ProviderSelection> {
+  if (organizationId && (provider === "openai" || provider === "anthropic")) {
+    const tenant = await loadEnabledTenantIntegration(
+      organizationId,
+      provider,
+    );
+    if (tenant) {
+      return {
+        provider,
+        configured: true,
+        model: String(tenant.publicConfig.model),
+        apiKey: tenant.secrets.apiKey,
+        projectId:
+          provider === "openai" && tenant.publicConfig.projectId
+            ? String(tenant.publicConfig.projectId)
+            : undefined,
+        source: "tenant",
+      };
+    }
+  }
+  return selectedProvider(provider);
+}
+
+export async function getAiosProviderStatusForOrganization(
+  organizationId: string,
+  provider: ModelProvider,
+) {
+  const selection = await selectedProviderForOrganization(
+    provider,
+    organizationId,
+  );
+  return {
+    provider: selection.provider,
+    configured: selection.configured,
+    model: selection.model,
+    source: selection.source,
+  };
 }
 
 function parseLeadOutput(output: string, source: LeadIntakeSource): LeadExtraction {
@@ -247,16 +307,16 @@ function parseItineraryOutput(output: string, source: ItineraryDraftSource): Iti
   return validateItineraryDraftForTrip(draft, source);
 }
 
-async function runOpenAiCompatible(input: { apiKey: string; baseURL?: string; model: string; provider: "glm" | "qwen"; request: StructuredProviderRequest }) : Promise<ProviderResponse> {
+async function runOpenAiCompatible(input: { apiKey: string; baseURL?: string; model: string; provider: "groq" | "glm" | "nvidia" | "openrouter" | "qwen"; request: StructuredProviderRequest }) : Promise<ProviderResponse> {
   const client = new OpenAI({ apiKey: input.apiKey, baseURL: input.baseURL, maxRetries: 0, timeout: AIOS_PROVIDER_TIMEOUT_MS });
-  const response = await client.chat.completions.create({ model: input.model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "system", content: input.request.systemInstruction }, { role: "user", content: JSON.stringify(input.request.payload) }] });
+  const response = await client.chat.completions.create({ model: input.model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "system", content: `${input.request.systemInstruction} The response must satisfy this JSON Schema exactly: ${JSON.stringify(input.request.responseSchema)}` }, { role: "user", content: JSON.stringify(input.request.payload) }] });
   const output = response.choices[0]?.message.content;
   if (!output) throw new Error(`${input.provider} returned no structured ${input.request.outputLabel} output.`);
   return { output, responseId: response.id, inputTokens: response.usage?.prompt_tokens ?? null, outputTokens: response.usage?.completion_tokens ?? null };
 }
 
-async function runOpenAi(request: StructuredProviderRequest, apiKey: string, model: string): Promise<ProviderResponse> {
-  const client = new OpenAI({ apiKey, maxRetries: 0, timeout: AIOS_PROVIDER_TIMEOUT_MS });
+async function runOpenAi(request: StructuredProviderRequest, apiKey: string, model: string, projectId?: string): Promise<ProviderResponse> {
+  const client = new OpenAI({ apiKey, project: projectId, maxRetries: 0, timeout: AIOS_PROVIDER_TIMEOUT_MS });
   const response = await client.responses.create({ model, store: false, reasoning: { effort: "low" }, max_output_tokens: 1_200, instructions: request.systemInstruction, input: JSON.stringify(request.payload), text: { format: { type: "json_schema", name: request.schemaName, strict: true, schema: request.responseSchema } } });
   return { output: response.output_text, responseId: response.id, inputTokens: response.usage?.input_tokens ?? null, outputTokens: response.usage?.output_tokens ?? null };
 }
@@ -303,16 +363,18 @@ async function runAnthropic(request: StructuredProviderRequest, apiKey: string, 
 async function runProviderRequest(
   request: StructuredProviderRequest,
   provider: ModelProvider,
+  organizationId?: string,
 ) {
-  const selection = selectedProvider(provider);
+  const selection = await selectedProviderForOrganization(
+    provider,
+    organizationId,
+  );
   if (!selection.configured) throw new AiosProviderNotConfiguredError(`Configure ${selection.provider} before running AIOS ${request.outputLabel}.`);
-  const { env } = selection;
   let result: ProviderResponse;
-  if (selection.provider === "glm") result = await runOpenAiCompatible({ apiKey: env.AIOS_GLM_API_KEY!, baseURL: env.AIOS_GLM_BASE_URL!, model: env.AIOS_GLM_MODEL, provider: "glm", request });
-  else if (selection.provider === "qwen") result = await runOpenAiCompatible({ apiKey: env.QWEN_API_KEY!, baseURL: env.AIOS_QWEN_BASE_URL!, model: env.AIOS_QWEN_MODEL, provider: "qwen", request });
-  else if (selection.provider === "openai") result = await runOpenAi(request, env.OPENAI_API_KEY!, env.AIOS_OPENAI_MODEL);
-  else if (selection.provider === "gemini") result = await runGemini(request, env.GEMINI_API_KEY!, env.AIOS_GEMINI_MODEL);
-  else result = await runAnthropic(request, env.ANTHROPIC_API_KEY!, env.AIOS_ANTHROPIC_MODEL);
+  if (["groq", "glm", "nvidia", "openrouter", "qwen"].includes(selection.provider)) result = await runOpenAiCompatible({ apiKey: selection.apiKey!, baseURL: selection.baseURL!, model: selection.model, provider: selection.provider as "groq" | "glm" | "nvidia" | "openrouter" | "qwen", request });
+  else if (selection.provider === "openai") result = await runOpenAi(request, selection.apiKey!, selection.model, selection.projectId);
+  else if (selection.provider === "gemini") result = await runGemini(request, selection.apiKey!, selection.model);
+  else result = await runAnthropic(request, selection.apiKey!, selection.model);
   return {
     ...result,
     provider: selection.provider,
@@ -324,17 +386,34 @@ async function runStructuredRequest(
   request: StructuredProviderRequest,
   providerOverride?: ModelProvider,
   fallbackProviderOverride?: ModelProvider | null,
+  organizationId?: string,
+  allowedProvidersOverride?: readonly ModelProvider[],
 ) {
   const primary = providerOverride ?? getAiosModelEnv().AIOS_MODEL_PROVIDER;
-  const fallback = fallbackProviderOverride
-    ? getAiosProviderStatus(fallbackProviderOverride).configured
-      ? fallbackProviderOverride
-      : null
-    : null;
+  const allowedProviders = new Set(
+    allowedProvidersOverride ?? getAiosModelProviderPriority(),
+  );
+  const fallbackCandidates = [
+    ...(fallbackProviderOverride ? [fallbackProviderOverride] : []),
+    ...getAiosModelProviderPriority(),
+  ].filter(
+    (provider, index, providers) =>
+      provider !== primary &&
+      allowedProviders.has(provider) &&
+      providers.indexOf(provider) === index,
+  );
+  const orderedFallbacks: ModelProvider[] = [];
+  for (const provider of fallbackCandidates) {
+    const selection = await selectedProviderForOrganization(
+      provider,
+      organizationId,
+    );
+    if (selection.configured) orderedFallbacks.push(provider);
+  }
   const routed = await executeProviderRoute({
     primary,
-    fallback,
-    execute: (provider) => runProviderRequest(request, provider),
+    fallbacks: orderedFallbacks,
+    execute: (provider) => runProviderRequest(request, provider, organizationId),
     isTransientFailure: isTransientProviderFailure,
   });
   return {
@@ -345,13 +424,13 @@ async function runStructuredRequest(
   };
 }
 
-export async function runLeadIntake(source: LeadIntakeSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null) {
-  const result = await runStructuredRequest({ systemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.leadIntake, payload: { lead: source }, responseSchema: leadIntakeResponseSchema, schemaName: "travel_lead_intake", outputLabel: "Lead Intake" }, providerOverride, fallbackProviderOverride);
+export async function runLeadIntake(source: LeadIntakeSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null, organizationId?: string, allowedProvidersOverride?: readonly ModelProvider[]) {
+  const result = await runStructuredRequest({ systemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.leadIntake, payload: { lead: source }, responseSchema: leadIntakeResponseSchema, schemaName: "travel_lead_intake", outputLabel: "Lead Intake" }, providerOverride, fallbackProviderOverride, organizationId, allowedProvidersOverride);
   return { extraction: parseLeadOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion, attemptedProviders: result.attemptedProviders, fallbackUsed: result.fallbackUsed };
 }
 
-export async function runItineraryDraft(source: ItineraryDraftSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null) {
-  const result = await runStructuredRequest({ systemInstruction: itinerarySystemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.itineraryDraft, payload: { trip: source }, responseSchema: itineraryDraftResponseSchema, schemaName: "travel_itinerary_draft", outputLabel: "Itinerary Draft" }, providerOverride, fallbackProviderOverride);
+export async function runItineraryDraft(source: ItineraryDraftSource, providerOverride?: ModelProvider, fallbackProviderOverride?: ModelProvider | null, organizationId?: string, allowedProvidersOverride?: readonly ModelProvider[]) {
+  const result = await runStructuredRequest({ systemInstruction: itinerarySystemInstruction, promptVersion: AIOS_PROMPT_VERSIONS.itineraryDraft, payload: { trip: source }, responseSchema: itineraryDraftResponseSchema, schemaName: "travel_itinerary_draft", outputLabel: "Itinerary Draft" }, providerOverride, fallbackProviderOverride, organizationId, allowedProvidersOverride);
   return { draft: parseItineraryOutput(result.output, source), responseId: result.responseId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, provider: result.provider, model: result.model, promptVersion: result.promptVersion, attemptedProviders: result.attemptedProviders, fallbackUsed: result.fallbackUsed };
 }
 
@@ -362,6 +441,8 @@ export async function runKnowledgeAnswer(
   },
   providerOverride?: ModelProvider,
   fallbackProviderOverride?: ModelProvider | null,
+  organizationId?: string,
+  allowedProvidersOverride?: readonly ModelProvider[],
 ) {
   const result = await runStructuredRequest(
     {
@@ -381,6 +462,8 @@ export async function runKnowledgeAnswer(
     },
     providerOverride,
     fallbackProviderOverride,
+    organizationId,
+    allowedProvidersOverride,
   );
   const parsed = JSON.parse(result.output) as unknown;
   return {
@@ -401,6 +484,8 @@ export async function runConversationReplyDraft(
   channel: "email" | "whatsapp",
   providerOverride?: ModelProvider,
   fallbackProviderOverride?: ModelProvider | null,
+  organizationId?: string,
+  allowedProvidersOverride?: readonly ModelProvider[],
 ) {
   const result = await runStructuredRequest(
     {
@@ -416,6 +501,8 @@ export async function runConversationReplyDraft(
     },
     providerOverride,
     fallbackProviderOverride,
+    organizationId,
+    allowedProvidersOverride,
   );
   return {
     draft: parseConversationCopilotDraft(JSON.parse(result.output) as unknown),

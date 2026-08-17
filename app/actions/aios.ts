@@ -2,11 +2,16 @@
 
 import { z } from "zod";
 
-import { getAiosAction, autonomyModeSchema, evaluateAutonomy } from "../../lib/ai/autonomy";
+import {
+  AIOS_ACTION_CATALOG,
+  getAiosAction,
+  autonomyModeSchema,
+  evaluateAutonomy,
+} from "../../lib/ai/autonomy";
 import { recordAuditEvent } from "../../lib/audit";
 import { requireActiveMembership, requireOrganizationRole } from "../../lib/authorization";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { modelProviderSchema } from "../../lib/env";
+import { MODEL_PROVIDERS, modelProviderSchema } from "../../lib/env";
 import { runDueModelJobs } from "../../lib/ai/job-runner";
 import { requeueModelJob } from "../../lib/ai/jobs";
 import type { Json } from "../../types/database";
@@ -32,6 +37,54 @@ export async function setAutonomyMode(input: z.infer<typeof policyInputSchema>) 
 
   await recordAuditEvent({ organizationId: data.organizationId, eventType: "record.updated", entityType: "ai_autonomy_policy", entityId: policy.id, metadata: { event: "aios.autonomy_mode_updated", action: data.action, mode: data.mode } });
   return policy;
+}
+
+const operatingModeInputSchema = z.object({
+  organizationId: z.uuid(),
+  mode: z.enum(["manual", "assisted", "autopilot"]),
+});
+
+/**
+ * Applies the workspace-level operating mode in one database statement so a
+ * network or validation failure cannot leave only part of the policy catalog
+ * changed. External effects remain approval-only in every operating mode.
+ */
+export async function setAiosOperatingMode(input: unknown) {
+  const data = operatingModeInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, ["owner", "admin"]);
+  const rows = AIOS_ACTION_CATALOG.map((action) => ({
+    organization_id: data.organizationId,
+    action: action.action,
+    mode: action.hardApproval
+      ? ("approval_required" as const)
+      : data.mode === "manual"
+        ? ("observe" as const)
+        : data.mode === "autopilot"
+          ? ("auto" as const)
+          : action.defaultMode,
+  }));
+  const supabase = await createSupabaseServerClient();
+  const { data: policies, error } = await supabase
+    .from("ai_autonomy_policies")
+    .upsert(rows, { onConflict: "organization_id,action" })
+    .select();
+  if (error) throw error;
+  if ((policies?.length ?? 0) !== AIOS_ACTION_CATALOG.length) {
+    throw new Error("AIOS did not persist the complete operating-mode policy set.");
+  }
+  await recordAuditEvent({
+    organizationId: data.organizationId,
+    eventType: "record.updated",
+    entityType: "organization",
+    entityId: data.organizationId,
+    metadata: {
+      event: "aios.operating_mode_updated",
+      operating_mode: data.mode,
+      policy_count: policies.length,
+      external_actions_auto_enabled: false,
+    },
+  });
+  return policies;
 }
 
 const enabledInputSchema = z.object({ organizationId: z.uuid(), action: z.string().min(3).max(120), isEnabled: z.boolean() });
@@ -62,7 +115,7 @@ const budgetPolicyInputSchema = z.object({
   allowedModelProviders: z
     .array(modelProviderSchema)
     .min(1)
-    .max(5)
+    .max(MODEL_PROVIDERS.length)
     .refine(
       (providers) => new Set(providers).size === providers.length,
       "Providers must be unique.",

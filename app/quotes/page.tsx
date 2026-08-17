@@ -18,8 +18,14 @@ import {
   reviseQuoteDraft,
   updateQuoteApprovalPolicy,
 } from "../actions/crm";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../lib/supabase/workspace-context";
 import { StructuredQuoteComposer } from "./structured-quote-composer";
@@ -227,39 +233,44 @@ export default function QuotesPage() {
     QuoteReceivableRow[]
   >([]);
   const [publishedPaths, setPublishedPaths] = useState<Record<string, string>>({});
+  const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [approvalPolicy, setApprovalPolicy] = useState<QuoteApprovalPolicy>(
     DEFAULT_QUOTE_APPROVAL_POLICY,
   );
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
       const [
-        { data: dealRows },
-        { data: quoteRows },
-        { data: versionRows },
-        { data: costRows },
-        { data: commercialTermRows },
-        { data: shareApprovalRows },
-        { data: shareLinkRows },
-        { data: approvalPolicyRow },
-        { data: lineItemRows },
-        { data: catalogProductRows },
-        { data: catalogRateRows },
-        { data: paymentScheduleRows },
-        { data: acceptanceRows },
-        { data: quoteReceivableRows },
+        { data: dealRows, error: dealError },
+        { data: quoteRows, error: quoteError },
+        { data: versionRows, error: versionError },
+        { data: costRows, error: costError },
+        { data: commercialTermRows, error: commercialTermError },
+        { data: shareApprovalRows, error: shareApprovalError },
+        { data: shareLinkRows, error: shareLinkError },
+        { data: approvalPolicyRow, error: approvalPolicyError },
+        { data: lineItemRows, error: lineItemError },
+        { data: catalogProductRows, error: catalogProductError },
+        { data: catalogRateRows, error: catalogRateError },
+        { data: paymentScheduleRows, error: paymentScheduleError },
+        { data: acceptanceRows, error: acceptanceError },
+        { data: quoteReceivableRows, error: quoteReceivableError },
       ] = await Promise.all([
           supabase
             .from("deals")
@@ -349,8 +360,26 @@ export default function QuotesPage() {
             .not("quote_acceptance_id", "is", null)
             .order("quote_schedule_item_position"),
         ]);
+      const loadFailure =
+        dealError ??
+        quoteError ??
+        versionError ??
+        costError ??
+        commercialTermError ??
+        shareApprovalError ??
+        shareLinkError ??
+        approvalPolicyError ??
+        lineItemError ??
+        catalogProductError ??
+        catalogRateError ??
+        paymentScheduleError ??
+        acceptanceError ??
+        quoteReceivableError;
+      if (loadFailure) throw loadFailure;
+
       setDeals((dealRows || []) as Deal[]);
-      setQuotes((quoteRows || []) as Quote[]);
+      const hydratedQuotes = (quoteRows || []) as Quote[];
+      setQuotes(hydratedQuotes);
       setVersions((versionRows || []) as QuoteVersion[]);
       setCostEstimates((costRows || []) as QuoteCostEstimate[]);
       setCommercialTerms(
@@ -371,6 +400,14 @@ export default function QuotesPage() {
       setAcceptances((acceptanceRows || []) as QuoteAcceptanceRow[]);
       setQuoteReceivables(
         (quoteReceivableRows || []) as QuoteReceivableRow[],
+      );
+      const focusedDealId = new URLSearchParams(window.location.search).get(
+        "deal",
+      );
+      setSelectedQuoteId(
+        hydratedQuotes.find((quote) => quote.deal_id === focusedDealId)?.id ||
+          hydratedQuotes[0]?.id ||
+          "",
       );
       if (approvalPolicyRow) {
         const row = approvalPolicyRow as QuoteApprovalPolicyRow;
@@ -397,10 +434,10 @@ export default function QuotesPage() {
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load the quote workspace.");
+      setLoadError("The quote workspace could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   const liveDeals = useMemo(
     () => deals.filter((deal) => !["won", "lost"].includes(deal.stage)),
@@ -519,6 +556,10 @@ export default function QuotesPage() {
   const canViewCosts = role ? costRoles.has(role) : false;
   const canManageReceivables = role ? receivableRoles.has(role) : false;
   const canManagePolicy = role === "owner" || role === "admin";
+  const activeQuoteId =
+    selectedQuoteId && quotes.some((quote) => quote.id === selectedQuoteId)
+      ? selectedQuoteId
+      : (quotes[0]?.id ?? "");
   const guardrailsByQuote = useMemo(() => {
     if (!canViewCosts) return new Map();
     return new Map<string, ReturnType<typeof assessQuoteGuardrails>>(
@@ -609,6 +650,7 @@ export default function QuotesPage() {
         });
         const quote = created.quote as Quote;
         setQuotes((current) => [quote, ...current]);
+        setSelectedQuoteId(quote.id);
         setVersions((current) => [
           {
             id: created.versionId,
@@ -1053,39 +1095,31 @@ export default function QuotesPage() {
           { href: "/", label: "Command center" },
           { href: "/itineraries", label: "Itinerary Studio" },
           { href: "/trips", label: "Trip Operations" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/approvals", label: "Approvals" },
         ]}
       />
-      <section className="quotes-hero">
-        <div>
-          <p>COMMERCIAL WORKSPACE</p>
-          <h1>Shape a confident proposal before it ever leaves your team.</h1>
-          <span>
-            Every draft is versioned, tenant-scoped, and held internally. AIOS
-            can assist with preparation later; sharing and price changes always
-            require human authority.
-          </span>
-        </div>
-        <aside>
-          <b>{quotes.length}</b>
-          <small>quote drafts</small>
-          <b>{quotes.filter((quote) => quote.status === "draft").length}</b>
-          <small>awaiting review</small>
-        </aside>
-      </section>
+      <OperationalPageHeader
+        section="Sales"
+        title="Quotes"
+        meta={`${quotes.length} total · ${quotes.filter((quote) => quote.status === "draft").length} drafts`}
+      />
       {notice && (
         <p className="quotes-notice" role="status">
           {notice}
         </p>
       )}
-      <section className="quote-safety">
-        <span>GOVERNED</span>
-        <p>
-          <b>Public proposals require an exact-version human approval.</b> AIOS
-          can prepare the draft, but only an authorized person can publish its
-          expiring private link. No email or message is sent automatically.
-        </p>
-      </section>
+      {loadError ? (
+        <ErrorState
+          title="Quotes are unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : (
+      <>
+      <p className="crm-inline-boundary">Sending a quote requires approval.</p>
+      <details className="crm-action-drawer">
+        <summary>Commercial settings</summary>
+        <div className="crm-action-drawer-body">
       <section className="quote-policy" aria-labelledby="quote-policy-title">
         <div>
           <p>REVIEW POLICY</p>
@@ -1238,7 +1272,12 @@ export default function QuotesPage() {
           </p>
         )}
       </section>
+        </div>
+      </details>
       {canCreate ? (
+        <details className="crm-action-drawer">
+          <summary>New quote</summary>
+          <div className="crm-action-drawer-body">
         <section className="quotes-create">
           <form onSubmit={createDraft}>
             <label>
@@ -1295,11 +1334,10 @@ export default function QuotesPage() {
             </button>
           </form>
         </section>
+          </div>
+        </details>
       ) : role ? (
-        <p className="quotes-permission">
-          Your {role.replace("_", " ")} role can view quote drafts but cannot
-          create or edit pricing.
-        </p>
+        <PermissionNotice description="You can inspect quote versions and customer-safe proposal evidence. Creating drafts or changing commercial terms requires a sales or trip-planning role." />
       ) : null}
       <section className="quotes-list" aria-label="Quote drafts">
         <header>
@@ -1309,6 +1347,38 @@ export default function QuotesPage() {
           </div>
           <span>{quotes.length} total</span>
         </header>
+        {!loading && quotes.length > 0 ? (
+          <div className="quote-record-switcher" role="tablist" aria-label="Quote drafts">
+            {quotes.map((quote) => (
+              <button
+                key={quote.id}
+                type="button"
+                role="tab"
+                aria-selected={quote.id === activeQuoteId}
+                onClick={() => setSelectedQuoteId(quote.id)}
+              >
+                <span>
+                  <b>{quote.title}</b>
+                  <small>
+                    {dealTitles.get(quote.deal_id) || "Opportunity"} · Version{" "}
+                    {quote.current_version}
+                  </small>
+                </span>
+                <span>
+                  <b>
+                    {formatMoney(
+                      versionAmounts.get(
+                        `${quote.id}:${quote.current_version}`,
+                      ),
+                      quote.currency,
+                    )}
+                  </b>
+                  <small>{quote.status}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         {loading ? (
           <div className="quotes-empty">
             <LoadingState label="Loading quote workspace" rows={3} />
@@ -1321,7 +1391,9 @@ export default function QuotesPage() {
             />
           </div>
         ) : (
-          quotes.map((quote) => {
+          quotes
+            .filter((quote) => quote.id === activeQuoteId)
+            .map((quote) => {
             const quoteKey = `${quote.id}:${quote.current_version}`;
             const guardrails = guardrailsByQuote.get(quote.id);
             const currentVersion = versionsByKey.get(quoteKey);
@@ -1374,6 +1446,56 @@ export default function QuotesPage() {
                   shareApproval.status,
                 ) ||
                 (shareApproval.status === "approved" && approvalConsumed));
+            const proposalReady = isQuoteProposalContentReady(
+              currentVersion?.terms_snapshot,
+            );
+            const nextStep = hasStoredOpenLink
+              ? {
+                  label: "Proposal link is live",
+                  detail: "Open or copy the private link, or revoke it before creating a new version.",
+                  tone: "ready",
+                }
+              : canPublishApproved
+                ? {
+                    label: "Publish the approved proposal",
+                    detail: "Human approval is complete. Choose the link lifetime in the publishing control below.",
+                    tone: "ready",
+                  }
+                : shareApproval?.status === "pending"
+                  ? {
+                      label: "Human sharing review is pending",
+                      detail: "No proposal can be published or sent until an eligible teammate decides.",
+                      tone: "waiting",
+                    }
+                  : currentLines.length === 0
+                    ? {
+                        label: "Add customer pricing",
+                        detail: "Build at least one reconciled line item before requesting sharing review.",
+                        tone: "attention",
+                      }
+                    : !proposalReady
+                      ? {
+                          label: "Complete proposal content",
+                          detail: "Add inclusions and customer terms so the traveller can understand the offer.",
+                          tone: "attention",
+                        }
+                      : !paymentSchedule
+                        ? {
+                            label: "Add the payment schedule",
+                            detail: "Define exact customer milestones before invoice readiness can be established.",
+                            tone: "attention",
+                          }
+                        : guardrails && !guardrails.canRequestReview
+                          ? {
+                              label: "Resolve commercial review blockers",
+                              detail: "Review the highlighted pricing, margin, validity, or evidence exceptions below.",
+                              tone: "attention",
+                            }
+                          : {
+                              label: "Request human sharing review",
+                              detail: "The draft is prepared. A human must approve the exact version before publication.",
+                              tone: "ready",
+                            };
             return (
               <article key={quote.id}>
               <div>
@@ -1402,6 +1524,14 @@ export default function QuotesPage() {
                   {dealTitles.get(quote.deal_id) || "Opportunity"} · Version{" "}
                   {quote.current_version}
                 </p>
+                <section
+                  className={`quote-next-step quote-next-step-${nextStep.tone}`}
+                  aria-label="Recommended next quote action"
+                >
+                  <small>NEXT REQUIRED ACTION</small>
+                  <strong>{nextStep.label}</strong>
+                  <span>{nextStep.detail}</span>
+                </section>
               </div>
               <div className="quote-amount">
                 <b>{formatMoney(versionAmounts.get(quoteKey), quote.currency)}</b>
@@ -1935,6 +2065,8 @@ export default function QuotesPage() {
           })
         )}
       </section>
+      </>
+      )}
     </main>
   );
 }

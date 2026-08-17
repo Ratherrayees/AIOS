@@ -59,6 +59,7 @@ import {
   travelerEntryCheckInputSchema,
   wonDealConversionSchema,
   itineraryItemInputSchema,
+  itineraryItemReorderSchema,
   itineraryCommentInputSchema,
   itineraryTemplateApplyInputSchema,
   itineraryTemplateFromTripInputSchema,
@@ -392,6 +393,29 @@ test("saved views validate feature-specific filters", () => {
         status: "pending",
         assigneeId: "all",
         sla: "due_soon",
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    savedViewInputSchema.safeParse({
+      organizationId: crypto.randomUUID(),
+      feature: "tasks",
+      name: "My follow-ups",
+      filters: { query: "", assigneeId: "mine", timing: "all" },
+    }).success,
+    true,
+  );
+  assert.equal(
+    savedViewInputSchema.safeParse({
+      organizationId: crypto.randomUUID(),
+      feature: "inbox",
+      name: "My conversations",
+      filters: {
+        query: "",
+        status: "all",
+        assigneeId: "mine",
+        sla: "all",
       },
     }).success,
     true,
@@ -1018,6 +1042,7 @@ test("trip drafts reject an inverted travel date range", () => {
     name: "Japan family journey",
     startDate: "2026-10-14",
     endDate: "2026-10-12",
+    timeZone: "Asia/Tokyo",
   });
   assert.equal(result.success, false);
 });
@@ -1045,6 +1070,7 @@ test("trip operations reject inverted dates and unbounded notes", () => {
     tripId: crypto.randomUUID(),
     name: "Japan family journey",
     destination: "Kyoto",
+    timeZone: "Asia/Tokyo",
     startDate: "2026-10-14",
     endDate: "2026-10-12",
     currency: "INR",
@@ -1483,8 +1509,76 @@ test("itinerary items require a valid internal planning shape", () => {
     dayNumber: 2,
     itemType: "activity",
     title: "Old Kyoto walk",
+    locationName: "Gion, Kyoto",
+    startsAtLocal: "2026-10-11T09:00",
+    endsAtLocal: "2026-10-11T11:00",
+    timeZone: "Asia/Tokyo",
   });
   assert.equal(result.success, true);
+  assert.equal(
+    itineraryItemInputSchema.safeParse({
+      organizationId,
+      tripId: "22222222-2222-4222-8222-222222222222",
+      dayNumber: 2,
+      itemType: "activity",
+      title: "Invalid backwards walk",
+      startsAtLocal: "2026-10-11T11:00",
+      endsAtLocal: "2026-10-11T09:00",
+      timeZone: "Asia/Tokyo",
+    }).success,
+    false,
+  );
+  assert.equal(
+    itineraryItemInputSchema.safeParse({
+      organizationId,
+      tripId: "22222222-2222-4222-8222-222222222222",
+      dayNumber: 2,
+      itemType: "activity",
+      title: "End without start",
+      endsAtLocal: "2026-10-11T09:00",
+      timeZone: "Asia/Tokyo",
+    }).success,
+    false,
+  );
+  assert.equal(
+    itineraryItemInputSchema.safeParse({
+      organizationId,
+      tripId: "22222222-2222-4222-8222-222222222222",
+      dayNumber: 2,
+      itemType: "activity",
+      title: "Time without zone",
+      startsAtLocal: "2026-10-11T09:00",
+    }).success,
+    false,
+  );
+  assert.equal(
+    itineraryItemInputSchema.safeParse({
+      organizationId,
+      tripId: "22222222-2222-4222-8222-222222222222",
+      dayNumber: 2,
+      itemType: "activity",
+      title: "Invalid zone",
+      startsAtLocal: "2026-10-11T09:00",
+      timeZone: "Mars/Olympus_Mons",
+    }).success,
+    false,
+  );
+});
+
+test("itinerary item moves stay within a guarded direction contract", () => {
+  const base = {
+    organizationId,
+    tripId: "22222222-2222-4222-8222-222222222222",
+    itineraryItemId: "33333333-3333-4333-8333-333333333333",
+  };
+  assert.equal(
+    itineraryItemReorderSchema.safeParse({ ...base, direction: "up" }).success,
+    true,
+  );
+  assert.equal(
+    itineraryItemReorderSchema.safeParse({ ...base, direction: "first" }).success,
+    false,
+  );
 });
 
 test("itinerary templates require a named source trip", () => {

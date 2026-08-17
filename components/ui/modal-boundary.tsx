@@ -93,7 +93,11 @@ export function ModalBoundary({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus();
+      // WebKit can move focus back to the document while the dialog subtree is
+      // being removed. Restore the opener after React completes that commit.
+      window.requestAnimationFrame(() => {
+        if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      });
     };
   }, []);
 

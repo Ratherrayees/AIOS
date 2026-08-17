@@ -29,7 +29,7 @@ const journeyStages: {
     id: "qualify",
     label: "Qualify",
     detail: "Evidence and follow-up",
-    href: "/?view=leads",
+    href: "/leads",
   },
   {
     id: "propose",

@@ -23,6 +23,7 @@ import {
 import { routeUnassignedDeal } from "../../actions/agents";
 import { LoadingState } from "../../../components/ui/empty-state";
 import { FeatureHeader } from "../../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../../components/ui/operational-page-header";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
 import { loadWorkspaceContext } from "../../../lib/supabase/workspace-context";
 import { buildSalesPriorityBrief, type PrioritySource } from "../../../lib/crm/sales-priority";
@@ -111,6 +112,27 @@ type TaskEvidence = {
   status: "open" | "in_progress" | "completed" | "cancelled";
   due_at: string | null;
 };
+type ConversationEvidence = {
+  id: string;
+  subject: string;
+  status: "open" | "pending" | "closed";
+  response_due_at: string | null;
+  last_message_at: string | null;
+  created_at: string;
+};
+type TripEvidence = {
+  id: string;
+  name: string;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+};
+type ItineraryItemEvidence = {
+  id: string;
+  trip_id: string;
+  day_number: number;
+  title: string;
+};
 type Member = { id: string; name: string; role: string };
 type CommercialEvidence = {
   quote: DealCommercialQuote | null;
@@ -126,7 +148,7 @@ const prioritySourceHref: Record<PrioritySource, string> = {
   traveller: "#traveller-context",
   qualification: "#qualification-gate",
   quotes: "/quotes",
-  tasks: "/tasks",
+  tasks: "#follow-up-task",
   activity: "#activity-timeline",
 };
 
@@ -156,6 +178,15 @@ function commercialMoney(value: number, currency: string) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function shortDate(value: string | null) {
+  if (!value) return "Not set";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 function label(type: string) {
@@ -199,6 +230,9 @@ export default function LeadDetailPage() {
   const [followUpRuns, setFollowUpRuns] = useState<FollowUpSequenceRun[]>([]);
   const [quotes, setQuotes] = useState<QuoteEvidence[]>([]);
   const [tasks, setTasks] = useState<TaskEvidence[]>([]);
+  const [conversations, setConversations] = useState<ConversationEvidence[]>([]);
+  const [trips, setTrips] = useState<TripEvidence[]>([]);
+  const [itineraryItems, setItineraryItems] = useState<ItineraryItemEvidence[]>([]);
   const [commercialEvidence, setCommercialEvidence] =
     useState<CommercialEvidence>({
       quote: null,
@@ -255,6 +289,8 @@ export default function LeadDetailPage() {
         { data: quoteRows, error: quoteError },
         { data: taskRows, error: taskError },
         { data: receivableRows, error: receivableError },
+        { data: conversationRows, error: conversationError },
+        { data: tripRows, error: tripError },
       ] = await Promise.all([
         dealRow.contact_id
           ? supabase
@@ -337,7 +373,36 @@ export default function LeadDetailPage() {
           .eq("deal_id", dealRow.id)
           .eq("direction", "receivable")
           .limit(100),
+        supabase
+          .from("conversations")
+          .select(
+            "id, subject, status, response_due_at, last_message_at, created_at",
+          )
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .is("archived_at", null)
+          .order("last_message_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("trips")
+          .select("id, name, status, start_date, end_date")
+          .eq("organization_id", membership.organization_id)
+          .eq("deal_id", dealRow.id)
+          .order("created_at", { ascending: false })
+          .limit(10),
       ]);
+
+      const linkedTrips = (tripRows || []) as TripEvidence[];
+      const linkedTripIds = linkedTrips.map((trip) => trip.id);
+      const { data: itineraryItemRows, error: itineraryItemError } =
+        linkedTripIds.length > 0
+          ? await supabase
+              .from("itinerary_items")
+              .select("id, trip_id, day_number, title")
+              .eq("organization_id", membership.organization_id)
+              .in("trip_id", linkedTripIds)
+              .order("day_number")
+          : { data: [], error: null };
 
       const normalizedQuotes = ((quoteRows || []) as QuoteEvidence[]).map(
         (quote) => ({
@@ -452,6 +517,11 @@ export default function LeadDetailPage() {
       setFollowUpRuns((followUpRunRows || []) as FollowUpSequenceRun[]);
       setQuotes((quoteRows || []) as QuoteEvidence[]);
       setTasks((taskRows || []) as TaskEvidence[]);
+      setConversations((conversationRows || []) as ConversationEvidence[]);
+      setTrips(linkedTrips);
+      setItineraryItems(
+        (itineraryItemRows || []) as ItineraryItemEvidence[],
+      );
       setCommercialEvidence({
         quote: primaryQuote,
         version: exactVersion,
@@ -484,7 +554,10 @@ export default function LeadDetailPage() {
         !contactError &&
           !qualificationCheckError &&
           !quoteError &&
-          !taskError,
+          !taskError &&
+          !conversationError &&
+          !tripError &&
+          !itineraryItemError,
       );
       setLoadedAt(Date.now());
       setLoading(false);
@@ -1044,33 +1117,272 @@ export default function LeadDetailPage() {
     receivables: commercialEvidence.receivables,
     now: new Date(loadedAt),
   });
+  const sourceHref = (source: PrioritySource) =>
+    source === "quotes"
+      ? `/quotes?deal=${deal.id}`
+      : prioritySourceHref[source];
+  const latestConversation = conversations[0] ?? null;
+  const primaryTrip = trips[0] ?? null;
+  const currentQuote = quotes[0] ?? null;
+  const openTasks = tasks.filter(
+    (task) => task.status === "open" || task.status === "in_progress",
+  );
+  const overdueTasks = openTasks.filter(
+    (task) => task.due_at && new Date(task.due_at).getTime() < loadedAt,
+  );
+  const incompleteRequiredChecks = requiredQualificationChecks.filter(
+    (check) => !check.is_complete,
+  );
+  const missingInformation: string[] = [];
+  if (!contact) missingInformation.push("Traveller profile");
+  else if (!contact.email && !contact.phone)
+    missingInformation.push("Traveller contact details");
+  if (!deal.destination) missingInformation.push("Destination");
+  if (deal.value_amount === null) missingInformation.push("Estimated value");
+  if (!primaryTrip?.start_date || !primaryTrip?.end_date)
+    missingInformation.push("Confirmed travel dates");
+  if (qualificationChecks.length === 0)
+    missingInformation.push("Qualification checklist");
+  else if (incompleteRequiredChecks.length > 0)
+    missingInformation.push(
+      `${incompleteRequiredChecks.length} required qualification ${incompleteRequiredChecks.length === 1 ? "answer" : "answers"}`,
+    );
+
+  const stageIndex = stages.findIndex((stage) => stage.value === deal.stage);
+  const qualificationComplete =
+    stageIndex >= stages.findIndex((stage) => stage.value === "qualified") &&
+    (requiredQualificationChecks.length === 0 ||
+      completedRequiredChecks === requiredQualificationChecks.length);
+  const acceptedQuote = quotes.some((quote) => quote.status === "accepted");
+  const operationalTrip = trips.some((trip) =>
+    ["active", "confirmed", "in_progress", "completed"].includes(trip.status),
+  );
+  const journey = [
+    {
+      label: "Captured",
+      detail: latestConversation ? "Conversation linked" : "Opportunity created",
+      href: latestConversation ? `/inbox?deal=${deal.id}` : "#traveller-context",
+      complete: Boolean(deal.contact_id),
+    },
+    {
+      label: "Qualified",
+      detail: qualificationComplete
+        ? "Required evidence complete"
+        : `${incompleteRequiredChecks.length || "No"} required answers open`,
+      href: "#qualification-gate",
+      complete: qualificationComplete,
+    },
+    {
+      label: "Itinerary",
+      detail: itineraryItems.length
+        ? `${itineraryItems.length} planned ${itineraryItems.length === 1 ? "item" : "items"}`
+        : "Planning not started",
+      href: `/itineraries?deal=${deal.id}&name=${encodeURIComponent(deal.title)}`,
+      complete: itineraryItems.length > 0,
+    },
+    {
+      label: "Quote",
+      detail: currentQuote
+        ? `${currentQuote.status} · version ${currentQuote.current_version}`
+        : "Proposal not created",
+      href: `/quotes?deal=${deal.id}`,
+      complete: quotes.length > 0,
+    },
+    {
+      label: "Committed",
+      detail: acceptedQuote ? "Customer accepted" : "Acceptance pending",
+      href: `/quotes?deal=${deal.id}`,
+      complete: acceptedQuote,
+    },
+    {
+      label: "Operate",
+      detail: primaryTrip ? `${primaryTrip.status} trip` : "Trip not activated",
+      href: primaryTrip ? `/trips/${primaryTrip.id}` : "/trips",
+      complete: operationalTrip,
+    },
+  ];
+  const currentJourneyIndex = journey.findIndex((step) => !step.complete);
+  const nextRecommendation = priorityBrief?.actions[0] ?? null;
+  const conversationOverdue = Boolean(
+    latestConversation?.status !== "closed" &&
+      latestConversation?.response_due_at &&
+      new Date(latestConversation.response_due_at).getTime() < loadedAt,
+  );
   return (
     <main className="lead-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
         links={[
-          { href: "/", label: "Pipeline" },
+          { href: "/leads", label: "Pipeline" },
           { href: "/tasks", label: "Tasks" },
           { href: "/settings/sales-workflows", label: "Sales workflows" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
         ]}
       />
-      <section className="lead-hero">
-        <div>
-          <p>OPPORTUNITY WORKSPACE</p>
-          <h1>{deal.title}</h1>
-          <span>
-            {deal.destination || "Destination to be qualified"} · {traveller}
-          </span>
-        </div>
-        <b className={`lead-stage ${deal.stage}`}>
-          {stages.find((item) => item.value === deal.stage)?.label}
-        </b>
-      </section>
+      <OperationalPageHeader
+        section="Sales / Opportunity"
+        title={deal.title}
+        meta={`${deal.destination || "Destination pending"} · ${traveller}`}
+        actions={
+          <b className={`lead-stage ${deal.stage}`}>
+            {stages.find((item) => item.value === deal.stage)?.label}
+          </b>
+        }
+      />
+      <nav className="crm-record-tabs" aria-label="Opportunity sections">
+        <a href="#opportunity-workspace">Overview</a>
+        <a href={`/inbox?deal=${deal.id}`}>Conversation</a>
+        <a href={`/itineraries?deal=${deal.id}&name=${encodeURIComponent(deal.title)}`}>
+          Itinerary
+        </a>
+        <a href={`/quotes?deal=${deal.id}`}>Quotes</a>
+        <a href="#qualification-gate">Qualification</a>
+        <a href="#activity-timeline">Activity</a>
+      </nav>
       {notice && (
         <p className="lead-notice" role="status">
           {notice}
         </p>
       )}
+      <section
+        className="opportunity-workspace"
+        id="opportunity-workspace"
+        aria-label="Opportunity workspace"
+      >
+        <div className="opportunity-command">
+          <article className="opportunity-next-action">
+            <p>AIOS NEXT ACTION</p>
+            <h2>
+              {nextRecommendation?.label ??
+                (deal.stage === "won" || deal.stage === "lost"
+                  ? "No open sales action"
+                  : "Review the opportunity")}
+            </h2>
+            <span>
+              {nextRecommendation?.reason ??
+                "AIOS has no higher-priority action from the verified CRM evidence."}
+            </span>
+            <a
+              href={
+                nextRecommendation
+                  ? sourceHref(nextRecommendation.source)
+                  : "#sales-priority-brief"
+              }
+            >
+              Review evidence <strong aria-hidden="true">→</strong>
+            </a>
+          </article>
+          <dl className="opportunity-facts">
+            <div>
+              <dt>Traveller</dt>
+              <dd>{traveller}</dd>
+            </div>
+            <div>
+              <dt>Owner</dt>
+              <dd>
+                {members.find((member) => member.id === deal.owner_id)?.name ||
+                  "Unassigned"}
+              </dd>
+            </div>
+            <div>
+              <dt>Value</dt>
+              <dd>{money(deal.value_amount, deal.currency)}</dd>
+            </div>
+            <div>
+              <dt>Travel</dt>
+              <dd>
+                {primaryTrip?.start_date
+                  ? `${shortDate(primaryTrip.start_date)}${
+                      primaryTrip.end_date
+                        ? ` – ${shortDate(primaryTrip.end_date)}`
+                        : ""
+                    }`
+                  : "Dates not set"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <ol className="opportunity-journey" aria-label="Opportunity journey">
+          {journey.map((step, index) => {
+            const state = step.complete
+              ? "complete"
+              : index === currentJourneyIndex
+                ? "current"
+                : "upcoming";
+            return (
+              <li key={step.label} className={state}>
+                <a href={step.href}>
+                  <i aria-hidden="true">{step.complete ? "✓" : index + 1}</i>
+                  <span>
+                    <b>{step.label}</b>
+                    <small>{step.detail}</small>
+                  </span>
+                </a>
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="opportunity-work-grid">
+          <article>
+            <header>
+              <p>NEEDS ATTENTION</p>
+              <b>{overdueTasks.length + (conversationOverdue ? 1 : 0)}</b>
+            </header>
+            {conversationOverdue ? (
+              <a href={`/inbox?deal=${deal.id}`}>
+                Traveller reply is overdue
+                <small>{latestConversation?.subject}</small>
+              </a>
+            ) : null}
+            {overdueTasks.slice(0, 2).map((task) => (
+              <a href="#follow-up-task" key={task.id}>
+                {task.title}
+                <small>Due {shortDate(task.due_at)}</small>
+              </a>
+            ))}
+            {!conversationOverdue && overdueTasks.length === 0 ? (
+              <span className="opportunity-clear">Nothing overdue</span>
+            ) : null}
+          </article>
+          <article>
+            <header>
+              <p>MISSING INFORMATION</p>
+              <b>{missingInformation.length}</b>
+            </header>
+            {missingInformation.slice(0, 3).map((item) => (
+              <a href="#qualification-gate" key={item}>
+                {item}
+              </a>
+            ))}
+            {missingInformation.length === 0 ? (
+              <span className="opportunity-clear">Core brief complete</span>
+            ) : null}
+          </article>
+          <article>
+            <header>
+              <p>LINKED WORK</p>
+              <b>{conversations.length + openTasks.length + quotes.length + trips.length}</b>
+            </header>
+            <div className="linked-work-counts">
+              <a href={`/inbox?deal=${deal.id}`}>
+                <b>{conversations.length}</b> conversations
+              </a>
+              <a href="#follow-up-task">
+                <b>{openTasks.length}</b> open tasks
+              </a>
+              <a href={`/quotes?deal=${deal.id}`}>
+                <b>{quotes.length}</b> quotes
+              </a>
+              <a
+                href={`/itineraries?deal=${deal.id}&name=${encodeURIComponent(deal.title)}`}
+              >
+                <b>{trips.length}</b> trip drafts
+              </a>
+            </div>
+          </article>
+        </div>
+      </section>
       <section className="lead-layout">
         <section className="lead-main">
           {priorityBrief ? (
@@ -1089,9 +1401,8 @@ export default function LeadDetailPage() {
               </b>
             </header>
             <p className="priority-explainer">
-              AIOS ranked current operational urgency from CRM evidence. Readiness
-              measures evidence completeness—not conversion probability—and this
-              brief changes nothing automatically.
+              Based on current CRM evidence. Readiness measures completeness,
+              not conversion probability.
             </p>
             <div className="priority-grid">
               <section aria-labelledby="priority-actions-title">
@@ -1100,7 +1411,7 @@ export default function LeadDetailPage() {
                   <ol className="priority-actions">
                     {priorityBrief.actions.map((action) => (
                       <li key={action.code}>
-                        <a href={prioritySourceHref[action.source]}>{action.label}</a>
+                        <a href={sourceHref(action.source)}>{action.label}</a>
                         <span>{action.reason}</span>
                       </li>
                     ))}
@@ -1115,7 +1426,7 @@ export default function LeadDetailPage() {
                   <ul className="priority-risks">
                     {priorityBrief.risks.map((risk) => (
                       <li key={risk.code} className={risk.severity}>
-                        <a href={prioritySourceHref[risk.source]}>{risk.label}</a>
+                        <a href={sourceHref(risk.source)}>{risk.label}</a>
                         <span>{risk.detail}</span>
                       </li>
                     ))}
@@ -1129,7 +1440,7 @@ export default function LeadDetailPage() {
               <summary>Show the exact readiness calculation</summary>
               <div>
                 {priorityBrief.evidence.map((item) => (
-                  <a key={item.code} href={prioritySourceHref[item.source]}>
+                  <a key={item.code} href={sourceHref(item.source)}>
                     <span><b>{item.label}</b><small>{item.detail}</small></span>
                     <strong>{item.earned}/{item.possible}</strong>
                   </a>
@@ -1138,7 +1449,7 @@ export default function LeadDetailPage() {
             </details>
             <footer>
               <span>{priorityBrief.engine}</span>
-              <span>0 model calls · 0 record changes · 0 external actions</span>
+              <span>Rules-based · no CRM changes</span>
             </footer>
             </article>
           ) : (
@@ -1154,13 +1465,11 @@ export default function LeadDetailPage() {
                 </div>
               </header>
               <p className="priority-explainer">
-                AIOS could not verify every supporting record, so it has shown
-                no score or recommendation. Reload this opportunity to try
-                again.
+                Supporting records could not be verified. Reload to try again.
               </p>
               <footer>
-                <span>Fail-closed evidence boundary</span>
-                <span>0 model calls · 0 record changes · 0 external actions</span>
+                <span>No recommendation shown</span>
+                <span>No CRM changes</span>
               </footer>
             </article>
           )}
@@ -1757,7 +2066,7 @@ export default function LeadDetailPage() {
               </div>
             )}
           </article>
-          <article className="lead-panel follow-up">
+          <article className="lead-panel follow-up" id="follow-up-task">
             <p>FOLLOW-UP</p>
             <h2>Create focused work.</h2>
             <span>

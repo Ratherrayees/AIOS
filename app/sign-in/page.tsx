@@ -9,6 +9,8 @@ const errors: Record<string, string> = {
     "Sign-in is not configured yet. Add deployment credentials when you are ready to connect Supabase.",
   credentials: "Those sign-in details were not accepted.",
   validation: "Enter a valid email address and password.",
+  "account-suspended": "This account is suspended. Contact an authorized administrator.",
+  "session-revoked": "Your session ended for security. Sign in again to continue.",
 };
 
 export default async function SignInPage({
@@ -17,6 +19,8 @@ export default async function SignInPage({
   searchParams: Promise<{ error?: string; message?: string; next?: string }>;
 }) {
   const { error, message, next } = await searchParams;
+  const platformIntent = next === "/platform" || next?.startsWith("/platform/");
+  const platformInvitationIntent = next?.startsWith("/auth/platform-invite");
   const alert = error
     ? (errors[error] ?? "Sign-in could not be completed.")
     : message === "password-updated"
@@ -32,10 +36,24 @@ export default async function SignInPage({
           <span>A</span>
           AIOS
         </Link>
-        <p className="eyebrow">SECURE WORKSPACE</p>
-        <h1>Welcome back.</h1>
+        <p className="eyebrow">
+          {platformIntent
+            ? "PLATFORM CONTROL PLANE"
+            : platformInvitationIntent
+              ? "PLATFORM INVITATION"
+              : "SECURE WORKSPACE"}
+        </p>
+        <h1>
+          {platformIntent || platformInvitationIntent
+            ? "Platform administration."
+            : "Welcome back."}
+        </h1>
         <p>
-          Sign in to Altitude Travel&apos;s private operating workspace.
+          {platformIntent
+            ? "Sign in with separately granted platform authority."
+            : platformInvitationIntent
+              ? "Sign in with the verified email that received the one-time platform invitation."
+              : "Sign in to your private AIOS travel workspace."}
         </p>
         {alert && (
           <FormFeedback tone={error ? "error" : "success"}>
@@ -69,19 +87,25 @@ export default async function SignInPage({
         </form>
         <div className="auth-links">
           <p><Link href="/forgot-password">Forgot your password?</Link></p>
-          <p>
-            New to AIOS?{" "}
-            <Link
-              href={
-                next
-                  ? `/sign-up?next=${encodeURIComponent(next)}`
-                  : "/sign-up"
-              }
-            >
-              Create your account
-            </Link>
+          {!platformIntent ? (
+            <p>
+              New to AIOS?{" "}
+              <Link
+                href={
+                  next
+                    ? `/sign-up?next=${encodeURIComponent(next)}`
+                    : "/sign-up"
+                }
+              >
+                Create your account
+              </Link>
+            </p>
+          ) : null}
+          <p className="auth-security">
+            {platformIntent || platformInvitationIntent
+              ? "Platform access is separately granted, MFA-gated, and audited."
+              : "Protected by tenant-level access controls and audit trails."}
           </p>
-          <p className="auth-security">Protected by tenant-level access controls and audit trails.</p>
         </div>
       </section>
     </main>

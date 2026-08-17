@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useEffect, useState, useTransition } from "react";
 
 import { Button } from "../../../components/ui/button";
@@ -14,7 +15,13 @@ type ChallengeFactor = {
   friendly_name?: string;
 };
 
-export function MfaChallenge({ nextPath }: { nextPath: string }) {
+export function MfaChallenge({
+  accountSecurityPath,
+  nextPath,
+}: {
+  accountSecurityPath: string;
+  nextPath: string;
+}) {
   const [factors, setFactors] = useState<ChallengeFactor[]>([]);
   const [factorId, setFactorId] = useState("");
   const [code, setCode] = useState("");
@@ -67,10 +74,13 @@ export function MfaChallenge({ nextPath }: { nextPath: string }) {
 
   if (!factors.length) {
     return (
-      <FormFeedback tone="error">
-        No verified authenticator is available. Sign out and contact a workspace
-        owner if you cannot recover access.
-      </FormFeedback>
+      <div className="mfa-no-factor">
+        <FormFeedback tone="error">
+          No verified authenticator is available for this account. Set one up
+          before continuing to protected administration.
+        </FormFeedback>
+        <Link href={accountSecurityPath}>Set up an authenticator</Link>
+      </div>
     );
   }
 

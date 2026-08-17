@@ -107,7 +107,7 @@
   display: block;
   margin-top: 9px;
   color: #827d8c;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -154,13 +154,13 @@
 }
 
 .security-factor-list strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .security-factor-list small {
   margin-top: 3px;
   color: #9691a0;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .security-factor-list b {
@@ -168,19 +168,17 @@
   background: #e9f8f1;
   color: #2b8068;
   padding: 5px 7px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .security-policy-card {
-  border-color: #2f2949;
-  background:
-    radial-gradient(circle at 100% 0, rgba(102, 225, 209, 0.16), transparent 18rem),
-    #28233f;
-  color: white;
+  border-color: #e3deed;
+  background: #faf9fd;
+  color: #302c3b;
 }
 
 .security-policy-card h2 {
-  color: white;
+  color: #302c3b;
 }
 
 .security-policy-card ul {
@@ -194,24 +192,24 @@
 .security-policy-card li {
   position: relative;
   padding-left: 21px;
-  color: #d2cedd;
-  font-size: 11px;
+  color: #625d6d;
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .security-policy-card li::before {
   position: absolute;
   left: 0;
-  color: #7be0ca;
+  color: #6c55c5;
   content: "✓";
 }
 
 .security-policy-card small {
   display: block;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid #e5e1ea;
   padding-top: 16px;
-  color: #aaa4bb;
-  font-size: 9px;
+  color: #6f6979;
+  font-size: 11px;
   line-height: 1.55;
 }
 
@@ -248,7 +246,7 @@
 
 .security-enrollment details {
   color: #6f687c;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .security-enrollment summary {
@@ -291,6 +289,98 @@
   margin-top: 16px;
 }
 
+.account-security-page {
+  padding-top: 0;
+}
+
+.account-security-topbar {
+  display: flex;
+  width: min(1100px, calc(100% - 48px));
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto 10px;
+  border-bottom: 1px solid #e3dfeb;
+}
+
+.account-security-topbar .auth-brand {
+  margin: 0;
+}
+
+.account-security-topbar button {
+  border: 1px solid #d8d3e2;
+  border-radius: 9px;
+  background: #fff;
+  padding: 9px 13px;
+  color: #4f485b;
+  font: 750 12px inherit;
+  cursor: pointer;
+}
+
+.account-security-topbar button:hover {
+  border-color: #9d89e6;
+  color: #4f379e;
+}
+
+.security-platform-requirement {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  margin-top: 16px;
+  border: 1px solid #e2c68f;
+  border-radius: 12px;
+  background: #fffbf2;
+  padding: 15px 17px;
+  color: #5f4825;
+}
+
+.security-platform-requirement > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: #f5e3b8;
+  font-weight: 850;
+}
+
+.security-platform-requirement strong {
+  font-size: 13px;
+}
+
+.security-platform-requirement p {
+  margin: 4px 0 0;
+  color: #75603c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.security-continue-link {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  border-radius: 9px;
+  background: #302840;
+  padding: 0 14px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.security-continue-link:focus-visible,
+.account-security-topbar button:focus-visible {
+  outline: 3px solid rgba(108, 82, 201, .22);
+  outline-offset: 2px;
+}
+
+.security-factor-guidance {
+  color: #6e6679;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 @media (max-width: 800px) {
   .security-hero {
     align-items: flex-start;
@@ -329,5 +419,9 @@
   .security-factor-list > div {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .account-security-topbar {
+    width: min(100% - 28px, 1100px);
   }
 }

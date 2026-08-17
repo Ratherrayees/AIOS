@@ -61,3 +61,53 @@ export function LoadingState({
     </div>
   );
 }
+
+export function PermissionNotice({
+  contained = false,
+  description,
+  title = "View-only access",
+}: {
+  contained?: boolean;
+  description: string;
+  title?: string;
+}) {
+  return (
+    <section
+      className={`ui-permission-notice${contained ? " is-contained" : ""}`}
+      aria-label={title}
+    >
+      <span aria-hidden="true">View only</span>
+      <div>
+        <b>{title}</b>
+        <p>{description}</p>
+      </div>
+    </section>
+  );
+}
+
+export function ErrorState({
+  description,
+  onRetry,
+  retryLabel = "Try again",
+  title = "This workspace could not be loaded",
+}: {
+  description: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+  title?: string;
+}) {
+  return (
+    <section className="ui-error-state" role="alert" aria-label={title}>
+      <span aria-hidden="true">!</span>
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {onRetry ? (
+        <button type="button" onClick={onRetry}>
+          {retryLabel}
+        </button>
+      ) : null}
+    </section>
+  );
+}

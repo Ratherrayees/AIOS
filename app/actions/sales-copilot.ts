@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { gateAiosAction } from "./aios";
+import { canRunOperatorRequestedDraft } from "../../lib/ai/autonomy";
 import { requireOrganizationRole } from "../../lib/authorization";
 import {
   loadOrganizationModelBudget,
@@ -25,7 +26,7 @@ import {
 } from "../../lib/ai/jobs";
 import {
   AiosProviderNotConfiguredError,
-  getAiosProviderStatus,
+  getAiosProviderStatusForOrganization,
   runConversationReplyDraft,
 } from "../../lib/ai/openai-provider";
 import { AIOS_PROMPT_VERSIONS } from "../../lib/ai/prompt-versions";
@@ -159,6 +160,8 @@ async function executeConversationCopilot(input: {
       input.channel,
       budget.selectedModelProvider,
       budget.fallbackModelProvider,
+      input.organizationId,
+      budget.allowedModelProviders,
     );
     const draft = await persistCopilotDraft({
       organizationId: input.organizationId,
@@ -258,7 +261,10 @@ async function executeConversationCopilot(input: {
       toolName: "model.structured_output",
       requestedAction: "inbox.reply_draft.prepare",
       decision: "failed",
-      arguments: getAiosProviderStatus(budget.selectedModelProvider),
+      arguments: await getAiosProviderStatusForOrganization(
+        input.organizationId,
+        budget.selectedModelProvider,
+      ),
       result: { error_code: errorCode },
     });
     await completeAgentRun({
@@ -374,7 +380,9 @@ export async function prepareConversationReplyDraft(
     rationale:
       "AIOS will create one internal reply draft from bounded conversation evidence. It cannot send the draft or make an external commitment.",
   });
-  const allowed = gate.decision === "execute" || gate.decision === "draft";
+  // Manual/observe mode still permits an operator to request an internal
+  // draft. It does not permit proactive execution or sending the message.
+  const allowed = canRunOperatorRequestedDraft(gate.decision);
   await recordAgentToolCall({
     organizationId: data.organizationId,
     runId: run.id,
@@ -400,9 +408,7 @@ export async function prepareConversationReplyDraft(
       errorCode:
         gate.decision === "approval_required"
           ? "HUMAN_APPROVAL_REQUIRED"
-          : gate.decision === "observe"
-            ? "AUTONOMY_OBSERVE_ONLY"
-            : "AUTONOMY_POLICY_BLOCKED",
+          : "AUTONOMY_POLICY_BLOCKED",
       approvalRequestId:
         gate.decision === "approval_required" ? gate.approvalId : null,
       durationMs: Date.now() - startedAt,
@@ -416,9 +422,7 @@ export async function prepareConversationReplyDraft(
       message:
         gate.decision === "approval_required"
           ? "AIOS routed this internal draft request to a human approver. Nothing was sent."
-          : gate.decision === "observe"
-            ? "AIOS is observing this workflow and did not create a draft."
-            : gate.reason,
+          : gate.reason,
       ...(gate.decision === "approval_required"
         ? { approvalId: gate.approvalId }
         : {}),

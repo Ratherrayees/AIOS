@@ -51,7 +51,7 @@ function previousPeriodScope(period: ManagementPeriod["period"]) {
 }
 
 function periodHref(key: string) {
-  if (key === "won-opportunities") return "/?view=leads";
+  if (key === "won-opportunities") return "/leads";
   if (key === "accepted-quotes") return "/quotes";
   if (key === "completed-trips" || key === "detected-exceptions")
     return "/trips";
@@ -306,7 +306,7 @@ export function buildManagementAnomalyDesk({
           value: `${portfolio.quality.incompleteDeals} / ${portfolio.quality.openDeals}`,
           scope: "Current workspace snapshot",
           source: "Lead pipeline · Required commercial evidence",
-          href: "/?view=leads",
+          href: "/leads",
         },
       ],
     });

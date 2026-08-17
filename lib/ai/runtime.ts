@@ -10,6 +10,7 @@ export const ITINERARY_DRAFT_AGENT = { type: "itinerary_draft", version: "2026.0
 export const INBOX_SLA_TRIAGE_AGENT = { type: "inbox_sla_triage", version: "2026.07.26.2" } as const;
 export const KNOWLEDGE_ANSWER_AGENT = { type: "knowledge_answer", version: "2026.07.29.1" } as const;
 export const CONVERSATION_REPLY_DRAFT_AGENT = { type: "conversation_reply_draft", version: "2026.08.01.1" } as const;
+export const DAILY_COORDINATOR_AGENT = { type: "daily_coordinator", version: "2026.08.10.1" } as const;
 
 export async function createAgentRun(input: { organizationId: string; initiatedBy: string; agentType: string; agentVersion: string; inputReference: Json }) {
   const admin = createSupabaseAdminClient();

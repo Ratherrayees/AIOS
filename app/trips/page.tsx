@@ -7,8 +7,14 @@ import {
   convertWonDealToTrip,
   refreshOperationsRadar,
 } from "../actions/crm";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import {
   OperationsRadar,
   type OperationalException,
@@ -27,6 +33,7 @@ type Trip = {
   start_date: string | null;
   end_date: string | null;
   converted_at: string | null;
+  owner_id: string | null;
 };
 
 type WonDeal = {
@@ -57,10 +64,14 @@ const statusLabel: Record<Trip["status"], string> = {
 export default function TripsPage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [tripScope, setTripScope] = useState<"mine" | "workspace">("mine");
   const [trips, setTrips] = useState<Trip[]>([]);
   const [wonDeals, setWonDeals] = useState<WonDeal[]>([]);
   const [exceptions, setExceptions] = useState<OperationalException[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
   const canConvert = role ? conversionRoles.has(role) : false;
@@ -75,15 +86,24 @@ export default function TripsPage() {
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError("");
       const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user)
+        throw userError ?? new Error("The signed-in profile is unavailable.");
       const { active: membership } = await loadWorkspaceContext(supabase);
       if (!membership) {
-        setNotice("No active workspace is available for this account.");
+        setLoadError("No active workspace is available for this account.");
         setLoading(false);
         return;
       }
       setOrganizationId(membership.organization_id);
       setRole(membership.role);
+      setCurrentUserId(user.id);
       let radarWarning = "";
       if (radarRoles.has(membership.role)) {
         try {
@@ -103,7 +123,7 @@ export default function TripsPage() {
           supabase
             .from("trips")
             .select(
-              "id, deal_id, name, status, destination, start_date, end_date, converted_at",
+              "id, deal_id, name, status, destination, start_date, end_date, converted_at, owner_id",
             )
             .eq("organization_id", membership.organization_id)
             .order("updated_at", { ascending: false }),
@@ -135,10 +155,10 @@ export default function TripsPage() {
       setLoading(false);
     };
     void load().catch(() => {
-      setNotice("AIOS could not load trip operations.");
+      setLoadError("Trip operations could not be loaded.");
       setLoading(false);
     });
-  }, []);
+  }, [reloadKey]);
 
   function convertDeal(dealId: string) {
     if (!organizationId || pending) return;
@@ -169,6 +189,13 @@ export default function TripsPage() {
   const liveTrips = trips.filter(
     (trip) => !["completed", "cancelled"].includes(trip.status),
   );
+  const myLiveTrips = liveTrips.filter(
+    (trip) => trip.owner_id === currentUserId,
+  );
+  const visibleTrips =
+    tripScope === "mine"
+      ? trips.filter((trip) => trip.owner_id === currentUserId)
+      : trips;
   const inTravelCount = trips.filter(
     (trip) => trip.status === "in_travel",
   ).length;
@@ -182,32 +209,33 @@ export default function TripsPage() {
           { href: "/itineraries", label: "Itinerary Studio" },
           { href: "/finance", label: "Suppliers & Finance" },
           { href: "/quotes", label: "Quotes" },
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
         ]}
       />
 
-      <section className="trips-hero">
-        <div>
-          <p>TRIP OPERATIONS / CONTROL DECK</p>
-          <h1>From “won” to wheels up, one governed operating picture.</h1>
-          <span>
-            Coordinate travellers, services, internal tasks, documents, and
-            lifecycle decisions. AIOS can observe and propose; accountable
-            operators still control irreversible actions.
-          </span>
-        </div>
-        <div className="trip-orbit" aria-hidden="true">
-          <i />
-          <b>{liveTrips.length}</b>
-          <small>live journeys</small>
-        </div>
-      </section>
+      <OperationalPageHeader
+        section="Travel"
+        title="Trips"
+        meta={`${myLiveTrips.length} my active · ${liveTrips.length} workspace active · ${inTravelCount} travelling · ${activeExceptionCount} need attention`}
+      />
 
       {notice && (
         <p className="trips-notice" role="status">
           {notice}
         </p>
       )}
+      {loadError ? (
+        <ErrorState
+          title="Trips are unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : (
+      <>
+
+      {!canConvert && role ? (
+        <PermissionNotice description="You can inspect the trip fleet and operational risk. Converting won opportunities into trips requires a sales, planning, or operations role." />
+      ) : null}
 
       <section className="trip-pulse" aria-label="Trip operations summary">
         <article>
@@ -302,9 +330,27 @@ export default function TripsPage() {
         <div className="trip-section-heading">
           <div>
             <p>OPERATING FLEET</p>
-            <h2 id="trip-fleet-title">Every journey, one control surface</h2>
+            <h2 id="trip-fleet-title">
+              {tripScope === "mine" ? "My operational trips" : "Workspace trip fleet"}
+            </h2>
           </div>
-          <span>{trips.length} total</span>
+          <div className="trip-scope" aria-label="Trip ownership scope">
+            <button
+              type="button"
+              aria-pressed={tripScope === "mine"}
+              onClick={() => setTripScope("mine")}
+            >
+              My trips
+              <span>{trips.filter((trip) => trip.owner_id === currentUserId).length}</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={tripScope === "workspace"}
+              onClick={() => setTripScope("workspace")}
+            >
+              Workspace <span>{trips.length}</span>
+            </button>
+          </div>
         </div>
         {loading ? (
           <LoadingState label="Loading operational trips" rows={4} />
@@ -313,9 +359,14 @@ export default function TripsPage() {
             title="No operational trips yet"
             description="Convert a won deal above or begin an internal draft in Itinerary Studio."
           />
+        ) : visibleTrips.length === 0 ? (
+          <EmptyState
+            title="No trips assigned to you"
+            description="Use Workspace to review the full operating fleet or assign ownership from a trip workspace."
+          />
         ) : (
           <div className="trip-grid">
-            {trips.map((trip) => (
+            {visibleTrips.map((trip) => (
               <Link href={`/trips/${trip.id}`} key={trip.id}>
                 <article>
                   <div className="trip-card-topline">
@@ -340,6 +391,8 @@ export default function TripsPage() {
           </div>
         )}
       </section>
+      </>
+      )}
     </main>
   );
 }

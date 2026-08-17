@@ -10,6 +10,7 @@ export const SECURITY_EVENT_TYPES = [
   "approval.requested",
   "approval.resolved",
   "approval.expired",
+  "approval.escalated",
   "ai.tool_called",
   "ai.action_blocked",
   "ai.run_started",

@@ -10,6 +10,17 @@ test("safe redirects preserve an internal path and query", () => {
   );
 });
 
+test("platform invitation bearers are never propagated through auth return URLs", () => {
+  assert.equal(
+    safeInternalPath(`/auth/platform-invite/redeem?token=${"a".repeat(43)}`),
+    "/auth/platform-invite",
+  );
+  assert.equal(
+    safeInternalPath(`/auth/platform-invite?token=${"b".repeat(43)}`),
+    "/auth/platform-invite",
+  );
+});
+
 test("safe redirects reject protocol-relative destinations", () => {
   assert.equal(safeInternalPath("//malicious.example/path"), "/");
 });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 
 import { gateAiosAction } from "./aios";
+import { canRunOperatorRequestedDraft } from "../../lib/ai/autonomy";
 import { recordAuditEvent } from "../../lib/audit";
 import {
   requireActiveMembership,
@@ -11,7 +12,7 @@ import {
 } from "../../lib/authorization";
 import {
   AiosProviderNotConfiguredError,
-  getAiosProviderStatus,
+  getAiosProviderStatusForOrganization,
   runItineraryDraft,
   runLeadIntake,
 } from "../../lib/ai/openai-provider";
@@ -42,6 +43,7 @@ import {
 import {
   completeAgentRun,
   createAgentRun,
+  DAILY_COORDINATOR_AGENT,
   INBOX_SLA_TRIAGE_AGENT,
   ITINERARY_DRAFT_AGENT,
   ITINERARY_READINESS_AGENT,
@@ -49,6 +51,13 @@ import {
   recordAgentToolCall,
   resumeAgentRun,
 } from "../../lib/ai/runtime";
+import {
+  DAILY_COORDINATOR_LIMITS,
+  DAILY_COORDINATOR_WORKFLOWS,
+  summarizeDailyCoordinator,
+  type DailyCoordinatorStep,
+  type DailyCoordinatorSteps,
+} from "../../lib/ai/daily-coordinator";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { AIOS_PROMPT_VERSIONS } from "../../lib/ai/prompt-versions";
@@ -65,6 +74,7 @@ const leadRoutingInputSchema = z.object({
 });
 const leadTriageInputSchema = z.object({ organizationId: z.uuid() });
 const inboxSlaTriageInputSchema = z.object({ organizationId: z.uuid() });
+const dailyCoordinatorInputSchema = z.object({ organizationId: z.uuid() });
 const itineraryReadinessTaskSchema = z.object({ organizationId: z.uuid(), tripId: z.uuid() });
 const itineraryDraftInputSchema = z.object({ organizationId: z.uuid(), tripId: z.uuid() });
 const itineraryDraftHistorySchema = z.object({
@@ -238,12 +248,12 @@ export async function prepareItineraryDraft(
     rationale:
       "AIOS proposes an internal itinerary draft from the selected trip. It cannot modify the trip or act outside the CRM.",
   });
-  const toolDecision =
-    gate.decision === "approval_required"
+  const operatorDraftAllowed = canRunOperatorRequestedDraft(gate.decision);
+  const toolDecision = operatorDraftAllowed
+    ? "allowed"
+    : gate.decision === "approval_required"
       ? "approval_required"
-      : gate.decision === "blocked"
-        ? "blocked"
-        : "allowed";
+      : "blocked";
   await recordAgentToolCall({
     organizationId: data.organizationId,
     runId: run.id,
@@ -253,7 +263,7 @@ export async function prepareItineraryDraft(
     arguments: { trip_id: trip.id },
     result: gate as Json,
   });
-  if (gate.decision === "approval_required" || gate.decision === "blocked") {
+  if (!operatorDraftAllowed) {
     await completeAgentRun({
       organizationId: data.organizationId,
       runId: run.id,
@@ -298,6 +308,8 @@ export async function prepareItineraryDraft(
       itineraryInput.source,
       modelBudget.selectedModelProvider,
       modelBudget.fallbackModelProvider,
+      data.organizationId,
+      modelBudget.allowedModelProviders,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -327,7 +339,10 @@ export async function prepareItineraryDraft(
       toolName: "model.structured_output",
       requestedAction: "itinerary.draft.prepare",
       decision: "failed",
-      arguments: getAiosProviderStatus(modelBudget.selectedModelProvider),
+      arguments: await getAiosProviderStatusForOrganization(
+        data.organizationId,
+        modelBudget.selectedModelProvider,
+      ),
       result: { error_code: errorCode },
     });
     await completeAgentRun({
@@ -1166,6 +1181,342 @@ export async function executeApprovedLeadRouting(input: {
   return assignRoutedDeal(input);
 }
 
+const DAILY_COORDINATOR_ROLES = ["owner", "admin", "operations"] as const;
+
+function deferredCoordinatorStep(
+  status: "approval_required" | "draft" | "observe" | "blocked",
+): DailyCoordinatorStep {
+  return {
+    status:
+      status === "approval_required"
+        ? "approval_required"
+        : status === "blocked"
+          ? "blocked"
+          : "deferred",
+    scanned: 0,
+    changed: 0,
+    approvals: status === "approval_required" ? 1 : 0,
+    skipped: 0,
+  };
+}
+
+function failedCoordinatorStep(): DailyCoordinatorStep {
+  return {
+    status: "failed",
+    scanned: 0,
+    changed: 0,
+    approvals: 0,
+    skipped: 0,
+  };
+}
+
+function coordinatorToolDecision(
+  step: DailyCoordinatorStep,
+): "allowed" | "approval_required" | "blocked" | "failed" {
+  if (step.status === "approval_required") return "approval_required";
+  if (step.status === "blocked" || step.status === "deferred")
+    return "blocked";
+  if (step.status === "failed") return "failed";
+  return "allowed";
+}
+
+async function coordinateUnassignedDeals(
+  organizationId: string,
+): Promise<DailyCoordinatorStep> {
+  const supabase = await createSupabaseServerClient();
+  const { data: deals, error } = await supabase
+    .from("deals")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .is("archived_at", null)
+    .is("owner_id", null)
+    .not("stage", "in", "(won,lost)")
+    .order("created_at", { ascending: true })
+    .limit(DAILY_COORDINATOR_LIMITS.unassignedDeals);
+  if (error) return failedCoordinatorStep();
+
+  let changed = 0;
+  let approvals = 0;
+  let skipped = 0;
+  let failed = false;
+  let deferred = false;
+  let blocked = false;
+  for (const deal of deals ?? []) {
+    try {
+      const result = await routeUnassignedDeal({ organizationId, dealId: deal.id });
+      if (result.status === "routed") changed += 1;
+      else if (result.status === "approval_required") approvals += 1;
+      else {
+        skipped += 1;
+        if (result.status === "blocked") blocked = true;
+        else deferred = true;
+      }
+    } catch {
+      failed = true;
+      skipped += 1;
+    }
+  }
+  return {
+    status: failed
+      ? "failed"
+      : approvals
+        ? "approval_required"
+        : blocked
+          ? "blocked"
+          : deferred
+            ? "deferred"
+            : "completed",
+    scanned: deals?.length ?? 0,
+    changed,
+    approvals,
+    skipped,
+  };
+}
+
+async function coordinateLeadRisks(
+  organizationId: string,
+): Promise<DailyCoordinatorStep> {
+  try {
+    const result = await triageAtRiskLeads({ organizationId });
+    if (result.status !== "completed")
+      return deferredCoordinatorStep(result.status);
+    return {
+      status: "completed",
+      scanned: result.risks,
+      changed: result.created + result.escalated,
+      approvals: 0,
+      skipped: result.skipped,
+    };
+  } catch {
+    return failedCoordinatorStep();
+  }
+}
+
+async function coordinateInboxSlas(
+  organizationId: string,
+): Promise<DailyCoordinatorStep> {
+  try {
+    const result = await triageInboxSlaRisks({ organizationId });
+    if (result.status !== "completed")
+      return deferredCoordinatorStep(result.status);
+    return {
+      status: "completed",
+      scanned: result.risks,
+      changed: result.created + result.escalated,
+      approvals: 0,
+      skipped: result.skipped,
+    };
+  } catch {
+    return failedCoordinatorStep();
+  }
+}
+
+async function coordinateOperationsRisk(
+  organizationId: string,
+): Promise<DailyCoordinatorStep> {
+  try {
+    const gate = await gateAiosAction({
+      organizationId,
+      action: "trip.operations.monitor",
+      entityType: "organization",
+      entityId: null,
+      payload: { external_actions: false },
+      rationale:
+        "AIOS will reconcile objective trip, booking, document, task, and payment-due exceptions without contacting a traveller or supplier.",
+    });
+    if (gate.decision !== "execute")
+      return deferredCoordinatorStep(gate.decision);
+    const supabase = await createSupabaseServerClient();
+    const { count: activeBefore, error: activeBeforeError } = await supabase
+      .from("operational_exceptions")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .in("status", ["open", "acknowledged"]);
+    if (activeBeforeError) return failedCoordinatorStep();
+    const { data: summary, error } = await supabase
+      .rpc("refresh_operational_exceptions", {
+        target_organization_id: organizationId,
+      })
+      .single();
+    if (error || !summary) return failedCoordinatorStep();
+    const added = Math.max(
+      0,
+      summary.active_count - (activeBefore || 0) + summary.resolved_count,
+    );
+    return {
+      status: "completed",
+      scanned: summary.active_count + summary.resolved_count,
+      changed: added + summary.resolved_count,
+      approvals: 0,
+      skipped: Math.max(0, summary.active_count - added),
+    };
+  } catch {
+    return failedCoordinatorStep();
+  }
+}
+
+async function performDailyCoordinator(
+  organizationId: string,
+  runId: string,
+) {
+  const steps: DailyCoordinatorSteps = {
+    routing: await coordinateUnassignedDeals(organizationId),
+    leadRisks: await coordinateLeadRisks(organizationId),
+    inboxSlas: await coordinateInboxSlas(organizationId),
+    operations: await coordinateOperationsRisk(organizationId),
+  };
+  for (const workflow of DAILY_COORDINATOR_WORKFLOWS) {
+    const step = steps[workflow.key];
+    await recordAgentToolCall({
+      organizationId,
+      runId,
+      toolName: workflow.action,
+      requestedAction: workflow.action,
+      decision: coordinatorToolDecision(step),
+      arguments: {
+        maximum_records: workflow.maximumRecords,
+        external_actions: false,
+      },
+      result: step,
+    });
+  }
+  return summarizeDailyCoordinator(steps);
+}
+
+async function finishDailyCoordinator(
+  organizationId: string,
+  runId: string,
+  startedAt: number,
+) {
+  const summary = await performDailyCoordinator(organizationId, runId);
+  await completeAgentRun({
+    organizationId,
+    runId,
+    status: summary.status === "completed" ? "succeeded" : "failed",
+    result: summary,
+    errorCode:
+      summary.status === "partial" ? "DAILY_COORDINATOR_PARTIAL_FAILURE" : null,
+    durationMs: Date.now() - startedAt,
+  });
+  revalidatePath("/");
+  revalidatePath("/aios");
+  revalidatePath("/inbox");
+  revalidatePath("/leads");
+  revalidatePath("/tasks");
+  revalidatePath("/trips");
+  return { ...summary, runId };
+}
+
+/**
+ * Coordinates today's bounded internal work. The parent policy decides whether
+ * the sweep may start; every child action is gated again by its own policy.
+ */
+export async function runDailyAiosCoordinator(
+  input: z.infer<typeof dailyCoordinatorInputSchema>,
+) {
+  const data = dailyCoordinatorInputSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, DAILY_COORDINATOR_ROLES);
+  const supabase = await createSupabaseServerClient();
+  const { data: claims, error: claimsError } = await supabase.auth.getClaims();
+  const initiatedBy = claims?.claims.sub;
+  if (claimsError || !initiatedBy) throw new Error("Sign in is required.");
+  const startedAt = Date.now();
+  const run = await createAgentRun({
+    organizationId: data.organizationId,
+    initiatedBy,
+    agentType: DAILY_COORDINATOR_AGENT.type,
+    agentVersion: DAILY_COORDINATOR_AGENT.version,
+    inputReference: {
+      workflow: "daily_internal_coordination",
+      maximum_unassigned_deals: DAILY_COORDINATOR_LIMITS.unassignedDeals,
+      maximum_lead_risks: DAILY_COORDINATOR_LIMITS.leadRisks,
+      maximum_inbox_sla_risks: DAILY_COORDINATOR_LIMITS.inboxSlaRisks,
+      external_actions: false,
+    },
+  });
+  const gate = await gateAiosAction({
+    organizationId: data.organizationId,
+    action: "workspace.daily.coordinate",
+    entityType: "organization",
+    entityId: null,
+    payload: {
+      ai_run_id: run.id,
+      maximum_unassigned_deals: DAILY_COORDINATOR_LIMITS.unassignedDeals,
+      maximum_lead_risks: DAILY_COORDINATOR_LIMITS.leadRisks,
+      maximum_inbox_sla_risks: DAILY_COORDINATOR_LIMITS.inboxSlaRisks,
+      external_actions: false,
+    },
+    rationale:
+      "AIOS will coordinate only bounded internal CRM work. Every child workflow keeps its own autonomy policy, and no external action is available to this run.",
+  });
+  await recordAgentToolCall({
+    organizationId: data.organizationId,
+    runId: run.id,
+    toolName: "workspace.daily.coordinate",
+    requestedAction: "workspace.daily.coordinate",
+    decision:
+      gate.decision === "execute"
+        ? "allowed"
+        : gate.decision === "approval_required"
+          ? "approval_required"
+          : "blocked",
+    arguments: {
+      child_workflows: DAILY_COORDINATOR_WORKFLOWS.map(
+        (workflow) => workflow.action,
+      ),
+      external_actions: false,
+    },
+    result: { decision: gate.decision },
+  });
+  if (gate.decision === "execute")
+    return finishDailyCoordinator(data.organizationId, run.id, startedAt);
+
+  await completeAgentRun({
+    organizationId: data.organizationId,
+    runId: run.id,
+    status: "blocked",
+    result: { decision: gate.decision, external_actions: false },
+    errorCode: gate.decision.toUpperCase(),
+    durationMs: Date.now() - startedAt,
+    approvalRequestId:
+      gate.decision === "approval_required" ? gate.approvalId : null,
+  });
+  return {
+    status: gate.decision,
+    externalActions: false as const,
+    runId: run.id,
+    ...(gate.decision === "approval_required"
+      ? { approvalId: gate.approvalId }
+      : {}),
+  };
+}
+
+/** Resumes the exact coordinator run after its durable parent approval. */
+export async function executeApprovedDailyCoordinator(input: {
+  organizationId: string;
+  runId: string;
+}) {
+  const data = dailyCoordinatorInputSchema
+    .extend({ runId: z.uuid() })
+    .parse(input);
+  await requireOrganizationRole(data.organizationId, DAILY_COORDINATOR_ROLES);
+  const startedAt = Date.now();
+  await resumeAgentRun({
+    organizationId: data.organizationId,
+    runId: data.runId,
+  });
+  await recordAgentToolCall({
+    organizationId: data.organizationId,
+    runId: data.runId,
+    toolName: "approval.resume",
+    requestedAction: "workspace.daily.coordinate",
+    decision: "allowed",
+    arguments: { approved_resume: true, external_actions: false },
+    result: { decision: "approved" },
+  });
+  return finishDailyCoordinator(data.organizationId, data.runId, startedAt);
+}
+
 /** Starts a bounded analysis run. It never changes the deal or performs an external action. */
 export async function startLeadIntakeRun(
   input: z.infer<typeof leadIntakeInputSchema>,
@@ -1285,12 +1636,12 @@ export async function startLeadIntakeRun(
       "AIOS proposes a structured lead-intake draft from the selected CRM deal.",
   });
 
-  const toolDecision =
-    gate.decision === "approval_required"
+  const operatorDraftAllowed = canRunOperatorRequestedDraft(gate.decision);
+  const toolDecision = operatorDraftAllowed
+    ? "allowed"
+    : gate.decision === "approval_required"
       ? "approval_required"
-      : gate.decision === "blocked"
-        ? "blocked"
-        : "allowed";
+      : "blocked";
   await recordAgentToolCall({
     organizationId: data.organizationId,
     runId: run.id,
@@ -1301,7 +1652,7 @@ export async function startLeadIntakeRun(
     result: gate as Json,
   });
 
-  if (gate.decision === "approval_required") {
+  if (!operatorDraftAllowed && gate.decision === "approval_required") {
     await completeAgentRun({
       organizationId: data.organizationId,
       runId: run.id,
@@ -1318,7 +1669,7 @@ export async function startLeadIntakeRun(
         "AIOS routed this run to a human approver before it can create a draft.",
     };
   }
-  if (gate.decision === "blocked") {
+  if (!operatorDraftAllowed) {
     await completeAgentRun({
       organizationId: data.organizationId,
       runId: run.id,
@@ -1348,6 +1699,8 @@ export async function startLeadIntakeRun(
       leadInput.source,
       modelBudget.selectedModelProvider,
       modelBudget.fallbackModelProvider,
+      data.organizationId,
+      modelBudget.allowedModelProviders,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -1371,7 +1724,8 @@ export async function startLeadIntakeRun(
         errorCode,
       });
     }
-    const provider = getAiosProviderStatus(
+    const provider = await getAiosProviderStatusForOrganization(
+      data.organizationId,
       modelBudget.selectedModelProvider,
     );
     await recordAgentToolCall({
@@ -1600,6 +1954,8 @@ export async function resumeApprovedLeadIntakeRun(
       leadInput.source,
       modelBudget.selectedModelProvider,
       modelBudget.fallbackModelProvider,
+      data.organizationId,
+      modelBudget.allowedModelProviders,
     );
     await settleModelJob({
       jobId: modelJob.job_id,
@@ -1623,7 +1979,8 @@ export async function resumeApprovedLeadIntakeRun(
         errorCode,
       });
     }
-    const provider = getAiosProviderStatus(
+    const provider = await getAiosProviderStatusForOrganization(
+      data.organizationId,
       modelBudget.selectedModelProvider,
     );
     await recordAgentToolCall({

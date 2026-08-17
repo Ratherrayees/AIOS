@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   type FormEvent,
   useEffect,
@@ -25,8 +24,14 @@ import {
   composeKnowledgeAnswer,
   type KnowledgeAnswerResponse,
 } from "../actions/knowledge-answer";
-import { EmptyState, LoadingState } from "../../components/ui/empty-state";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PermissionNotice,
+} from "../../components/ui/empty-state";
 import { FeatureHeader } from "../../components/ui/feature-header";
+import { OperationalPageHeader } from "../../components/ui/operational-page-header";
 import {
   knowledgeConflictSignalSchema,
   type KnowledgeSearchResult,
@@ -99,7 +104,6 @@ function displayDate(value: string | null) {
 
 export default function KnowledgePage() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
-  const [workspaceName, setWorkspaceName] = useState("Travel workspace");
   const [role, setRole] = useState<string | null>(null);
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [sections, setSections] = useState<KnowledgeSection[]>([]);
@@ -116,6 +120,8 @@ export default function KnowledgePage() {
     string | null
   >(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, startTransition] = useTransition();
 
   const canCurate = role ? curatorRoles.has(role) : false;
@@ -194,16 +200,22 @@ export default function KnowledgePage() {
     let active = true;
     async function initialize() {
       try {
+        if (active) {
+          setLoading(true);
+          setLoadError("");
+        }
         const supabase = createSupabaseBrowserClient();
         const context = await loadWorkspaceContext(supabase);
-        if (!active || !context.active) return;
+        if (!active) return;
+        if (!context.active) {
+          throw new Error("No active workspace is available for this account.");
+        }
         setOrganizationId(context.active.organization_id);
-        setWorkspaceName(context.active.name);
         setRole(context.active.role);
         await loadKnowledge(context.active.organization_id);
       } catch (error) {
         if (active)
-          setNotice(
+          setLoadError(
             error instanceof Error
               ? error.message
               : "Knowledge could not be loaded.",
@@ -216,7 +228,7 @@ export default function KnowledgePage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   function submitSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -581,7 +593,7 @@ export default function KnowledgePage() {
     <main className="knowledge-page" id="main-content" tabIndex={-1}>
       <FeatureHeader
         links={[
-          { href: "/aios", label: "AIOS Control" },
+          { href: "/aios/activity", label: "AI Activity" },
           { href: "/analytics", label: "Analytics" },
           { href: "/trips", label: "Trip Operations" },
           { href: "/", label: "Command center" },
@@ -589,34 +601,17 @@ export default function KnowledgePage() {
         ariaLabel="Knowledge workspace navigation"
       />
 
-      <section className="knowledge-hero">
-        <div>
-          <p>INTELLIGENCE / GOVERNED EVIDENCE</p>
-          <h1>Give AIOS trusted material, with a source for every answer.</h1>
-          <span>
-            {workspaceName} can curate operating guidance, supplier terms,
-            destination notes, and advisories without mixing drafts into
-            approved retrieval.
-          </span>
-        </div>
-        <aside aria-label="Knowledge lifecycle">
-          <span>CURATE</span>
-          <i aria-hidden="true" />
-          <span>REVIEW</span>
-          <i aria-hidden="true" />
-          <b>CITE</b>
-        </aside>
-      </section>
+      <OperationalPageHeader
+        section="Intelligence"
+        title="Knowledge"
+        meta={`${approvedCount} approved · ${reviewCount} in review · ${staleCount} stale`}
+      />
 
-      <section className="knowledge-boundary">
-        <b>Evidence, not authority</b>
-        <span>
-          AIOS may retrieve approved sections and show their citations. It
-          cannot crawl the web here, approve its own source, or turn a stale
-          visa advisory into an immigration decision.
-        </span>
-        <Link href="/aios">Review AIOS authority →</Link>
-      </section>
+      <p className="crm-inline-boundary">AI answers cite approved sources. High-impact guidance is escalated for review.</p>
+
+      {!canCurate && role ? (
+        <PermissionNotice description="You can search and read approved workspace knowledge. Creating, revising, approving, or retiring sources requires a knowledge-curation role." />
+      ) : null}
 
       {notice ? (
         <p className="knowledge-notice" role="status">
@@ -624,7 +619,13 @@ export default function KnowledgePage() {
         </p>
       ) : null}
 
-      {loading ? (
+      {loadError ? (
+        <ErrorState
+          title="Knowledge is unavailable"
+          description={loadError}
+          onRetry={() => setReloadKey((current) => current + 1)}
+        />
+      ) : loading ? (
         <LoadingState label="Loading governed knowledge" rows={4} />
       ) : (
         <>
@@ -734,7 +735,7 @@ export default function KnowledgePage() {
                   onClick={scanConflicts}
                   disabled={pending || approvedCount < 2}
                 >
-                  {pending ? "Scanningâ€¦" : "Scan current evidence"}
+                  {pending ? "Scanning…" : "Scan current evidence"}
                 </button>
               </header>
               {activeConflicts.length > 0 ? (
@@ -807,7 +808,7 @@ export default function KnowledgePage() {
                             <section key={item.section.id}>
                               <span>{item.side}</span>
                               <b>
-                                {item.source.title} Â· v
+                                {item.source.title} · v
                                 {item.source.version_label}
                               </b>
                               <p>{item.section.content}</p>
@@ -837,10 +838,10 @@ export default function KnowledgePage() {
                               Human decision
                               <select name="status" defaultValue="confirmed">
                                 <option value="confirmed">
-                                  Confirm â€” source renewal required
+                                  Confirm — source renewal required
                                 </option>
                                 <option value="dismissed">
-                                  Dismiss â€” not a real conflict
+                                  Dismiss — not a real conflict
                                 </option>
                               </select>
                             </label>

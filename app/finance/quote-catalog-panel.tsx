@@ -200,7 +200,11 @@ export function QuoteCatalogPanel({
   }
 
   return (
-    <section className="quote-catalog" aria-labelledby="quote-catalog-title">
+    <section
+      className="quote-catalog"
+      id="supplier-rates"
+      aria-labelledby="quote-catalog-title"
+    >
       <header className="finance-section-heading">
         <div>
           <p>REUSABLE COMMERCIAL MEMORY</p>

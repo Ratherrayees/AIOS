@@ -68,6 +68,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate integration styles
+        run: npm run lint:styles
+
       - name: Build production bundle
         run: npm run build
 

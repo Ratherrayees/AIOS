@@ -38,7 +38,7 @@ const setupSteps = [
     id: "aios",
     title: "Set AIOS authority",
     detail: "Choose autonomy, provider access and daily limits.",
-    href: "/aios",
+    href: "/aios/automations",
     linkLabel: "Open AIOS controls",
   },
   {

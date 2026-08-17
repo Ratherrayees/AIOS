@@ -1,14 +1,20 @@
 "use server";
 
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 
 import {
+  executeApprovedDailyCoordinator,
   executeApprovedInboxSlaTriage,
   executeApprovedLeadRouting,
   executeApprovedLeadTriage,
   resumeApprovedLeadIntakeRun,
 } from "./agents";
 import { resumeApprovedConversationReplyDraft } from "./sales-copilot";
+import {
+  cancelRejectedEmailDelivery,
+  executeApprovedEmailDelivery,
+} from "./email";
 import { requireOrganizationRole } from "../../lib/authorization";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
@@ -17,6 +23,30 @@ const resolveApprovalSchema = z.object({
   approvalId: z.uuid(),
   decision: z.enum(["approved", "rejected"]),
 });
+const escalateApprovalSchema = z.object({
+  organizationId: z.uuid(),
+  approvalId: z.uuid(),
+});
+
+/** Reassigns or reminds one overdue gate without deciding it. */
+export async function escalateApprovalRequest(
+  input: z.infer<typeof escalateApprovalSchema>,
+) {
+  const data = escalateApprovalSchema.parse(input);
+  await requireOrganizationRole(data.organizationId, ["owner", "admin"]);
+  const supabase = await createSupabaseServerClient();
+  const { data: escalation, error } = await supabase
+    .rpc("escalate_approval_request", {
+      target_organization_id: data.organizationId,
+      target_approval_id: data.approvalId,
+    })
+    .single();
+  if (error || !escalation)
+    throw new Error(error?.message || "This approval could not be escalated.");
+  revalidatePath("/aios");
+  revalidatePath("/");
+  return escalation;
+}
 
 /** Resolves a pending human gate and resumes the registered workflow when applicable. */
 export async function resolveApprovalRequest(
@@ -44,8 +74,46 @@ export async function resolveApprovalRequest(
       "This approval request has expired and needs to be re-routed.",
     );
 
-  if (data.decision !== "approved")
+  if (data.decision !== "approved") {
+    if (approval.approval_action === "external_message.send") {
+      await cancelRejectedEmailDelivery({
+        organizationId: data.organizationId,
+        approvalId: approval.approval_id,
+      });
+    }
     return { approvalId: approval.approval_id, status: data.decision };
+  }
+  if (approval.approval_action === "external_message.send") {
+    const delivery = await executeApprovedEmailDelivery({
+      organizationId: data.organizationId,
+      approvalId: approval.approval_id,
+    });
+    return {
+      approvalId: approval.approval_id,
+      status: data.decision,
+      delivery,
+    };
+  }
+  if (approval.approval_action === "workspace.daily.coordinate") {
+    const runId =
+      typeof approval.approval_payload === "object" &&
+      approval.approval_payload !== null &&
+      !Array.isArray(approval.approval_payload) &&
+      typeof approval.approval_payload.ai_run_id === "string"
+        ? approval.approval_payload.ai_run_id
+        : null;
+    if (!runId)
+      throw new Error("This daily coordinator approval is missing its agent run.");
+    const resumedRun = await executeApprovedDailyCoordinator({
+      organizationId: data.organizationId,
+      runId,
+    });
+    return {
+      approvalId: approval.approval_id,
+      status: data.decision,
+      resumedRun,
+    };
+  }
   if (approval.approval_action === "crm.lead.triage") {
     const triage = await executeApprovedLeadTriage({
       organizationId: data.organizationId,
